@@ -52,8 +52,11 @@ export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, ch
     if (checked) { which = checked; perHour = checked === 'formula' ? f : p; higher = null; }
     else if (p < f) { which = 'perCycle'; perHour = p; higher = f; }
     else { which = 'formula'; perHour = f; higher = p; }
+    // Heads over the extractors that said how many: 0 is a colony that didn't say (Ruling T8-1), and a median taking it in made up
+    // a count no extractor had ([0, 10] read 5, the final review). None said: 0, not known, as one extractor's would be.
+    const said = a.heads.filter((h) => h > 0);
     (out[t] ??= {})[String(p0)] = {
-      perHour, higher, which, programHours: median(a.hours), heads: median(a.heads), extractors: a.hours.length,
+      perHour, higher, which, programHours: median(a.hours), heads: said.length ? median(said) : 0, extractors: a.hours.length,
       systems: [...a.systems].sort((x, y) => x - y), checked: checked != null,
     };
   }

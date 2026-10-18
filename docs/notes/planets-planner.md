@@ -22,6 +22,11 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   whose outputs is valued is blocked with their own reason ("No home hub picked: pick one on the Industry tab"); feed and chain
   search only products priced, so there it is a guard. The bounds already counted such a good at nothing (a first unit's net,
   floored at 0), so they stay sound: brute force agreed after the change (256 feed and chain systems, 0 differ; planner against brute force on bought, 0 of 400).
+- **Only bought is sized to what pays** (the final review's sizing verdict). The others export what sells: a unit costs them nothing
+  to make but its customs, so their only loss-making tail is a good whose first side nets under its export tax (`soldOf` sells the
+  first side even at a loss, shown as a loss), or one taxed while unpriced, which I1 ended; at today's prices the first doesn't
+  arise for anything they export (freight is 20–50% of a P1's value). Don't extend the linear programme or the last-paying-unit
+  rule to P0 → P1, P0 → P2, feed or chain.
 - **One market cap per good, and what builds up isn't taxed** (Ruling T8-3). A good's output is summed across planets and
   characters and sold once (`sell` on the total). What the market takes is exported from the lowest-tax planets first; the rest
   stays on its planet, untaxed, and is said to build up. Taxing every unit made let `iskDayHigh` read under `iskDay` (P0 → P1 on
@@ -70,6 +75,10 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
     check.mjs holds every setup of four 5-NZNW cases as before the slicing (`scripts/fixtures/planets-steps.json`), drained and
     driven a step at a time interleaved; a step that kept a chunk of its budget back failed it (budgets 1,500 and 40,000, where the
     chain's answer moves with the budget). On 5-NZNW with two characters the chain takes 371 steps of 1–6 ms.
+  - **A good's first unit is asked at a sliver** (`unitNet`, `SLIVER` 1e-6; Task 10's minor, the final review). `sold(id, 1)`'s
+    average blended in the next side whenever the best side's cap at your share is under one a day (a P4's, usually), so the
+    feed's and chain's bounds understated an arrangement making less than that and could prune it unseen. `slotDay` fills the best
+    side first, so a sliver is exactly its net, a bound at every amount under `Sell`'s contract; 0 when unpriced or at a loss.
 - **Bought** (`planBought`): each planet allowed is a factory planet of one step (a P2 or P3 on Advanced, a P4 on High-Tech), at
   `maxFactories` for the character's level with one launchpad, buying its inputs. A product whose input can't be priced isn't a
   candidate (never a cost of 0).
@@ -91,6 +100,13 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   - **`lp.ts`**: a bounded-variable primal simplex on a dense tableau, maximising over 0 ≤ x ≤ hi, starting at all amounts zero
     (a row not met there throws). Dantzig's rule, Bland's after `DEGENERATE_RUN` (8) pivots that move nothing, so it can't cycle;
     tolerances relative to the problem's sizes (prices to 1e6, amounts to 1e5). 'stalled' is a pivot cap for the tests.
+  - **Only an optimum is a set's exact best** (Ruling T11-12): `sizeGroup` refuses anything else as "the sizing didn’t settle"
+    (`Sizing.unsettled`). The set stops the search as a refused one does (the prune on `cur + topFrom` needs the exact best), the
+    setup is marked cut (the best of what was tried), and the reason never reaches `buyWhy`, since it says nothing of what can be
+    bought; with nothing settled at all, "No product here could be sized exactly: the sizing didn’t settle". `PlanInput.maxPivots`
+    makes it happen for the tests (at 6 pivots the "together" pair stalls and each planet alone settles). Never seen in 5,500
+    programmes. A product with an input not priced at one unit isn't a candidate; with none left the row says "No product here has
+    every input priced to buy" and one input's reason as an example (it said "No input is priced", which overstated it).
 - **Selling** (`soldOf`, Ruling T10-1): under Either, each place's listing and bid sides are filled in order of their net, never a
   place at a time: place by place, a hub's bids ahead of Jita's listings read 350,000 for 55 units where 500,000 sells. The
   `Sell` contract the exact sizing rests on: the next unit never nets more (concave), what sells never falls, no charge a call.

@@ -47,7 +47,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   a programme that ran out still says what the planet gave), keyed by planet type and product P0; only extractors with a
   quantity over 0, known install and expiry, a planet type and a P0 product. The two readings are averaged apart and the lower
   mean is the rate, the other `higher`; with `PI_READING` set, that reading alone, `higher` null. Programme hours and heads are
-  the medians of what was averaged. A rate is for the head count and programme length it was measured at: never scaled, never
+  the medians of what was averaged, heads over the extractors that said how many (0 is not known, Ruling T8-1: [0, 10] read 5,
+  a count neither had, until the final review; now 10, and all zeros not known). A rate is for the head count and programme length it was measured at: never scaled, never
   decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the type's other learned P0 (most
   extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no box: `rateFor`
   would never use it). In stage 1 only the shown character's own kept colonies teach it (the main's; an alt's once Task 14 keeps

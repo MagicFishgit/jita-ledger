@@ -7576,6 +7576,9 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   const b = L.Barren['2267'];
   eq('  learned: the lower mean is the rate, the other beside it', [b.perHour, b.higher, b.which, b.checked, b.extractors, b.systems], [661675 / 47.5, 789314 / 47.5, 'perCycle', false, 2, [30000142]]);
   eq('  learned: programme length and heads are medians', [b.programHours, b.heads], [47.5, 5]);
+  // Heads are a median over the extractors that said how many: 0 is not known (Ruling T8-1), so [0, 10] reads 10, never a made-up 5.
+  const headsOf = (hs) => learnedRates([{ colonies: [col('Barren', 30000142, hs.map((h, i) => ext({ pin: { id: i + 1 }, extractor: { heads: h } })))] }], ix, null).Barren['2267'].heads;
+  eq('  learned heads: [0, 10] reads 10; all zeros read not known (0); [4, 0, 6] reads 5', [headsOf([0, 10]), headsOf([0, 0]), headsOf([4, 0, 6])], [10, 0, 5]);
   const Lf = learnedRates(cols, ix, 'formula').Barren['2267'];
   eq('  learned: once checked, the checked reading', [Lf.perHour, Lf.higher, Lf.checked, Lf.which], [789314 / 47.5, null, true, 'formula']);
   eq('  an unchecked build reads null', PI_READING, null);
@@ -7934,7 +7937,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   // What holds it is said as the market, never as a unit that doesn't pay (Ruling T11-11: the line says which limit binds).
   eq('  … and its line says the market holds it', role(cappedB, B).why, 'The market takes 300 Nanites a day here: 3 of the 21 factories that fit run');
   const unpricedBuy = planBought(input);
-  eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
+  eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No product here has every input priced to buy: Not bought here']);
   // A hub that prices a few units but not a factory planet's week (Task 10's re-review): every input priced at one unit, none at
   // what 21 Advanced take. Its reason is the setup's, never "nothing pays more than its inputs cost", which would be false.
   const thinHub = planBought({ ...input, buy: (id, perDay) => (perDay <= 10 ? { isk: perDay * 100, where: ['home'], why: null } : { isk: null, where: null, why: 'too thin to buy a week’s need at UALX-3' }) });
@@ -8013,6 +8016,17 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       eq('  bought: the search goes past a set with a planet sized to nothing', [Math.round(zeroed.iskDay), factories(zeroed).map((r) => [r.planetId, nameOf(r.makes[0].id)])],
         [13_583_818, [[1, 'Microfiber Shielding'], [2, 'Miniature Electronics'], [3, 'Polytextiles']]]);
       eq('  … where Polytextiles beside Microfiber Shielding alone is sized to nothing', sizeBought(setOf(trials.zeroed), [{ planetId: 1, x: idOf('Microfiber Shielding') }, { planetId: 3, x: idOf('Polytextiles') }]), null);
+      // Ruling T11-12: only the linear programme's optimum is a set's exact best (the search's prune rests on it), so a programme that
+      // stops short (its pivot cap, here made tiny) refuses the set as "the sizing didn't settle", marks the setup cut and is never said
+      // as an input that can't be bought. At 6 pivots each planet alone settles and the pair doesn't.
+      const capped = (n) => ({ ...setOf(trials.together), maxPivots: n });
+      const livestock = { planetId: 1, x: idOf('Genetically Enhanced Livestock') }, viral = { planetId: 2, x: idOf('Viral Agent') };
+      eq('  bought: a two-planet group whose sizing doesn’t settle is refused (1 pivot, 6), each planet alone settling at 6',
+        [sizeBought(capped(1), [livestock, viral]), sizeBought(capped(6), [livestock, viral]), [livestock, viral].map((p) => Math.round(sizeBought(capped(6), [p]).value))], [null, null, [11_130_066, 12_934_226]]);
+      const six = planBought(capped(6));
+      eq('  … the setup is the best of what settled, marked cut, with no input said to be unbuyable', [six.iskDay != null, six.cut, six.why], [true, true, null]);
+      const one = planBought(capped(1));
+      eq('  … and with nothing settling: no figure, cut, and the sizing said, never "nothing pays" or an input', [one.iskDay, one.cut, one.why], [null, true, 'No product here could be sized exactly: the sizing didn’t settle']);
     }
     // Ruling T11-11: a curve's kinks are found from the curve (Sell and Buy are closures). A concave curve with kinks at 500, 1,234.5
     // and 20,000 ÷ 13: each found exactly, and the curve between them a straight line (checked at 997 amounts).
@@ -8377,6 +8391,15 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   };
   eq('  planted: filling a place at a time breaks it (so these tests can fail)', nonIncreasing(avgsBest(placeByPlace)), false);
   eq('  planted: and breaks the bound on the thin P4', bounded(thin, placeByPlace), false);
+  // The planner's own bound (`unitNet`, Task 10's minor, the final review): a good's first unit's net, asked at a sliver of a unit. On
+  // the thin P4 the hub's listings take only half a unit a day at 10%, so one unit's average blends in Jita's listings (1,425,000),
+  // under what an arrangement making less than one a day fetches a unit (1,500,000): the bound understated it.
+  const { unitNet } = await import('../src/lib/piPlan.ts');
+  const thinSold = (_id, q) => soldOf(q, thin, 'best', 10);
+  const boundsAll = (net) => [0.05, 0.2, 0.5, 0.8, 1, 3, 30, 300].every((q) => { const r = thinSold(0, q); return r.isk <= net * r.units + 1e-6; });
+  eq('  the planner’s bound on the thin P4: a sliver’s net, which bounds every amount, under one a day too', [unitNet(thinSold, 0), boundsAll(unitNet(thinSold, 0))], [1_500_000, true]);
+  eq('  planted: one unit’s average, the old rule, doesn’t below one a day', [thinSold(0, 1).isk / thinSold(0, 1).units, boundsAll(thinSold(0, 1).isk / thinSold(0, 1).units)], [1_425_000, false]);
+  eq('  a good nobody prices bounds at 0, and a loss at 0, never under', [unitNet(() => ({ isk: null, units: 0, where: [], why: 'none' }), 0), unitNet((_id, q) => ({ isk: -5 * q, units: q, where: ['jita'], why: null }), 0)], [0, 0]);
 
   // Buying at a hub walks its levels for a week's need: what a unit costs only rises with the amount.
   const { fillCost } = await import('../src/lib/industryRank.ts');

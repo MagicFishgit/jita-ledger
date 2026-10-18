@@ -171,6 +171,8 @@ export type PlanInput = {
    * (`Setup.cut`).
    */
   budget?: number;
+  /** For the tests: the most pivots a bought setup's sizing may take (`lp.ts`'s cap when absent), to make it stall. */
+  maxPivots?: number;
 };
 export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
 /**
@@ -734,11 +736,18 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
 const MIN_RATE = 1e-9;
 const byRate = (a: number | null, b: number | null) => (a === b ? 0 : a == null ? 1 : b == null ? -1 : a - b);
 
-/** What a good's first unit fetches, net: the most a unit can add, for the search's bounds (0 when it has no price). */
-function unitNet(sold: Seller, id: number): number {
-  const s = sold(id, 1);
+/**
+ * What a good's first unit fetches, net: the most a unit can add, for the search's bounds (0 when it has no price). Asked at a sliver
+ * of a unit: `slotDay` fills the best side first, so that is exactly the best side's net, where `sold(id, 1)`'s average blended in
+ * the next side whenever the best one's cap at your share is under one a day (a P4's, usually), and the bounds then understated an
+ * arrangement making less than that (Task 10's minor, the final review). `Sell`'s contract (concave) makes it a bound at every amount.
+ */
+export function unitNet(sold: (id: number, perDay: number) => Sold, id: number): number {
+  const s = sold(id, SLIVER);
   return s.isk != null && s.units > 0 ? Math.max(0, s.isk / s.units) : 0;
 }
+/** The amount `unitNet` asks about: far under any one a day a market takes at your share. */
+const SLIVER = 1e-6;
 
 /** Planets alike in what a setup on them is worth: one PI type and one customs rate. A planet's size changes only what fits. */
 type Member = { planet: PlanPlanet; at: number };
@@ -1910,9 +1919,12 @@ type Curve = { x: number[]; y: number[]; to: number; capped: boolean };
 /**
  * A set's sizing (`sizeSet`): each planet's amount a day, the set's worth there (`worthOf`, the figure shown), the linear programme's
  * own optimum (`lp`, which equals it: the tests' consistency check), the restocks a week, whether a planet is sized to nothing, and
- * why it can't be bought when an input is refused outright.
+ * why it can't be bought when an input is refused outright. `unsettled` when the programme stopped short of its optimum (Ruling
+ * T11-12): refused too, but nothing to do with what's bought, so never a reason an input can't be bought.
  */
-type Sizing = { q: number[]; value: number; lp: number; upkeep: number; zeroed: boolean; refused: string | null };
+type Sizing = { q: number[]; value: number; lp: number; upkeep: number; zeroed: boolean; refused: string | null; unsettled?: true };
+/** Why a set the linear programme didn't settle isn't sized (Ruling T11-12): never seen in 5,500 programmes and every gate. */
+const UNSETTLED = 'the sizing didn’t settle';
 /** What `sizeSet` keeps on the context: each good's curves, and each group of linked planets' sizing by its options. */
 type BuyMemo = { sells: Map<number, Curve>; buys: Map<string, Curve | string | null>; reach: Map<string, number>; sized: Map<string, Sizing> };
 /**
@@ -2115,7 +2127,11 @@ function sizeGroup(ctx: BuyCtx, comp: number[]): Sizing {
     const a = c.map((_v, j) => (j < K ? (r < xs.length ? (opts[comp[j]].x === row.x ? -1 : 0) : -perOf(j, row.x)) : owner[j] === r ? 1 : 0));
     return { a, b: 0, eq: row.eq };
   });
-  const sol = maximise({ c, hi, rows });
+  const sol = maximise({ c, hi, rows }, ctx.input.maxPivots != null ? { maxPivots: ctx.input.maxPivots } : {});
+  // Only an optimum is the set's exact best, which the search's prune (`cur + topFrom`) rests on: anything else is refused, and the
+  // setup says its figure is the best of what was tried (Ruling T11-12). Every column is bounded and Bland's rule can't cycle, so
+  // this is the pivot cap reached.
+  if (sol.status !== 'optimal') return { ...none, refused: UNSETTLED, unsettled: true };
   const q = sol.x.slice(0, K).map((v, k) => Math.min(U[k], Math.max(0, v)));
   // An input at what the places supply: the programme's amounts can land a rounding over it; held to it, so a strict closure prices it.
   for (const { id, to } of caps) {
@@ -2155,7 +2171,7 @@ function sizeSet(ctx: BuyCtx, inst: number[]): Sizing {
     const comp = ks.map((k) => inst[k]), key = comp.join(',');
     let s = memo.sized.get(key);
     if (!s) memo.sized.set(key, s = sizeGroup(ctx, comp));
-    if (s.refused) return { ...out, refused: s.refused, zeroed: true };
+    if (s.refused) return { ...out, refused: s.refused, zeroed: true, ...(s.unsettled ? { unsettled: true as const } : {}) };
     ks.forEach((k, t) => { out.q[k] = s!.q[t]; });
     out.value += s.value; out.lp += s.lp; out.upkeep += s.upkeep;
     out.zeroed ||= s.zeroed;
@@ -2184,7 +2200,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
   const { input, sold, buy, classes, opts } = ctx;
   const { ix } = input;
   const s = sizeSet(ctx, inst);
-  if (s.refused) { ctx.buyWhy ??= s.refused; return null; }
+  if (s.refused) { if (!s.unsettled) ctx.buyWhy ??= s.refused; return null; }
   if (s.zeroed) return null;
   const q = s.q;
   const byX = new Map<number, number[]>();
@@ -2292,10 +2308,13 @@ export function planBought(input: PlanInput): Setup {
   const sizeWhy = 'This planet’s size isn’t known, so how many factories fit isn’t known';
   if (!classes.length) return blocked(input, 'bought', sizeWhy, []);
   // Each option alone, sized exactly: the most it can add to any set (revenue concave and costs convex, a planet beside others adds
-  // no more than alone), which the search's bound rests on.
+  // no more than alone), which the search's bound rests on. A sizing that didn't settle marks the setup cut, never a reason an input
+  // can't be bought (Ruling T11-12).
+  let unsettled = false;
+  const refusal = (s: Sizing) => { if (s.unsettled) unsettled = true; else if (s.refused) ctx.buyWhy ??= s.refused; };
   ctx.opts.forEach((o, i) => {
     const s = sizeSet(ctx, [i]);
-    if (s.refused) ctx.buyWhy ??= s.refused;
+    refusal(s);
     o.alone = s.refused || s.zeroed ? -Infinity : s.value;
   });
   const byAlone = ctx.opts.map((_, i) => i).filter((i) => ctx.opts[i].alone > SAME_ISK)
@@ -2305,9 +2324,13 @@ export function planBought(input: PlanInput): Setup {
   const noneValued = ctx.opts.every((o) => o.alone === -Infinity);
   const paysWhy = () => (noneValued && ctx.buyWhy ? `No input can be bought in the amount its factories need: ${ctx.buyWhy}`
     : `No product here pays more than its inputs cost${ctx.buyWhy ? `, and some inputs can’t be bought in the amount needed: ${ctx.buyWhy}` : ''}`);
+  const unsettledWhy = `No product here could be sized exactly: ${UNSETTLED}`;
+  // Not one sized because the sizing never settled (and no input was refused): said as that, never "nothing pays".
+  const onlyUnsettled = unsettled && !ctx.buyWhy;
   if (!byAlone.length) {
-    const why = anyPriced ? paysWhy() : inputWhy ? `No input is priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
-    return blocked(input, 'bought', why, []);
+    const why = noneValued && onlyUnsettled ? unsettledWhy
+      : anyPriced ? paysWhy() : inputWhy ? `No product here has every input priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
+    return unsettled ? { ...blocked(input, 'bought', why, []), cut: true } : blocked(input, 'bought', why, []);
   }
   // Every assignment of products to planets, at most a class's planets each; the products in order of what they make alone.
   const room = classes.map((c) => c.members.length);
@@ -2325,6 +2348,7 @@ export function planBought(input: PlanInput): Setup {
   };
   // At most the budget of assignments valued; one cut off while its bound could still beat the best marks the setup.
   let tries = input.budget ?? SEARCH_BUDGET, cut = false;
+  const budgetCut = () => tries < 0;
   const dfs = (start: number, cur: number, curUpkeep: number, left: number) => {
     for (let j = start; j < byAlone.length; j++) {
       const o = ctx.opts[byAlone[j]];
@@ -2334,8 +2358,9 @@ export function planBought(input: PlanInput): Setup {
       room[o.cls]--; inst.push(byAlone[j]);
       const s = sizeSet(ctx, inst);
       // Sized exactly, `s.value` is the set's most, so `cur + topFrom` bounds every set grown from it. A set the sizing zeroes a planet
-      // in is worth what the rest are (they stand for it), and is no dead end: a planet added can bring the zeroed one back.
-      if (s.refused) ctx.buyWhy ??= s.refused;
+      // in is worth what the rest are (they stand for it), and is no dead end: a planet added can bring the zeroed one back. A refused
+      // set stops (refusal only grows with what's bought); one that didn't settle has no exact best to bound from, so stops too, cut.
+      if (s.refused) refusal(s);
       else {
         const live = s.zeroed ? liveOf(ctx, inst.slice(), s) : { inst, s };
         if (live) {
@@ -2349,7 +2374,8 @@ export function planBought(input: PlanInput): Setup {
   };
   dfs(0, 0, 0, allowed);
   const chosen = best as { score: Score; inst: number[] } | null;
-  if (!chosen) return cut ? { ...blocked(input, 'bought', RAN_OUT, []), cut: true } : blocked(input, 'bought', paysWhy(), []);
+  cut ||= unsettled;
+  if (!chosen) return { ...blocked(input, 'bought', budgetCut() ? RAN_OUT : onlyUnsettled ? unsettledWhy : paysWhy(), []), ...(cut ? { cut: true as const } : {}) };
   const v = valueBought(ctx, chosen.inst)!;
 
   // Each class's factories on its planets in order.
