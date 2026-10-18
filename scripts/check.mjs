@@ -8008,6 +8008,9 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
   const outFeed = planFeed({ ...big, budget: 1 }), outChain = planChain({ ...big, budget: 1 }), outFit = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 }, budget: 1 });
   eq('  a budget that runs out with nothing found: said, cut', [outFeed.why, outFeed.cut, outChain.why, outChain.cut, outFit.why, outFit.cut], [RAN_OUT, true, RAN_OUT, true, RAN_OUT, true]);
+  // Bought counts assignments valued, and with none allowed it values none.
+  const outBought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), budget: 0 });
+  eq('  bought with no budget: said, cut', [outBought.why, outBought.cut], [RAN_OUT, true]);
   // At 30,000 an hour two Barren planets feed 1,200 Nanites a day: 10 Advanced on the Gas planet, where CCU I fits 5. The
   // factory says so and the character lacks II (14 fit). 12,000,000 − 2 × 9,600 × 400 × 2% − 19,200 × 400 × 5% × ½ − 1,200 × 7,200 × 5%.
   {
