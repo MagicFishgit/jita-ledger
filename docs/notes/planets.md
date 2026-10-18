@@ -84,7 +84,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     whichever section draws, so the Chart's "the ranking makes" and the Plan's rows can't differ. The setups run once the input
     has stood still 350 ms, one a turn of the event loop, the last ranking shown meanwhile ("Working them out again"). First on
     the morning's books, then again on the live books of the goods that first ranking names (never the live ranking's: each
-    re-rank could name more).
+    re-rank could name more). Only an input whose contents changed starts it (planets-planner.md), never a write elsewhere.
   - **Plan**: the setups first, ranked, then the inputs (tax chips, "Not Brave's space", rates, programme length) and the planets.
     P0 → P2 is always there, with how far it is from the best (`data-planets="gap"`). A row says its reason when blocked, a search
     cut short as "The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this

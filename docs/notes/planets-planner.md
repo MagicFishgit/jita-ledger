@@ -97,6 +97,14 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   contract's minimum pays for (5 M at 900 ISK a m³ is about 5,556 m³), else time between (small outputs batch up).
 - **The ranking** (`rankSetups`): ISK a day rounded to the cent, then less upkeep (a chain's per character), then the order run,
   so it's transitive. P0 → P2 always shows.
+- **It runs again only when what it reads changes** (the final review's I2; `useStable` in hooks.ts, over `sameValue`). Its inputs
+  were keyed on the character objects, which `useIndustryChars` rebuilds on every write to the ledger (meta every few minutes: the
+  last visit, the balance, each sync and cloud pull), so the whole planner ran twice for nothing, a chain of two characters a
+  second's stall each time, and said "for what you changed". Now the characters are keyed on their `PlanChar` (ID, name, PI
+  skills, clone), the shown character's colonies on the document's contents, the prices on the fees, `own` and `hubOrders`. A
+  re-rank says "Working them out again…"; the live pass "…on Jita’s books now" (the hub region's history when Jita isn't used).
+  Found with it: picking no hub after one, `useHomePrices` handed back a new "loading" state each render and the planner worked
+  itself out again without end. The page case writes `meta` alone on the settled plan: nothing may be worked out within a second.
 - **On the page case's 5-NZNW** (seeded colony, the research's prices): bought first at 71.86 M ISK a day (one Broadcast Node
   planet at 96 a day on 5 of its 15 High-Tech plants, held by Jita's supply of High-Tech Transmitters); P0 → P2 second at
   14.78 M, 57.08 M under it. The whole planner 148–240 ms with one character doing PI (task-11-rereview-4.md).

@@ -3632,7 +3632,8 @@ try {
     const text = async (sel = '.page') => (await page.locator(sel).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     const showFor = async (name) => { await page.locator('[aria-label="Show for"] button', { hasText: name }).click().catch((e) => problems.push(`couldn’t show for ${name}: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(900); };
     // The setups are worked out on a timer once the inputs settle: wait until none says it's being worked out.
-    const settled = async () => { await page.waitForFunction(() => !document.querySelector('[data-planets="working"]') && document.querySelectorAll('[data-planets^="setup:"]').length >= 5, null, { timeout: 30_000 }).catch(() => problems.push('the setups never settled')); await page.waitForTimeout(300); };
+    let settleN = 0;
+    const settled = async () => { const n = ++settleN; await page.waitForFunction(() => !document.querySelector('[data-planets="working"]') && document.querySelectorAll('[data-planets^="setup:"]').length >= 5, null, { timeout: 30_000 }).catch(async () => problems.push(`the setups never settled (#${n}: ${await text('[data-planets="working"]')} / ${await page.locator('[data-planets^="setup:"]').count()} rows)`)); await page.waitForTimeout(300); };
     await page.goto(SEED_PAGE);
     await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
     await page.goto(`${BASE}#hustles/planets/plan`);
@@ -3653,6 +3654,22 @@ try {
     if (!/2%/.test(await taxOf('Barren')) || !(await taxOf('Barren')).includes('Brave’s wiki, 17 Jul 2023')) problems.push(`Barren’s tax: “${await taxOf('Barren')}”, wanted 2% with Brave’s wiki’s note`);
     if (!/5%/.test(await taxOf('Lava'))) problems.push(`Lava’s tax: “${await taxOf('Lava')}”, wanted 5%`);
     await settled();
+
+    // --- a write to the ledger that changes nothing the planner reads works nothing out again (the final review's I2): meta is
+    // written every few minutes while the app is open (the last visit, the balance, every sync), and each write rebuilt the
+    // characters and ran the planner twice, saying "for what you changed". Written through the app's own store module, as a sync is.
+    {
+      const storeUrl = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/src\/lib\/store\.ts/.test(n)));
+      if (!storeUrl) problems.push('couldn’t find the app’s store module to write the ledger through');
+      else {
+        // The live books land in batches, each ranked again on them: wait until nothing has been worked out for a second and a half.
+        await page.waitForFunction(() => { const w = window; const busy = !!document.querySelector('[data-planets="working"]'); w.__plQuiet = busy ? 0 : (w.__plQuiet ?? 0) + 1; return w.__plQuiet >= 8; }, null, { polling: 200, timeout: 30_000 }).catch(() => problems.push('the setups never stood still before the write'));
+        await page.evaluate(async (u) => { const m = await import(u); m.update((x) => ({ meta: { ...x.meta, lastSeenAt: new Date().toISOString() } })); }, storeUrl);
+        const again = await page.waitForSelector('[data-planets="working"]', { timeout: 1000 }).then(() => true, () => false);
+        if (again) problems.push(`a write to meta alone worked the setups out again: “${await text('[data-planets="working"]')}”`);
+        await settled();
+      }
+    }
 
     // --- the learned rate: Barren's Base Metals from the kept colony, not yet checked against the game.
     const learned = await text('[data-planets="rate:Barren:2267"]');

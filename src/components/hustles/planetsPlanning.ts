@@ -5,6 +5,7 @@ import type { PiIndex } from '../../lib/piBundle';
 import { learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
 import { customsLevel, planBought, planChain, planCharOf, planFeed, planSingle, rankSetups, type PlanChar, type PlanInput, type Setup } from '../../lib/piPlan';
 import type { SystemPrefs } from '../../lib/planetsDoc';
+import { useStable } from '../../lib/hooks';
 import { useData } from '../../lib/store';
 import type { IndustryChar } from './industryChars';
 import { usePlanetMarket, useSystemPlanets, type PlanetMarket, type SystemPlanets, type SystemState } from './planetsMarket';
@@ -65,20 +66,27 @@ export type Planning = {
   /** Prices on the morning's books (the first ranking's), and on the live books of the goods that ranking names. */
   morning: PlanetMarket; market: PlanetMarket;
   setups: Setup[] | null; working: boolean;
+  /** The ranking is being worked out again only on the live books (the second pass), not for an input that changed. */
+  livePass: boolean;
 };
 
 export function usePlanning({ c, chars, colonies, ix, systemId }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null;
 }): Planning {
   const doc = useData().planets;
-  const planChar = useMemo(() => planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone }), [c]);
-  const others = useMemo(() => chars.filter((x) => x.charId !== c.charId).map((x) => planCharOf({ charId: x.charId, name: x.name, skills: x.pilot.skills, clone: x.clone })), [chars, c.charId]);
+  // Keyed on what the planner reads (the final review's I2), never on the character objects: those are rebuilt on every write to
+  // the ledger (meta every few minutes: the last visit, the balance, each sync), which worked the planner out again for nothing.
+  // A PlanChar is the ID, the name, the PI skills' levels and the clone, so equal ones are the same planner input.
+  const planChar = useStable(planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone }));
+  const others = useStable(chars.filter((x) => x.charId !== c.charId).map((x) => planCharOf({ charId: x.charId, name: x.name, skills: x.pilot.skills, clone: x.clone })));
   const cce = customsLevel(c.pilot.skills);
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
 
-  // Learned from the shown character's own extractors (the main's kept colonies; an alt's once the cloud keeps them).
-  const learned = useMemo(() => learnedRates(colonies[c.charId] ? [colonies[c.charId]!] : [], ix, PI_READING), [colonies, c.charId, ix]);
+  // Learned from the shown character's own extractors (the main's kept colonies; an alt's once the cloud keeps them), keyed on that
+  // document's contents: Planets.tsx rebuilds the map of them whenever the characters are.
+  const shownColonies = useStable(colonies[c.charId]);
+  const learned = useMemo(() => learnedRates(shownColonies ? [shownColonies] : [], ix, PI_READING), [shownColonies, ix]);
   const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
   const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
   const programHours = doc.programHours ?? defaultHours;
@@ -100,6 +108,7 @@ export function usePlanning({ c, chars, colonies, ix, systemId }: {
   const second = usePlanned(inputL, systemId);
   const setups = (inputL && second.setups) ? second.setups : first.setups;
   const working = first.working || (!!inputL && second.working);
+  const livePass = !first.working && !!inputL && second.working;
 
-  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working };
+  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass };
 }

@@ -1,5 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getAuth, getMailer, onAuthChange } from './auth';
+import { sameValue } from './sameValue';
 
 export function useAuth() {
   return useSyncExternalStore(onAuthChange, getAuth);
@@ -22,6 +23,17 @@ export function useNow(everyMs = 30_000): number {
     return () => clearInterval(id);
   }, [everyMs]);
   return now;
+}
+
+/**
+ * The value, keeping the identity of the one before while the new one holds the same (`sameValue`): a memo keyed on it runs again
+ * only when what it holds changes, not each time an object is rebuilt around the same figures. Planets' planner keys on it, since
+ * every write to the ledger rebuilt the characters and worked the whole planner out again.
+ */
+export function useStable<T>(value: T): T {
+  const kept = useRef(value);
+  if (!sameValue(kept.current, value)) kept.current = value;
+  return kept.current;
 }
 
 export type Route = { path: string[]; query: URLSearchParams };

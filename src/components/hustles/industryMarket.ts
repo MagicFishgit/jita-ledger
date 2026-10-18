@@ -194,10 +194,16 @@ const homeRead = (hub: number) => {
   read.then((r) => { held.until = Date.now() + homeHoldMs(r && !('off' in r) ? r.at : null, Date.now()); }, () => { if (homeHeld.get(hub) === held) homeHeld.delete(hub); });
   return read;
 };
+/**
+ * One object for "loading", so a render that finds the read held is another hub's returns the same state each time: a new one each
+ * render gave Planets' prices, and the planner keyed on them, a new identity on every render once the hub was set to none, and the
+ * planner worked itself out again without end (the Planets final fix round).
+ */
+const LOADING_HOME: HomeState = { status: 'loading' };
 export function useHomePrices(hub: number | null): HomeState {
   const cloud = useCloud();
   // Kept with the hub it was read for, so a hub just picked never shows the last one's prices for a render.
-  const [got, setGot] = useState<{ hub: number | null; st: HomeState }>({ hub: null, st: { status: 'loading' } });
+  const [got, setGot] = useState<{ hub: number | null; st: HomeState }>({ hub: null, st: LOADING_HOME });
   useEffect(() => {
     if (hub == null) return;
     if (!cloudEnabled()) { resetHome(); setGot({ hub, st: { status: 'off' } }); return; }
@@ -208,7 +214,7 @@ export function useHomePrices(hub: number | null): HomeState {
       (e) => { if (alive) setGot({ hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } }); });
     return () => { alive = false; };
   }, [hub, cloud.started]);
-  return got.hub === hub ? got.st : { status: 'loading' };
+  return got.hub === hub ? got.st : LOADING_HOME;
 }
 
 /**

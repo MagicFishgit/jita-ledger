@@ -74,7 +74,7 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
 }) {
   const doc = useData().planets;
   // One ranking from one input, shared with the Chart (planetsPlanning.ts).
-  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working } = usePlanning({ c, chars, colonies, ix, systemId });
+  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass } = usePlanning({ c, chars, colonies, ix, systemId });
 
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   const blockedWhy = charWhy(planChar);
@@ -100,7 +100,7 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             <SystemHead name={value.system.name} security={value.system.security} planets={value.planets} />
             <Selling said={market.said} />
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
-              <Setups setups={setups} working={working} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} />
+              <Setups setups={setups} working={!working ? null : livePass ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
               learned={learned} programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />
@@ -422,9 +422,12 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
   return <button type="button" className="panel-toggle pl-toggle" aria-expanded={open} onClick={onToggle}><ChevronRight className="chev" aria-hidden="true" />{children}</button>;
 }
 
-/** The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. */
+/**
+ * The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. `working`: what's being worked out again,
+ * in words (an input changed, or the live books came in), or null.
+ */
 function Setups({ setups, working, ix, planets, chars, shown, name }: {
-  setups: Setup[] | null; working: boolean; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
+  setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
 }) {
   if (!setups) return <p className="note small" style={{ margin: 0 }} data-planets="working">Working out each setup…</p>;
   const best = setups.find((s) => s.iskDay != null) ?? null;
@@ -432,7 +435,7 @@ function Setups({ setups, working, ix, planets, chars, shown, name }: {
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
         <span className="panel-title">The setups, best first</span>
-        {working && <span className="note small" data-planets="working">Working them out again for what you changed…</span>}
+        {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
       <span className="note small">Worked out at the customs tax, extraction rates and program length below; change any and they are worked out again.</span>
       {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} />)}

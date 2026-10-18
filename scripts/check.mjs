@@ -8234,6 +8234,12 @@ console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---
   eq('  skills read without the planet skills: one planet, no upgrades (never injected is 0)', [who({ 3380: 5 }).planets, who({ 3380: 5 }).ccLevel], [1, 0]);
   eq('  an Alpha is Alpha; a clone state not read is neither', [who(lv, 'alpha').alpha, who(lv, 'unknown').alpha], [true, null]);
   eq('  Customs Code Expertise: its level, 0 when never injected, null when not read', [customsLevel(lv), customsLevel({ 3380: 5 }), customsLevel({}), customsLevel(undefined)], [2, 0, null, null]);
+  // The final review's I2: the planner keys on what a character holds (useStable over sameValue), never on the rebuilt object.
+  const { sameValue } = await import('../src/lib/sameValue.ts');
+  eq('  equal by value: a PlanChar rebuilt from the same skills, and the others in order', [sameValue(who(lv), who({ ...lv })), sameValue([who(lv), who(lv, 'alpha')], [who(lv), who(lv, 'alpha')])], [true, true]);
+  eq('  not equal: another level, another clone, another order, a key missing, an array against an object',
+    [sameValue(who(lv), who({ ...lv, [PI_SKILL.ccu]: 5 })), sameValue(who(lv), who(lv, 'unknown')), sameValue([1, 2], [2, 1]), sameValue({ a: 1, b: undefined }, { a: 1, c: undefined }), sameValue([], {})], [false, false, false, false, false]);
+  eq('  deep: a kept colony rebuilt alike is the same; a Map or a Date only to itself', [sameValue({ colonies: [{ pins: [{ id: 1, contents: [] }] }] }, { colonies: [{ pins: [{ id: 1, contents: [] }] }] }), sameValue(new Map([[1, 2]]), new Map()), sameValue(new Date(0), new Date(0)), sameValue(null, undefined)], [true, false, false, false]);
 }
 
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');

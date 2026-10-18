@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { homeAgo } from '../../lib/homeMarket';
 import { units } from '../../lib/format';
-import { useNow } from '../../lib/hooks';
+import { useNow, useStable } from '../../lib/hooks';
 import { HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
@@ -30,6 +30,8 @@ export type PlanetMarket = {
   live: boolean;
   /** The hub → Jita route Jita's sales and purchases are priced on (null: none picked, or no hub), so `PlanInput.freight` uses the same one. */
   freight: Freight | null;
+  /** What the live pass ranks again on, said after "Working them out again": Jita's books now, or the hub region's trading history when Jita isn't used. */
+  liveSaid: string;
 };
 
 /** A sale's makes: so large that a week's sales are bounded by the market's pace at your share, never by what's made, and a sale doesn't depend on the amount asked for. */
@@ -64,7 +66,12 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
   const { hubs, markets } = useHomeHubs();
   const hub = hubs.find((h) => h.id === doc.hub) ?? null;
   const hubMissing = doc.hub != null && !hub ? markets : null;
-  const home = useHomeQuotes(hub, c.hubOrders);
+  // What the prices close over, keyed on what it holds (the final review's I2): the character is rebuilt on every write to the
+  // ledger, and keyed on it the prices, and the planner after them, were worked out again for nothing. The fees and `feeKnown`
+  // are numbers and a flag, so equal by value already.
+  const own = useStable(c.own), hubOrders = useStable(c.hubOrders);
+  const { broker, tax } = c;
+  const home = useHomeQuotes(hub, hubOrders);
   const liveTypes = useMemo(() => [...new Set(opts.live ?? [])], [opts.live]);
   const liveBooks = useLiveBooks(liveTypes);
   const homeHist = useHomeHistory(liveTypes, hub?.region ?? null);
@@ -87,7 +94,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       const l = liveBooks[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
       return {
-        jita: l ? othersBook(l, c.own, t, true) : b ? othersBook(b, c.own, t, false) : null,
+        jita: l ? othersBook(l, own, t, true) : b ? othersBook(b, own, t, false) : null,
         stats: cache?.stats[t] ?? null, watched: flows.get(t) ?? null,
         home: home.quote(t), homeRead: home.read && !home.unwatched(t) && !home.unread.has(t),
         ...(homeHist[t] ? { homeHist: homeHist[t] } : {}),
@@ -99,11 +106,11 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       let s = sales.get(t);
       if (s) return s;
       const m = marketOf(t);
-      let jita = hub ? sellAt('jita', m, { broker: c.broker, tax: c.tax, leg: jitaLeg, volume: volume(t), makes: ANY_MAKES, share, now })
+      let jita = hub ? sellAt('jita', m, { broker, tax, leg: jitaLeg, volume: volume(t), makes: ANY_MAKES, share, now })
         : unpriced('jita', noHub ?? NO_HUB_WHY);
       // A pace of 0 spreads the freight minimum over nothing: unpriced, never priced without it.
       if (hub && jitaLeg.kind === 'route' && jita.pace === 0) jita = unpriced('jita', nothingTradedWhy(jitaLeg.f));
-      const homeSale = hub ? sellAt('home', m, { broker: hubFee, tax: c.tax, leg: HERE, volume: volume(t), makes: ANY_MAKES, share, now, hubName: hub.short })
+      const homeSale = hub ? sellAt('home', m, { broker: hubFee, tax, leg: HERE, volume: volume(t), makes: ANY_MAKES, share, now, hubName: hub.short })
         : unpriced('home', noHub ?? NO_HUB_WHY);
       s = { jita, home: homeSale, m };
       sales.set(t, s);
@@ -181,7 +188,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       return b.isk != null && where === 'best' && hub && homeNone && b.where?.length === 1 && b.where[0] === 'jita' ? { ...b, note: o.home.why } : b;
     };
     return { sell, buy, unit };
-  }, [doc.share, doc.hubFees, doc.sell, hub, noHub, jitaLeg, cache, liveBooks, homeHist, home, c, ix]);
+  }, [doc.share, doc.hubFees, doc.sell, hub, noHub, jitaLeg, cache, liveBooks, homeHist, home, own, broker, tax, ix]);
 
   // Prices are after the character's fees: skills not read would price at an untrained character's, as Industry's finder waits on.
   const waiting = !c.feeKnown ? (c.isMain ? 'Your skills aren’t read yet: they come with the next sync, and prices are after your fees at them.' : `${c.name}’s skills aren’t read yet (the cloud reads them hourly); prices are after its fees at them.`)
@@ -209,7 +216,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
             : `Jita: ${jitaSource}.`,
       usesHome && doc.hubFees[hub.id] == null ? `${hub.short}’s broker fee isn’t typed, so home sales are ranked before it.` : null,
     ].filter(Boolean).join(' '));
-  return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null };
+  return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
+    liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region` };
 }
 
 /** A planet of the chosen system as the planner takes it, with its type's ID and, for a type with no planetary industry (Shattered, Scorched Barren), ESI's name for it. */

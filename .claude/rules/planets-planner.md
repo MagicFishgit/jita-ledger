@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{piPlan,lp}.ts"
+  - "src/lib/{piPlan,lp,sameValue}.ts"
   - "src/components/hustles/{PlanetsPlan.tsx,planetsMarket.ts}"
 ---
 
