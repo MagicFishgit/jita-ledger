@@ -7867,6 +7867,19 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     const pays = planBought({ ...input, sell: stepped, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
     eq('  bought: a planet runs only while its last unit pays', [+pays.iskDay.toFixed(2), role(pays, B).makes.map((m) => [m.id, +m.perDay.toFixed(6), m.count])], [7_880_000 + 3_146_880, [[NANITES, 1000, 9]]]);
     eq('  … and its line says so', role(pays, B).why, '9 of the 21 factories that fit run, for 1,000 Nanites a day: past that, a unit costs more to make than it sells for');
+    // Ruling T11-8: a planet's last paying unit is judged beside the setup's other planets. Superconductors on two Barren planets,
+    // the market taking the first 3,000 a day at 20,000 and the rest at 6,000, under a unit's 6,400 of P1 and its taxes: Two (2%) runs
+    // its 2,640 and Five (5%) the 360 that still sell at 20,000 (the review's joint.mjs). Each held only to its alone top, both ran
+    // 2,640 and Five's last 2,280 lost 920 each: 37,966,080.
+    {
+      const SUPER = idOf('Superconductors');
+      const joint = planBought({ ix, planets: [{ planetId: 1, name: 'Two', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }, { planetId: 2, name: 'Five', type: 'Barren', radiusKm: 3750, tax: brave(0.05) }],
+        char: { charId: 1, name: 'A', planets: 2, ccLevel: 4, alpha: false }, others: [], rateOf: () => null, programHours: 72,
+        sell: (id, perDay) => (id === SUPER ? { isk: Math.min(perDay, 3000) * 20_000 + Math.max(0, perDay - 3000) * 6000, units: perDay, where: ['jita'], why: null } : { isk: null, units: 0, where: [], why: 'none' }),
+        buy: (id, perDay) => (ix.byId.get(id)?.tier === 'P1' ? { isk: perDay * 400, where: ['jita'], why: null } : { isk: null, where: null, why: 'none' }) });
+      eq('  bought: a planet held to its last unit that pays beside the setup’s other planets', [Math.round(joint.iskDay), factories(joint).map((r) => [r.planetId, Math.round(r.makes[0].perDay)])], [40_063_680, [[1, 2640], [2, 360]]]);
+      eq('  … and its line says why', role(joint, 2).why, '3 of the 22 factories that fit run, for 360 Superconductors a day: past that, a unit costs more to make than the market here pays, after the other planets’ share');
+    }
     const { lastPaying } = await import('../src/lib/piPlan.ts');
     // A concave curve with kinks at 500 and 1,234.5: the most is at the second, found exactly from the curve.
     const kinked = (q) => Math.min(30 * q, 10 * q + 10_000, 30_000 - 3 * q) - Math.max(0, q - 1234.5) * 50;
@@ -7936,6 +7949,9 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  feed: taxes per planet and tier, the import at half the rate', f.taxes.filter((t) => t.planetId === B).map((t) => [t.tier, t.perDay]).sort(), [['P1', 76_800], ['P2', 172_800]]);
     eq('  feed: upkeep: two resets each program, restocks from the launchpad on the P1 in and the Nanites out, the Nanites hauled', [f.upkeep.resetsPerWeek, f.upkeep.restocksPerWeek, f.upkeep.haulM3PerWeek], [2 * 168 / 72, (7680 * 0.19 + 480 * 0.75) * 7 / 10_000, 480 * 0.75 * 7]);
     eq('  feed: one output, nothing unvalued', [f.outputs.map((o) => [o.id, o.perDay]), f.unvalued, f.why], [[[NANITES, 480]], 0, null]);
+    // Ruling T11-9: a feed note's amount under one a day is said as a pace is, never "the market takes 0 Nanites a day".
+    const thin = planFeed({ ...three, sell: sellBy((id) => (id === NANITES ? 10_000 : null), (id) => (id === NANITES ? 0.3 : Infinity)) });
+    eq('  feed: the market taking under one a day, said with its decimal', /The market takes 0\.3 Nanites a day, so the factory runs for that/.test(factories(thin)[0]?.why ?? ''), true);
     // Rates unchecked at 14,000: 2,240 a line, 560 Nanites; 5,600,000 − 2 × 4,480 × 400 × 2% − 8,960 × 400 × 5% × ½ − 560 × 7,200 × 5%.
     const high = planFeed({ ...three, rateOf: () => rate({ higher: 14_000, checked: false }) });
     eq('  feed: the higher reading beside, the same arrangement', [high.iskDay, Math.round(high.iskDayHigh)], [4_488_960, 5_600_000 - 71_680 - 89_600 - 201_600]);

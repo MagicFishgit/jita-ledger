@@ -683,7 +683,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
     const stays = p.ships
       .map((s) => ({ id: s.id, perDay: s.perDay - (exported.find((e) => e.id === s.id)?.perDay ?? 0) }))
       .filter((s) => s.perDay > 1e-6)
-      .map((s) => `${unitsSaid(s.perDay)} ${name(s.id)}`);
+      .map((s) => `${amountSaid(s.perDay)} ${name(s.id)}`);
     const notes = [...rateNotes(input, p), ...f.notes,
       ...(stays.length ? [`${listSaid(stays)} a day stay on the planet, building up: the market takes no more, so they aren’t exported or taxed`] : [])];
     return {
@@ -1645,7 +1645,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
       if (v.toFactory[k][g] > 1e-6) ships.push({ id, perDay: v.toFactory[k][g], to: factoryId });
       if (v.toMarket[k][g] > 1e-6) ships.push({ id, perDay: v.toMarket[k][g], to: 'market' });
       const left = fd.ships[g] - v.toFactory[k][g] - v.toMarket[k][g];
-      if (left > 1e-6) stays.push(`${unitsSaid(left)} ${name(id)}`);
+      if (left > 1e-6) stays.push(`${amountSaid(left)} ${name(id)}`);
     });
     const notes = [...rateNotes(input, plan), ...fit.notes, ...(stays.length ? [stayNote(stays)] : [])];
     return {
@@ -1673,8 +1673,8 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     }
   }
   const xSold = v.soldX.isk == null ? v.run : Math.min(v.run, v.soldX.units);
-  if (v.R - v.run > 1e-6) fNotes.push(`the market takes ${unitsSaid(v.run)} ${name(tree.x)} a day, so the factory runs for that: what its planets ship beyond it goes to market as it is, or stays on them`);
-  if (v.run - xSold > 1e-6) fNotes.push(stayNote([`${unitsSaid(v.run - xSold)} ${name(tree.x)}`]));
+  if (v.R - v.run > 1e-6) fNotes.push(`the market takes ${amountSaid(v.run)} ${name(tree.x)} a day, so the factory runs for that: what its planets ship beyond it goes to market as it is, or stays on them`);
+  if (v.run - xSold > 1e-6) fNotes.push(stayNote([`${amountSaid(v.run - xSold)} ${name(tree.x)}`]));
   const imports: NonNullable<Role['imports']> = [];
   placed.feeders.forEach((pl, k) => goods.forEach((id, g) => {
     if (v.toFactory[k][g] > 1e-6) imports.push({ id, perDay: v.toFactory[k][g], from: pl.member.planet.planetId });
@@ -1854,13 +1854,20 @@ function buyer(buy: Buy) {
 type Buyer = (id: number, q: number) => Bought;
 
 /** A product a class of planets can make on bought inputs: as many factories as fit at the character's level, one launchpad. */
-/** `top`: the most a day it runs alone and still pays for its last unit, and what holds it there (`topOf`), worked out once and kept here. */
-type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number; top?: { q: number; why: 'market' | 'pays' | number | null } };
+/**
+ * `top`: the most a day it runs alone and still pays for its last unit, and what holds it there (`topOf`), worked out once and kept
+ * here; `taxUnit` its import and export tax a unit (`taxUnitOf`), likewise.
+ */
+type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number; top?: { q: number; why: 'market' | 'pays' | number | null }; taxUnit?: number };
 /** `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so a setup blocked by it says that rather than that nothing pays. */
 type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null };
 /** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
-/** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), the last unit that pays ('pays'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
-type BoughtValue = { score: Score; q: number[]; limit: ('market' | 'pays' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
+/**
+ * `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), the last unit that pays alone
+ * ('pays'), the last that pays beside the other planets of the setup ('joint'), or an input whose supply ran out (its ID); null when
+ * every factory that fits runs.
+ */
+type BoughtValue = { score: Score; q: number[]; limit: ('market' | 'pays' | 'joint' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
 
 /**
  * The largest amount in [0, `Q`] at which a concave, piecewise-linear `V` is at its most: where its last unit stops paying. `V`'s
@@ -1911,11 +1918,51 @@ export function lastPaying(V: (q: number) => number, Q: number): number {
  * sound. An input refused within that for another reason than its supply (a hub too thin with no `max`) leaves the amount as it
  * was, for `valueBought` to refuse as before.
  */
+/** An option's tax a unit: the import tax on its inputs at half the rate and the export tax on it (none while the rate isn't known: ranked before it). */
+function taxUnitOf(ctx: BuyCtx, o: number): number {
+  const opt = ctx.opts[o];
+  if (opt.taxUnit != null) return opt.taxUnit;
+  const { ix } = ctx.input;
+  const rate = ctx.classes[opt.cls].rate;
+  opt.taxUnit = [...taxRows(ix, opt.inputs.map((i) => ({ id: i.id, perDay: i.per })), rate, 0.5), ...taxRows(ix, [{ id: opt.x, perDay: 1 }], rate, 1)]
+    .reduce((t, r) => t + (r.perDay ?? 0), 0);
+  return opt.taxUnit;
+}
+
+/**
+ * What a set of factory planets is worth a day at amounts `q`: each product summed and sold once, each input summed and bought once,
+ * each planet's taxes; nothing bought or sold of a good at an amount of 0. −Infinity when an input is refused at its amount (past
+ * what its market supplies). `valueBought`'s own figure is this at the amounts it sizes. Pure.
+ */
+function worthOf(ctx: BuyCtx, inst: number[], q: number[]): number {
+  const sales = new Map<number, number>(), need = new Map<number, number>();
+  let v = 0;
+  inst.forEach((o, k) => {
+    const opt = ctx.opts[o];
+    sales.set(opt.x, (sales.get(opt.x) ?? 0) + q[k]);
+    for (const i of opt.inputs) need.set(i.id, (need.get(i.id) ?? 0) + q[k] * i.per);
+    v -= taxUnitOf(ctx, o) * q[k];
+  });
+  for (const [x, n] of sales) if (n > 0) v += ctx.sold(x, n).isk ?? 0;
+  for (const [id, n] of need) {
+    if (!(n > 0)) continue;
+    const b = ctx.buy(id, n);
+    if (b.isk == null) return -Infinity;
+    v -= b.isk;
+  }
+  return v;
+}
+
+/**
+ * Whether the joint passes run their second, stabilising round (fix round 3 of Task 11): Ruling T11-8's pass holds each planet given
+ * the planets before it; this one then holds each given all the others, so no planet's last unit loses money beside a planet after
+ * it either (a low-tax planet sharing a walked input with a dearer product behind it). Off, the ruling's pass alone.
+ */
+export const JOINT_SETTLE = true;
+
 function topOf(ctx: BuyCtx, o: number): NonNullable<BuyOpt['top']> {
   const opt = ctx.opts[o];
   if (opt.top != null) return opt.top;
-  const { ix } = ctx.input;
-  const rate = ctx.classes[opt.cls].rate;
   const full = opt.n * opt.perFactory;
   const s = ctx.sold(opt.x, full);
   let Q = full, why: 'market' | 'pays' | number | null = null;
@@ -1925,9 +1972,7 @@ function topOf(ctx: BuyCtx, o: number): NonNullable<BuyOpt['top']> {
     const max = ctx.buy(i.id, full * i.per).max;
     if (max != null && max / i.per < Q - EPS) { Q = max / i.per; why = i.id; }
   }
-  // Per unit: the import tax on its inputs at half the rate and the export tax on it (none while the rate isn't known: ranked before it).
-  const taxUnit = [...taxRows(ix, opt.inputs.map((i) => ({ id: i.id, perDay: i.per })), rate, 0.5), ...taxRows(ix, [{ id: opt.x, perDay: 1 }], rate, 1)]
-    .reduce((t, r) => t + (r.perDay ?? 0), 0);
+  const taxUnit = taxUnitOf(ctx, o);
   let refused = false;
   const V = (q: number) => {
     const sale = ctx.sold(opt.x, q).isk ?? 0;
@@ -1943,6 +1988,78 @@ function topOf(ctx: BuyCtx, o: number): NonNullable<BuyOpt['top']> {
   if (refused) top = Q;
   opt.top = top < Q - EPS ? { q: top, why: 'pays' } : { q: Q, why };
   return opt.top;
+}
+
+/**
+ * Ruling T11-8: T11-6's last paying unit read over the setup, not one planet alone. After the market and supply passes, each planet,
+ * in tax order (the order those were dealt in), is held to its last unit that pays given the planets before it: one `lastPaying` on
+ * the setup's worth in that planet's own amount, which is concave once costs are convex (Ruling T11-7). Then, with `JOINT_SETTLE`,
+ * rounds in the same order hold each planet given all the others, up to what its factories, its alone top and each input's supply
+ * left by the others allow, until none moves (at most `SETTLE_ROUNDS`). A planet that shares no product and no input with another is
+ * left at its alone figure, which is already its most. Every amount stays at or under its alone top, so the search's bound holds.
+ * Changes `q` and `limit` in place; true when it held any planet.
+ */
+const SETTLE_ROUNDS = 6;
+function heldJointly(ctx: BuyCtx, inst: number[], q: number[], limit: BoughtValue['limit']): boolean {
+  const { opts, classes } = ctx;
+  const shares = (a: number, b: number) => opts[inst[a]].x === opts[inst[b]].x || opts[inst[a]].inputs.some((i) => opts[inst[b]].inputs.some((j) => j.id === i.id));
+  const linked = inst.map((_, k) => inst.some((_2, j) => j !== k && shares(k, j)));
+  if (!linked.some(Boolean)) return false;
+  const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b);
+  const dealt = q.slice();
+  let changed = false;
+  // The worth in planet k's own amount, the others as `at` holds them, shifted so 0 is worth 0 (lastPaying's convention).
+  const bestFor = (k: number, at: number[], upTo: number) => {
+    const base = worthOf(ctx, inst, at.map((x, j) => (j === k ? 0 : x)));
+    if (!Number.isFinite(base)) return at[k];
+    return lastPaying((x) => worthOf(ctx, inst, at.map((y, j) => (j === k ? x : y))) - base, upTo);
+  };
+  // The ruling's pass: given the planets before it (those after at 0).
+  const at = q.map(() => 0);
+  for (const k of order) {
+    at[k] = dealt[k];
+    if (!order.slice(0, order.indexOf(k)).some((j) => shares(k, j))) continue;
+    const t = bestFor(k, at, dealt[k]);
+    if (t < at[k] - EPS) { at[k] = t; limit[k] = 'joint'; changed = true; }
+  }
+  if (JOINT_SETTLE) {
+    // Settling: each planet given all the others, shrinking or growing up to what's left for it.
+    const roomOf = (k: number) => {
+      const opt = opts[inst[k]];
+      let room = Math.min(opt.n * opt.perFactory, topOf(ctx, inst[k]).q);
+      for (const i of opt.inputs) {
+        const others = inst.reduce((n, o, j) => n + (j === k ? 0 : at[j] * (opts[o].inputs.find((y) => y.id === i.id)?.per ?? 0)), 0);
+        const max = ctx.buy(i.id, Math.max(others, 1e-9) + at[k] * i.per).max;
+        if (max != null) room = Math.min(room, Math.max(0, max - others) / i.per);
+      }
+      return room;
+    };
+    for (let round = 0; round < SETTLE_ROUNDS; round++) {
+      let moved = false;
+      for (const k of order) {
+        if (!linked[k]) continue;
+        const room = roomOf(k);
+        // A slope test first: nothing to do when one unit less loses value and one more (if there's room) adds none.
+        const h = Math.max(1e-6, at[k] * 1e-7);
+        const here = worthOf(ctx, inst, at);
+        const less = at[k] > h ? worthOf(ctx, inst, at.map((y, j) => (j === k ? y - h : y))) : -Infinity;
+        const more = at[k] < room - h ? worthOf(ctx, inst, at.map((y, j) => (j === k ? y + h : y))) : -Infinity;
+        const tol = 1e-12 * Math.max(1, Math.abs(here));
+        if (!(less > here + tol) && !(more > here + tol)) continue;
+        const t = bestFor(k, at, room);
+        if (Math.abs(t - at[k]) > EPS) { at[k] = t; moved = true; changed = true; }
+      }
+      if (!moved) break;
+    }
+    // What holds each planet now: all its factories (none), under what it was dealt (the joint hold), over it but short of its room
+    // (the joint hold again: its last unit there pays nothing more), else what held it before.
+    for (const k of order) {
+      if (at[k] >= opts[inst[k]].n * opts[inst[k]].perFactory - EPS) limit[k] = null;
+      else if (at[k] < dealt[k] - EPS || (at[k] > dealt[k] + EPS && at[k] < roomOf(k) - EPS)) limit[k] = 'joint';
+    }
+  }
+  for (let k = 0; k < q.length; k++) q[k] = at[k];
+  return changed;
 }
 
 /**
@@ -1999,6 +2116,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     }
     if (q.some((x) => !(x > MIN_RATE))) return null;
   }
+  if (inst.length > 1 && heldJointly(ctx, inst, q, limit) && q.some((x) => !(x > MIN_RATE))) return null;
   const soldBy = new Map<number, Sold>();
   for (const [x, ks] of byX) soldBy.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
   const need = needOf();
@@ -2130,6 +2248,9 @@ export function planBought(input: PlanInput): Setup {
         : lim === 'pays'
           // The last unit that pays holds it (Ruling T11-6): said, never left unexplained.
           ? [`${count} of the ${opt.n} factories that fit run, for ${amountSaid(v.q[k])} ${name(opt.x)} a day: past that, a unit costs more to make than it sells for`]
+          : lim === 'joint'
+            // Held beside the setup's other planets (Ruling T11-8): what the market here pays after their share, or what their inputs cost.
+            ? [`${count} of the ${opt.n} factories that fit run, for ${amountSaid(v.q[k])} ${name(opt.x)} a day: past that, a unit costs more to make than the market here pays, after the other planets’ share`]
           : [`the market takes ${amountSaid(v.q[k])} ${name(opt.x)} a day here: ${count} of the ${opt.n} factories that fit run`];
     roleOf.set(m.planet.planetId, {
       planetId: m.planet.planetId, charId: char.charId, does: 'factory', extracts: [],
