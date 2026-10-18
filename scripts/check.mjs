@@ -8236,6 +8236,70 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  no rate at CCU I on Gas: at least a head an extractor, so III', one('Gas', 26370, 1, () => null).perChar[0].lacks, ['Command Center Upgrades III']);
 }
 
+console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page slices them across macrotasks) ---');
+{
+  // Ruling T11-13 (the final review): the chain's search ran as one main-thread task of up to most of a second with two characters
+  // doing planetary industry. The searches now yield every few chunks of arrangements, and the page drives them in slices; the
+  // answers mustn't move. scripts/fixtures/planets-steps.json holds every setup of these cases as the planner gave them before the
+  // slicing (HEAD after the I1 fix): each drain, and each driven a step at a time interleaved with another, must give the same.
+  // RECORD_STEPS=1 writes it again (only ever from code before a change meant to keep the answers).
+  const fsP = await import('node:fs');
+  const PP = await import('../src/lib/piPlan.ts');
+  const { indexPlanets, decodeRadii, planetTypeOf } = await import('../src/lib/piBundle.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const FX = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
+  const radii = new Map(decodeRadii(JSON.parse(fsP.readFileSync(new URL('../src/data/planetRadii.json', import.meta.url)))[String(FX.system.system_id)]));
+  const planets = FX.planets.map((p) => { const t = planetTypeOf(ix, p.type_id); return { planetId: p.planet_id, name: p.name, type: t, radiusKm: radii.get(p.planet_id) ?? null,
+    tax: { rate: t === 'Barren' || t === 'Temperate' ? 0.02 : 0.05, from: 'brave', npc: 0, interbus: false } }; });
+  // 5-NZNW's real planets, every good sold through soldOf at Jita on the page case's books (listing and bid sides at half its day
+  // each, a 10% share) and bought up five days of listings through jitaSteps: curves shaped as the page's, so the bought setup's
+  // exact sizing and the chain's search run as they do there.
+  const TAX = 0.03375, BROKER = 0.0155, SHARE = 10;
+  const goods = new Map(FX.goods.filter((g) => g.bid != null && g.ask != null && g.perDay > 0).map((g) => [g.id, g]));
+  const sell = (id, perDay) => { const g = goods.get(id); return PP.soldOf(perDay, { jita: g ? { place: 'jita', list: g.ask, listNet: g.ask * (1 - TAX - BROKER), bid: g.bid, bidNet: g.bid * (1 - TAX), pace: g.perDay, listPace: g.perDay / 2, bidPace: g.perDay / 2 } : null, home: null }, 'jita', SHARE); };
+  const buy = (id, perDay) => { const g = goods.get(id); if (!g) return { isk: null, where: null, why: 'none listed' }; const off = PP.jitaSteps([{ price: g.ask, volume: g.perDay * 5 }], g.perDay, SHARE);
+    return PP.boughtOf(perDay, [{ place: 'jita', at: 'Jita', steps: off.steps, maxSaid: off.maxSaid, why: null }]); };
+  const rate = { perHour: 3000, higher: 9000, from: 'learned', programHours: 47.5, heads: 10, otherP0: false, checked: false };
+  const owner = { charId: 1, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, alt = { charId: 2, name: 'Alt', planets: 5, ccLevel: 4, alpha: false };
+  const base = { ix, planets, char: owner, others: [], rateOf: (t, p0) => (t === 'Barren' && (p0 === 2267 || p0 === 2073) ? rate : null), sell, buy, programHours: 72 };
+  const CASES = {
+    'one character': base,
+    'two characters (the chain cut)': { ...base, others: [alt] },
+    // Budgets where the chain's answer moves with the arrangements it's given (1,500 reads 14,807,073 and 3,000 reads 15,123,733;
+    // 40,000 reads 15,257,909 and 80,000 the 15,467,861 above), so a step that loses or gains budget shows.
+    'two characters at a budget of 1,500': { ...base, others: [alt], budget: 1500 },
+    'two characters at a budget of 40,000': { ...base, others: [alt], budget: 40_000 },
+  };
+  const digest = (s) => ({ kind: s.kind, iskDay: s.iskDay, iskDayHigh: s.iskDayHigh, why: s.why, cut: !!s.cut, unvalued: s.unvalued, taxDay: s.taxDay,
+    roles: s.roles.map((r) => [r.planetId, r.charId, r.does, r.makes.map((m) => [m.id, m.perDay, m.count]), r.ships.map((x) => [x.id, x.perDay, x.to])]),
+    outputs: s.outputs.map((o) => [o.id, o.perDay, o.sold.isk]), inputs: s.inputs.map((i) => [i.id, i.perDay, i.bought.isk]), perChar: s.perChar.map((p) => [p.charId, p.iskDay]) });
+  const FILE = new URL('./fixtures/planets-steps.json', import.meta.url);
+  const now = Object.fromEntries(Object.entries(CASES).map(([name, input]) => [name, PP.planSystem(input).map(digest)]));
+  if (process.env.RECORD_STEPS) {
+    fsP.writeFileSync(FILE, JSON.stringify({ about: 'Every setup of check.mjs\'s "planner in steps" cases as piPlan.ts gave them before the searches were sliced (Ruling T11-13): the slicing must not move one.', cases: now }, null, 1) + '\n');
+    console.log('  recorded scripts/fixtures/planets-steps.json');
+  } else {
+    const was = JSON.parse(fsP.readFileSync(FILE, 'utf8')).cases;
+    for (const name of Object.keys(CASES)) {
+      const got = now[name], want = was[name];
+      eq(`  ${name}: each setup drained as before the slicing (ISK a day, cut)`, got.map((s) => [s.kind, s.iskDay, s.cut]), want.map((s) => [s.kind, s.iskDay, s.cut]));
+      eq(`  ${name}: and every role, output and input the same`, JSON.stringify(got), JSON.stringify(want));
+    }
+    // Driven as the page drives them, but harder: every setup of every case at once, one step each in turn, so whatever a search
+    // holds must stay its own across a step and not leak into another run.
+    const runs = Object.keys(CASES).flatMap((name) => PP.SETUP_KINDS.map((k) => ({ name, k, it: PP.planSteps(CASES[name], k), out: null, steps: 0 })));
+    for (let going = runs.length; going > 0;) {
+      going = 0;
+      for (const r of runs) { if (r.out) continue; const x = r.it.next(); if (x.done) r.out = x.value; else { r.steps++; going++; } }
+    }
+    for (const name of Object.keys(CASES)) {
+      eq(`  ${name}: driven a step at a time, interleaved with the other cases' setups, the same`, JSON.stringify(PP.rankSetups(runs.filter((r) => r.name === name).map((r) => r.out)).map(digest)), JSON.stringify(was[name]));
+    }
+    const chainSteps = runs.find((r) => r.name === 'two characters (the chain cut)' && r.k === 'chain').steps;
+    eq('  sliced at all: the chain of two characters takes hundreds of steps, P0 → P2 none (one call)', [chainSteps > 200, runs.find((r) => r.k === 'p2').steps], [true, 0]);
+  }
+}
+
 console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---');
 {
   const { planCharOf, customsLevel, PI_SKILL } = await import('../src/lib/piPlan.ts');

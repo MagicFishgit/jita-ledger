@@ -62,6 +62,14 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
     found nothing in budget says `RAN_OUT`, never a planets, characters or size shortage (Ruling T9-10); `NO_FIT` only when
     arrangements were tried, every one failed for size alone, and the search wasn't cut. Brute force agrees where the search
     finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in limits.md.
+  - **Spent in steps** (Ruling T11-13; `Steps`, `planSteps`, `planFeedSteps`, `planChainSteps`). `searchPools` is a generator that
+    yields every `STEP_CHUNKS` (2) chunks of 128 arrangements, by count, never a clock, and each product's context and covering
+    search is a step; the page (`usePlanned`) runs steps until 8 ms have passed, then hands the page back (a message to itself:
+    nested timers clamp to 4 ms) and drops a run whose input changed between two slices. The search's state lives in the
+    generator, so the answer is the same however it's driven: `planFeed`, `planChain` and `planSystem` drain the steps, and
+    check.mjs holds every setup of four 5-NZNW cases as before the slicing (`scripts/fixtures/planets-steps.json`), drained and
+    driven a step at a time interleaved; a step that kept a chunk of its budget back failed it (budgets 1,500 and 40,000, where the
+    chain's answer moves with the budget). On 5-NZNW with two characters the chain takes 371 steps of 1–6 ms.
 - **Bought** (`planBought`): each planet allowed is a factory planet of one step (a P2 or P3 on Advanced, a P4 on High-Tech), at
   `maxFactories` for the character's level with one launchpad, buying its inputs. A product whose input can't be priced isn't a
   candidate (never a cost of 0).

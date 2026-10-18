@@ -82,7 +82,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     Scorched Barren are null, "No planetary industry on this kind of planet".
   - **One ranking for Plan and Chart** (`planetsPlanning.ts`, `usePlanning`, Task 12): the inputs and the planner run once for
     whichever section draws, so the Chart's "the ranking makes" and the Plan's rows can't differ. The setups run once the input
-    has stood still 350 ms, one a turn of the event loop, the last ranking shown meanwhile ("Working them out again"). First on
+    has stood still 350 ms, a step at a time in slices of 8 ms (planets-planner.md), the last ranking shown meanwhile ("Working
+    them out again"). First on
     the morning's books, then again on the live books of the goods that first ranking names (never the live ranking's: each
     re-rank could name more). Only an input whose contents changed starts it (planets-planner.md), never a write elsewhere.
   - **Plan**: the setups first, ranked, then the inputs (tax chips, "Not Brave's space", rates, programme length) and the planets.
@@ -106,9 +107,11 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   can read it: 5-NZNW's and UALX-3's planets as ESI answered, the goods' books and Goonmetrics rows from the research's prices)
   checks every state above at both widths, an Alpha and an unread alt among them. Its colony, two extractors at 10 heads with no
   factories, is seeded, not the user's.
-- **Measured, to be settled in the stage-1 final review (Ruling T11-13)**: with two characters doing planetary industry, the chain
-  alone takes 740–910 ms on 5-NZNW's real shape and the whole planner 0.85–1.1 s (task-11-rereview-4.md); with one, 148–240 ms.
-  `usePlanning` runs it twice (morning, then live). Stage 2 adds characters, so it is settled before Tasks 14–16.
+- **The chain's time, settled in the final fix round (Ruling T11-13)**: with two characters doing planetary industry the chain
+  was one main-thread task of 282–346 ms on 5-NZNW (this machine, 18 October 2026; the re-review measured 740–910 ms), twice a
+  ranking (morning, then live): in the browser, tasks of 298 and 239 ms. Its search is now sliced (planets-planner.md): the
+  longest slice holding the chain 10–14 ms, the whole ranking unchanged at 330–490 ms. Not a Web Worker (`PlanInput`'s closures
+  don't clone) and not a tighter budget. P0 → P1 and bought are still one step each: 25–45 ms warm, up to 68 ms the first time.
 
 ## Open, and left for the stage-1 final review
 

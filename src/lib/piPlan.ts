@@ -1500,6 +1500,21 @@ function searchFed(ctx: FedCtx, who: Who[], best: Searched, root: number, budget
 
 /** Arrangements the open product with the best remaining bound is given before the bounds are compared again. */
 const CHUNK = 128;
+/**
+ * Chunks of arrangements between the search's steps (Ruling T11-13): the page drives a setup's steps in slices of a few
+ * milliseconds, so a long search never holds the page as one task. A count, never a clock, so the planner stays pure and the same
+ * steps give the same answer however they're driven. Two chunks are about a millisecond on 5-NZNW (18 October 2026).
+ */
+const STEP_CHUNKS = 2;
+/**
+ * A setup worked out a step at a time: each `next()` does a bounded piece of the work and the last returns the setup. Everything the
+ * search holds (each product's place, the budget, what's still open) lives in the generator, so where it stopped is where it goes on.
+ */
+export type Steps<T> = Generator<void, T, void>;
+/** A setup's steps run to the end, in one go: the plain calls (`planFeed`, `planChain`, `planSystem`) and the tests. */
+export function drain<T>(steps: Steps<T>): T {
+  for (;;) { const r = steps.next(); if (r.done) return r.value; }
+}
 
 /** The classes X's factory can go on: any for Advanced factories, Barren and Temperate for High-Tech; the lowest tax first. */
 const factoryClasses = (ctx: FedCtx) => ctx.classes.map((c, ci) => ci)
@@ -1525,7 +1540,7 @@ type Pool = { ctxs: FedCtx[]; who: Who[]; best: Searched };
  * before any has a second round, and so on. On 65 random systems at the chain's budget it left 13 short of the best found by
  * more than 2%, the bound alone 15, and 1 by more than 25% (the bound alone 2).
  */
-function searchPools(pools: Pool[], budget: Budget): void {
+function* searchPools(pools: Pool[], budget: Budget): Steps<void> {
   type Live = { run: Run; pool: Pool; per: number; closed: boolean };
   const live: Live[] = [];
   for (const pool of pools) {
@@ -1541,6 +1556,7 @@ function searchPools(pools: Pool[], budget: Budget): void {
     if (l.pool.best.b && !mayBeat(l.run.remaining(), 0, l.pool.best.b.score)) l.closed = true;
     return !l.closed;
   };
+  let chunks = 0;
   while (budget.left > 0) {
     let pick: Live | null = null, round = Infinity, top = -Infinity;
     for (const l of live) {
@@ -1556,14 +1572,15 @@ function searchPools(pools: Pool[], budget: Budget): void {
       if (pick.run.it.next().done) { pick.run.done = true; break; }
       budget.left--;
     }
+    if (++chunks % STEP_CHUNKS === 0) yield;
   }
   if (live.some(open)) budget.cut = true;
 }
 
-/** The best arrangement over the targets given, for one set of characters, within the budget. */
-function bestFed(ctxs: FedCtx[], who: Who[], budget: Budget): Searched {
+/** The best arrangement over the targets given, for one set of characters, within the budget, in steps. */
+function* bestFed(ctxs: FedCtx[], who: Who[], budget: Budget): Steps<Searched> {
   const pool: Pool = { ctxs, who, best: searched() };
-  searchPools([pool], budget);
+  yield* searchPools([pool], budget);
   return pool.best;
 }
 
@@ -1756,17 +1773,26 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
   };
 }
 
-const fedTargets = (input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier[]) => input.ix.commodities
-  .filter((c) => tiers.includes(c.tier) && sold(c.id, 1).isk != null)
-  .map((c) => fedCtx(input, sold, classes, c.id))
-  .filter((x): x is FedCtx => x != null);
+/** Each product of these tiers that's priced, as a search's context: a step each, since a context walks every class's plans. */
+function* fedTargets(input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier[]): Steps<FedCtx[]> {
+  const out: FedCtx[] = [];
+  for (const c of input.ix.commodities) {
+    if (!tiers.includes(c.tier) || sold(c.id, 1).isk == null) continue;
+    const ctx = fedCtx(input, sold, classes, c.id);
+    if (ctx) out.push(ctx);
+    yield;
+  }
+  return out;
+}
 
 /**
  * Extraction planets feeding one factory planet: some planets make P1 (or a P2 alone) and ship it to one planet of the
  * system that makes a P2 or P3 from it, sized to what it's fed, every feeder needed. This includes the three P2s no planet
  * makes alone. Each feeder pays export tax; the factory pays import tax at half its rate, and export tax on what it sells.
  */
-export function planFeed(input: PlanInput): Setup {
+export const planFeed = (input: PlanInput): Setup => drain(planFeedSteps(input));
+/** `planFeed` a step at a time (`Steps`), for the page to drive in slices. */
+export function* planFeedSteps(input: PlanInput): Steps<Setup> {
   const { char } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, 'feed', cw, char.alpha === true ? ['Omega'] : []);
@@ -1774,11 +1800,12 @@ export function planFeed(input: PlanInput): Setup {
   const allowed = char.planets!;
   if (allowed < 2) return blocked(input, 'feed', `A factory planet and one to feed it take 2 planets: you have ${allowed}`, []);
   const sold = seller(input.sell);
-  const ctxs = fedTargets(input, sold, classesOf(input), ['P2', 'P3']);
+  const ctxs = yield* fedTargets(input, sold, classesOf(input), ['P2', 'P3']);
   if (!ctxs.length) return blocked(input, 'feed', 'Nothing a factory here could make from this system’s planets is priced', []);
   const who: Who[] = [{ c: char, cap: allowed, cc: char.ccLevel! }];
   const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
-  const { b: best, tried, tooBig } = bestFed(ctxs, who, budget);
+  const { b: best, tried, tooBig } = yield* bestFed(ctxs, who, budget);
+  yield;
   if (!best) {
     if (budget.cut) return withCut(blocked(input, 'feed', RAN_OUT, []), budget);
     return blocked(input, 'feed', tried && tooBig ? NO_FIT : `No factory planet here can be fed within your ${allowed} planets`, []);
@@ -1803,7 +1830,9 @@ const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: 
  * a day per character in it; each one's share is the whole's, by its colonies. Every number of characters is searched in one
  * budget, spent in rounds: every product gets its first dive before any gets a second, and within a round the highest bound goes first.
  */
-export function planChain(input: PlanInput): Setup {
+export const planChain = (input: PlanInput): Setup => drain(planChainSteps(input));
+/** `planChain` a step at a time (`Steps`), for the page to drive in slices: the search's chunks, and each product's context and cover. */
+export function* planChainSteps(input: PlanInput): Steps<Setup> {
   const { char } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, 'chain', cw, char.alpha === true ? ['Omega'] : []);
@@ -1813,17 +1842,23 @@ export function planChain(input: PlanInput): Setup {
     .map((c) => ({ c, cap: c.planets!, cc: c.ccLevel! }));
   const sold = seller(input.sell);
   const classes = classesOf(input);
-  const p4 = fedTargets(input, sold, classes, ['P4']);
-  const p3 = fedTargets(input, sold, classes, ['P3']);
+  const p4 = yield* fedTargets(input, sold, classes, ['P4']);
+  const p3 = yield* fedTargets(input, sold, classes, ['P3']);
   if (!p4.length && !p3.length) return blocked(input, 'chain', 'Nothing a chain here could make from this system’s planets is priced', []);
-  const p3Many = p3.filter((ctx) => !coverable(ctx, usable.slice(0, 1)));
+  // Which products one character can make alone: a covering search each, a step each.
+  const alone = (ctxs: FedCtx[]) => ctxs.map((ctx) => () => coverable(ctx, usable.slice(0, 1)));
+  const p3Many: FedCtx[] = [];
+  for (const [k, covers] of alone(p3).entries()) { if (!covers()) p3Many.push(p3[k]); yield; }
   const many = [...p4, ...p3Many];
   if (!many.length) return blocked(input, 'chain', `No P4 is priced here, and every P3 made here fits in your ${char.planets} planets (the feed plans those)`, []);
 
-  const pools: Pool[] = [{ ctxs: p4.filter((ctx) => coverable(ctx, usable.slice(0, 1))), who: usable.slice(0, 1), best: searched() }];
+  const p4Alone: FedCtx[] = [];
+  for (const [k, covers] of alone(p4).entries()) { if (covers()) p4Alone.push(p4[k]); yield; }
+  const pools: Pool[] = [{ ctxs: p4Alone, who: usable.slice(0, 1), best: searched() }];
   for (let k = 2; k <= usable.length; k++) pools.push({ ctxs: many, who: usable.slice(0, k), best: searched() });
   const budget: Budget = { left: input.budget ?? CHAIN_BUDGET, cut: false };
-  searchPools(pools, budget);
+  yield* searchPools(pools, budget);
+  yield;
   let pick: { best: FedBest; per: number } | null = null;
   for (const { best: { b } } of pools) {
     if (!b) continue;
@@ -1840,7 +1875,7 @@ export function planChain(input: PlanInput): Setup {
   let short = 0;
   for (let more = 1; more <= 6 && !short; more++) {
     const who = [...usable, ...Array.from({ length: more }, () => like)];
-    if (many.some((ctx) => coverable(ctx, who))) short = more;
+    for (const ctx of many) { yield; if (coverable(ctx, who)) { short = more; break; } }
   }
   const s = blocked(input, 'chain', short ? `Needs ${short} more character${short === 1 ? '' : 's'} with planetary industry` : 'No chain here can be made with the characters there are', []);
   const alphas = input.others.filter((c, i, a) => c.alpha === true && c.charId !== char.charId && a.findIndex((o) => o.charId === c.charId) === i).slice(0, short);
@@ -2388,7 +2423,19 @@ export function rankSetups<T extends Rankable>(setups: T[]): T[] {
   }).map((e) => e.s);
 }
 
+/** The five setups, in the order they're worked out (and ranked from, ties going to the earlier). */
+export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 'chain'];
+/**
+ * One setup a step at a time (Ruling T11-13): feed and chain yield through their searches, the others are one step. The page drives
+ * these in slices of a few milliseconds; drained, each is the plain call's answer.
+ */
+export function* planSteps(input: PlanInput, kind: SetupKind): Steps<Setup> {
+  if (kind === 'feed') return yield* planFeedSteps(input);
+  if (kind === 'chain') return yield* planChainSteps(input);
+  return kind === 'bought' ? planBought(input) : planSingle(input, kind);
+}
+
 /** All five setups for the system and character, ranked. The user's own P0 → P2 is always among them. */
 export function planSystem(input: PlanInput): Setup[] {
-  return rankSetups([planSingle(input, 'p1'), planSingle(input, 'p2'), planFeed(input), planBought(input), planChain(input)]);
+  return rankSetups(SETUP_KINDS.map((k) => drain(planSteps(input, k))));
 }

@@ -3,7 +3,7 @@ import type { ColoniesDoc } from '../../lib/colonies';
 import type { PlanetType } from '../../lib/pi';
 import type { PiIndex } from '../../lib/piBundle';
 import { learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
-import { customsLevel, planBought, planChain, planCharOf, planFeed, planSingle, rankSetups, type PlanChar, type PlanInput, type Setup } from '../../lib/piPlan';
+import { customsLevel, planCharOf, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
 import type { SystemPrefs } from '../../lib/planetsDoc';
 import { useStable } from '../../lib/hooks';
 import { useData } from '../../lib/store';
@@ -14,38 +14,58 @@ import { usePlanetMarket, useSystemPlanets, type PlanetMarket, type SystemPlanet
  * A system's setups for the character shown, worked out once for whichever section asks (Plan ranks them, the Chart says which of
  * them make a good), so the two always read one ranking from one input. The inputs (customs tax per planet type with a planet's
  * own, extraction rates learned or typed, the program length) are the synced `planets` doc's; where it sells is the `industry`
- * doc's. The planner (piPlan.ts) runs on a timer once the inputs settle, the last ranking shown meanwhile, first on the morning's
- * books and then again on the live books of the goods that ranking names. Only one section draws at a time, so switching works
- * the ranking out again (debounced, marked as working).
+ * doc's. The planner (piPlan.ts) runs on a timer once the inputs settle, in slices of a few milliseconds, the last ranking shown
+ * meanwhile, first on the morning's books and then again on the live books of the goods that ranking names. Only one section draws
+ * at a time, so switching works the ranking out again (debounced, marked as working).
  */
 
 /** The spec's default program length when the character has none of its own: 3 days. */
 export const DEFAULT_PROGRAM_HOURS = 72;
 /** How long the inputs must stay still before the setups are worked out again (the planner takes up to most of a second). */
 const SETTLE_MS = 350;
+/**
+ * How long one slice of the planner may hold the page before handing it back (Ruling T11-13): each setup is worked out a step at a
+ * time (`planSteps`), as many steps a slice as fit in this, so the chain's search of most of a second never runs as one task.
+ */
+const SLICE_MS = 8;
 export const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBrave: false, rates: {} };
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 type Planned = { setups: Setup[] | null; working: boolean };
 /**
- * The five setups for an input, worked out on a timer once the input has stayed the same `SETTLE_MS`, one setup a turn of the
- * event loop so the page keeps drawing between them, and ranked. The last ranking stays (marked as being worked out again) until
- * the new one lands; a different `scope` (another system) drops it, since its planets are another system's.
+ * The five setups for an input, worked out once the input has stayed the same `SETTLE_MS`, in slices of `SLICE_MS` (each setup's
+ * steps, one after another) so the page keeps drawing between them, and ranked. Between slices the page has its turn: a message
+ * posted to itself, which nested timers would clamp to 4 ms each. An input that changes drops the run between two slices (its steps
+ * are never asked for again). The last ranking stays (marked as being worked out again) until the new one lands; a different
+ * `scope` (another system) drops it, since its planets are another system's.
  */
 function usePlanned(input: PlanInput | null, scope: number | null): Planned {
   const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: number | null }>({ setups: null, for: null, scope: null });
   useEffect(() => {
     if (!input) return;
+    const of = input;
     let alive = true;
-    const steps: ((i: PlanInput) => Setup)[] = [(i) => planSingle(i, 'p1'), (i) => planSingle(i, 'p2'), planFeed, planBought, planChain];
     const done: Setup[] = [];
-    let timer = setTimeout(function next() {
+    let steps: Steps<Setup> | null = null;
+    const channel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const slice = () => {
       if (!alive) return;
-      done.push(steps[done.length](input));
-      if (done.length < steps.length) timer = setTimeout(next, 0);
-      else setSt({ setups: rankSetups(done), for: input, scope });
-    }, SETTLE_MS);
-    return () => { alive = false; clearTimeout(timer); };
+      const until = performance.now() + SLICE_MS;
+      do {
+        steps ??= planSteps(of, SETUP_KINDS[done.length]);
+        const r = steps.next();
+        if (r.done) {
+          done.push(r.value);
+          steps = null;
+          if (done.length === SETUP_KINDS.length) { setSt({ setups: rankSetups(done), for: of, scope }); return; }
+        }
+      } while (performance.now() < until);
+      if (channel) channel.port2.postMessage(null); else timer = setTimeout(slice, 0);
+    };
+    if (channel) channel.port1.onmessage = slice;
+    timer = setTimeout(slice, SETTLE_MS);
+    return () => { alive = false; clearTimeout(timer); if (channel) { channel.port1.onmessage = null; channel.port1.close(); channel.port2.close(); } };
   }, [input, scope]);
   const mine = st.scope === scope ? st.setups : null;
   return { setups: input ? mine : null, working: !!input && st.for !== input };
