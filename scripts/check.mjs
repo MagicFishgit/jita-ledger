@@ -896,6 +896,9 @@ const extractor = (h, qty = 3000, cycle = 3600) => ({
 // Pins say what they are by their shape, so no table of type IDs can go stale.
 eq('an extraction unit is an extractor', classify(extractor(48)), 'extractor');
 eq('a schematic makes it a factory', classify({ pin_id: 2, type_id: 1, factory_details: { schematic_id: 65 } }), 'factory');
+// ESI's real factories carry schematic_id on the pin and no factory_details (the main's colonies, 18 October 2026).
+eq('a schematic on the pin itself makes it a factory, as ESI sends it',
+  classify({ pin_id: 4, type_id: 2473, last_cycle_start: '2026-10-18T20:35:46Z', schematic_id: 121, contents: [{ type_id: 2270, amount: 3000 }] }), 'factory');
 eq('anything else that holds things is storage', classify({ pin_id: 3, type_id: 1, contents: [{ type_id: 2268, amount: 10 }] }), 'storage');
 
 // The state that costs people money: a programme that ended while they were not looking.
@@ -10260,6 +10263,10 @@ console.log('\n--- Planets: the main\'s colonies, kept as a synced document (col
   eq('  pins sorted by id, contents by type', [k1.pins.map((p) => p.id), k1.pins[2].contents], [[10, 20, 30], [[2267, 900], [2268, 5]]]);
   eq('  ESI\'s lowercase planet type', [k1.planetType, planetTypeOfEsi('gas'), planetTypeOfEsi('shattered')], ['Barren', 'Gas', null]);
   eq('  no qty_per_cycle stays null', keptFromEsi(head, rawNoQty).pins.find((p) => p.extractor).extractor.qty, null);
+  // The shape ESI really sends a factory in (the main's first kept colonies, 18 October 2026): schematic_id on the pin.
+  const rawReal = { ...raw, pins: raw.pins.map((p) => p.factory_details ? { pin_id: p.pin_id, type_id: 2473, last_cycle_start: '2026-10-17T09:35:46Z', schematic_id: 121, contents: [{ type_id: 2267, amount: 3000 }] } : p) };
+  const kReal = keptFromEsi(head, rawReal);
+  eq('  a schematic on the pin is kept, and the kept colony counts its factory', [kReal.pins.find((p) => p.id === 20).schematic, colonyOfKept(kReal, NOW).factories, readColony(head, rawReal, NOW).factories], [121, 1, 1]);
   eq('  equal reads stringify equal', JSON.stringify(mergeColonies(undefined, [k2, k1])), JSON.stringify(mergeColonies(undefined, [k1, k2])));
   const newer = { ...k1, lastUpdate: '2026-10-17T12:00:00Z' }, older = { ...k1, lastUpdate: '2026-10-17T08:00:00Z' };
   eq('  an older read does not roll a colony back', mergeColonies({ colonies: [newer] }, [older]).colonies[0].lastUpdate, newer.lastUpdate);

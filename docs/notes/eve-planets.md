@@ -51,7 +51,10 @@ Don't re-derive or contradict these without new evidence.
   pin). The colony looks normal, factories drain what is left, and it earns nothing until the heads
   are reset — the commonest way PI money is lost, and a field nothing was reading.
 - **Colony pins are classified by shape, not by type ID**: `extractor_details` makes it an extractor,
-  `factory_details` a factory, anything else that holds things is storage. No list to go stale.
+  a schematic a factory, anything else that holds things is storage. No list to go stale. **ESI sends a factory's schematic as
+  the pin's own `schematic_id`**, not in `factory_details` (both are in its spec): every factory of the main's first kept
+  colonies (18 October 2026, 30 pins over five planets) had `schematic_id` and `last_cycle_start` and no `factory_details`, so
+  read by `factory_details` alone every real factory was storage. Both are read (`classify`, `keptPin`).
 - **Extraction decays across a programme, by a published formula** (CCP's crowdsourced developer guide; eve-pi the same, reported;
   its decay 0.012 and noise 0.8 are the defaults of dogma 1683 and 1687, exact). Fed ESI's `qty_per_cycle`, `cycle_time`,
   `install_time` and `expiry_time`, it gives every cycle's output: a 1-day programme averages about 0.75 of its start rate, 3

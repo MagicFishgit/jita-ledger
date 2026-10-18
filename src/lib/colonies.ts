@@ -40,7 +40,7 @@ function keptPin(p: RawPin): KeptPin {
   return {
     id: p.pin_id, typeId: p.type_id,
     install: p.install_time ?? null, expiry: p.expiry_time ?? null, lastCycle: p.last_cycle_start ?? null,
-    schematic: p.factory_details ? p.factory_details.schematic_id : null,
+    schematic: p.schematic_id ?? p.factory_details?.schematic_id ?? null,
     extractor: e ? { cycle: e.cycle_time ?? 0, product: e.product_type_id ?? null, qty: e.qty_per_cycle ?? null, heads: e.heads?.length ?? 0 } : null,
     contents: (p.contents ?? []).map((c) => [c.type_id, c.amount] as [number, number]).sort((a, b) => a[0] - b[0]),
   };

@@ -58,14 +58,17 @@ in planets.md and planets-planner.md.
 
 ## Open, and left for the stage-1 final review
 
-- **No real colony has been drawn yet**: the first hourly read after the ship is the first look, and its kept
-  document is what the in-game check reads (planets.md).
+- **The first real colonies were kept on 18 October 2026** (the 22:35 UTC hourly read after stage 1 shipped; D1, SELECT only):
+  five planets in 5-NZNW (I, III, IV and VI Barren, VII Gas), each at Command Center Upgrades IV with two extractors at 9 or 10
+  heads in all, inside the fit model's 11 (planets.md), the Barren ones with 4 Basic and 2 Advanced (P0 → P2). That read found
+  every factory kept as storage: ESI sends the schematic as the pin's own `schematic_id` (eve-planets.md), and only
+  `factory_details` was read. Both are now; the next hourly read refills the document, since ties go to the read. The in-game
+  check reads this document (planets.md).
 - `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
 
 ## Limits
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
 
-- **No real colony has been drawn yet.** Colonies draws the main's kept `colonies` document, which the cloud keeps hourly, and the
-  page case draws a seeded one; nothing of Planets has shipped, so the first real look is after the first hourly read
-  following the ship (planets.md).
+- **Colonies hasn't been looked at on a real colony yet.** The cloud has kept the main's since 18 October 2026 (above), but the
+  page case draws a seeded one, and nobody has opened the page on the real document.

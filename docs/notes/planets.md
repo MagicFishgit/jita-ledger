@@ -118,8 +118,9 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 
 - **The real reading** (above), and with it the chain at the real rate: if it runs out of budget there (`RAN_OUT`), that is a fix
   (seed the chain's bound from the feed's answer), not a limit.
-- **The real colony's head count.** The fit model holds at most 11 heads beside a P0 → P2 colony's factories at CCU IV; if the
-  main's real colonies run more, the model is wrong. Record it with the reading.
+- **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): every one of the main's five
+  colonies runs 9 or 10 heads at CCU IV (4 + 5 or 5 + 5 on two extractors), inside the fit model's 11 beside a P0 → P2 colony's
+  factories, so the model holds there.
 - Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
   question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
   ranked and said; the in-game check's head count decides whether that ever bites. The colonies' own are in planets-colonies.md.

@@ -25,6 +25,9 @@ export type RawPin = {
     heads: { head_id: number }[];
   };
   factory_details?: { schematic_id: number };
+  /** Where ESI really puts a factory's schematic: every factory of the main's first kept colonies (18 October 2026) had this
+   *  and no `factory_details`, though both are in ESI's spec. */
+  schematic_id?: number;
 };
 
 export type RawLink = { source_pin_id: number; destination_pin_id: number; link_level: number };
@@ -46,12 +49,12 @@ export type PinKind = 'extractor' | 'factory' | 'storage';
 /**
  * What a pin is, from its shape rather than a table of type IDs.
  *
- * An extractor carries extraction details, a factory carries a schematic, and everything else that
- * holds things is storage of one kind or another. No hardcoded list to go stale.
+ * An extractor carries extraction details, a factory carries a schematic (on the pin, or in `factory_details`), and everything
+ * else that holds things is storage of one kind or another. No hardcoded list to go stale.
  */
 export function classify(pin: RawPin): PinKind {
   if (pin.extractor_details) return 'extractor';
-  if (pin.factory_details) return 'factory';
+  if (pin.factory_details || pin.schematic_id != null) return 'factory';
   return 'storage';
 }
 
