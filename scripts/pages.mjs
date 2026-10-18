@@ -3661,6 +3661,22 @@ try {
     }
     const gap = await text('[data-planets="setup:p2"] [data-planets="gap"]');
     if (!/a day under the best here|the best here/.test(gap)) problems.push(`P0 → P2’s gap to the best: “${gap}”`);
+    // Bought (Ruling T11-3): nothing is bought past what Jita supplies, your 10% share of the good's Forge day (the case's books hold
+    // five days at the best ask, so the share binds), the P3s a Broadcast Node takes sit at it and say so, and the purchases are totalled.
+    {
+      const toggle = page.locator('[data-planets="setup:bought"] button[aria-expanded="false"]', { hasText: 'What it makes' });
+      if (await toggle.count()) await toggle.click().catch(() => undefined);
+      const lines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+      const byName = new Map(FXP.goods.map((g) => [g.name, g]));
+      for (const l of lines) {
+        const m = /^([\d,]+) (.+?) a day[,:]/.exec(l);
+        const g = m && byName.get(m[2]);
+        if (g && Number(m[1].replace(/,/g, '')) > Math.ceil(g.perDay * 0.1)) problems.push(`bought buys ${m[1]} ${m[2]} a day, past 10% of the ${Math.round(g.perDay)} The Forge trades: “${l.slice(0, 160)}”`);
+      }
+      if (!lines.some((l) => /^[\d,]+ .+ a day,/.test(l))) problems.push(`the bought setup lists no purchase: ${JSON.stringify(lines).slice(0, 300)}`);
+      if (!lines.some((l) => /All Jita supplies: your 10% share of the [\d,]+ traded a day in The Forge/.test(l))) problems.push(`no bought input says it's at what Jita supplies: ${JSON.stringify(lines).slice(0, 400)}`);
+      if (!lines.some((l) => /^In all, [\d.,]+ [MBk]? ?ISK a day of purchases/.test(l))) problems.push(`the bought setup's purchases aren't totalled: ${JSON.stringify(lines.slice(-2))}`);
+    }
     // The seeded extractor's reading isn't checked, so a setup on Barren's learned rates says what the other reading would make.
     if (!(await page.locator('[data-planets^="setup:"]', { hasText: 'if the game reads extraction the other way' }).count())) problems.push('no setup shows the higher figure beside its ISK a day');
     // Planet I's role lines name what it makes and its factories (in P0 → P2 its Basic and Advanced ones); the upkeep says resets a week.

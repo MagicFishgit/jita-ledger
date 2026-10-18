@@ -77,7 +77,8 @@ export function shipToJita(o: { ship: boolean; noShipsToJita: boolean; band: Sec
 }
 
 /** A Jita book as the finder reads it: everyone else's orders, the morning's or a live read. */
-export type JitaBook = { ask: number | null; bid: number | null; bids: BookLevel[]; sold?: BookSold; at: string; live: boolean };
+/** `asks`: others' sell levels from the best, for buying a week's need up them (Planets' bought inputs); absent on books built before it was kept. */
+export type JitaBook = { ask: number | null; bid: number | null; bids: BookLevel[]; asks?: BookLevel[]; sold?: BookSold; at: string; live: boolean };
 /**
  * A home hub's prices: best sell and buy, weekly movement, and when; null where not known. `source`: Goonmetrics' (absent on its
  * quotes) or the structure's own read (stage 4), which adds what its live orders sold (`sold`, the split) and its best sell levels
@@ -659,7 +660,7 @@ export function othersBook(b: { bestBuy: number | null; bestSell: number | null;
   const mine = own.filter((o) => o.typeId === typeId);
   const asks = withoutOwn(b.topSells, mine.filter((o) => !o.isBuy));
   const bids = withoutOwn(b.topBuys, mine.filter((o) => o.isBuy));
-  return { ask: asks[0]?.price ?? null, bid: bids[0]?.price ?? null, bids, ...(b.sold ? { sold: b.sold } : {}), at: b.at, live };
+  return { ask: asks[0]?.price ?? null, bid: bids[0]?.price ?? null, bids, asks, ...(b.sold ? { sold: b.sold } : {}), at: b.at, live };
 }
 
 /**

@@ -66,13 +66,45 @@ export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | 
 /**
  * What `perDay` units cost a day to buy, and where; null with `why` when not known. `note`: why it's bought where it is when the
  * better place couldn't take it (the home hub too thin for a week's need, so it's bought at Jita), for the page to say.
+ * `max`: the most a day the places allowed supply (Jita's at your share of its pace, up the listings for a week; a hub's up its
+ * depth), the same whatever the amount asked; past it `isk` is null and `why` says what they supply. Absent or null: no cap
+ * known, and an amount refused is refused outright. `maxAt` and `maxSaid`: where that is and what holds it there, for the page
+ * ("Jita", "your 10% share of the 5,773 traded a day in The Forge").
  */
-export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; note?: string | null };
+export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; note?: string | null; max?: number | null; maxAt?: string | null; maxSaid?: string | null };
 /**
  * The same contract as `Sell`, the other way: a unit's cost never falls as the amount grows, and there's no fixed charge a
  * call, so what a planet's factories buy alone is never more than their share of buying with others.
  */
 export type Buy = (typeId: number, perDay: number) => Bought;
+/** What Jita supplies of a good a day, and what a unit of `perDay` costs there before freight (null past `max`, with `why`). */
+export type Supply = { avg: number | null; max: number; maxSaid: string; why: string | null };
+/**
+ * Buying at Jita (Ruling T11-3): a week's need bought up others' listings from the best (`asks`, your own taken off), held to your
+ * share of the good's day in The Forge (`pace`, units a typical day), the share that holds what you sell. `max` is the lesser of
+ * what the listings hold for a week and that share, and never depends on the amount; past it nothing is priced and `why` says
+ * what Jita supplies. A unit's cost only rises with the amount (the walk goes further up the book), as `Buy`'s contract asks.
+ * `pace` must be over 0 (the caller says why when it isn't). Pure.
+ */
+export function jitaSupply(asks: readonly { price: number; volume: number }[], pace: number, share: number, perDay: number): Supply {
+  const listed = asks.reduce((n, l) => n + Math.max(0, l.volume), 0);
+  const depth = listed / 7, atShare = (pace * share) / 100;
+  const max = Math.min(depth, atShare);
+  const maxSaid = depth < atShare
+    ? `what its best listings hold for a week (${unitsSaid(listed)} listed)`
+    : `your ${plainNum(share)}% share of the ${unitsSaid(pace)} traded a day in The Forge`;
+  if (!(perDay > 0)) return { avg: null, max, maxSaid, why: 'none wanted' };
+  if (perDay > max * (1 + 1e-9)) return { avg: null, max, maxSaid, why: max > 0 ? `Jita supplies about ${unitsSaid(max)} a day: ${maxSaid}` : `Jita supplies none: ${maxSaid}` };
+  // Within the cap; the walk is held to what's listed, so a need at the cap to the last float still finds its price.
+  let left = Math.min(7 * perDay, listed), cost = 0;
+  const want = left;
+  for (const l of asks) {
+    const take = Math.min(left, Math.max(0, l.volume));
+    cost += take * l.price; left -= take;
+    if (left <= 1e-9) break;
+  }
+  return { avg: want > 0 ? cost / want : null, max, maxSaid, why: null };
+}
 export type PlanInput = {
   ix: PiIndex; planets: PlanPlanet[]; char: PlanChar; others: PlanChar[];
   rateOf: (t: PlanetType, p0: number) => Rate | null;
@@ -1731,19 +1763,22 @@ type Buyer = (id: number, q: number) => Bought;
 type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number };
 /** `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so a setup blocked by it says that rather than that nothing pays. */
 type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null };
-type BoughtValue = { score: Score; q: number[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
+/** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
+type BoughtValue = { score: Score; q: number[]; limit: ('market' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
 
 /**
  * Factory planets on bought inputs, worked out together: each good summed and sold once, so two planets share one market's
  * cap; a planet's factories run for what sells, the lowest-tax planet first, and buy only what they use (inputs summed and
- * bought once). Each pays import tax at half its rate on what it buys and export tax on what it sells. Null when an input
- * can't be priced at the amount, or a planet would make nothing.
+ * bought once). What the market supplies of an input a day (`Bought.max`) is shared the same way, the lowest-tax planet first,
+ * and holds a planet's factories to what it allows (Ruling T11-3): a cap sizes the setup down, never blocks it. Each pays import
+ * tax at half its rate on what it buys and export tax on what it sells. Null when an input can't be priced at the amount, or a
+ * planet would make nothing.
  */
 function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
   const { input, sold, buy, classes, opts } = ctx;
   const { ix } = input;
   const q = inst.map(() => 0);
-  const soldBy = new Map<number, Sold>();
+  const limit: BoughtValue['limit'] = inst.map(() => null);
   const byX = new Map<number, number[]>();
   inst.forEach((o, k) => { const xs = byX.get(opts[o].x) ?? []; xs.push(k); byX.set(opts[o].x, xs); });
   for (const [x, ks] of byX) {
@@ -1751,14 +1786,40 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     const s = sold(x, full);
     let left = s.isk == null ? 0 : s.units;
     for (const k of [...ks].sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b)) {
-      q[k] = Math.min(opts[inst[k]].n * opts[inst[k]].perFactory, Math.max(0, left));
+      const most = opts[inst[k]].n * opts[inst[k]].perFactory;
+      q[k] = Math.min(most, Math.max(0, left));
+      if (q[k] < most - EPS) limit[k] = 'market';
       left -= q[k];
     }
-    soldBy.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
   }
   if (q.some((x) => !(x > MIN_RATE))) return null;
-  const need = new Map<number, number>();
-  inst.forEach((o, k) => { for (const i of opts[o].inputs) need.set(i.id, (need.get(i.id) ?? 0) + q[k] * i.per); });
+  const needOf = () => {
+    const m = new Map<number, number>();
+    inst.forEach((o, k) => { for (const i of opts[o].inputs) m.set(i.id, (m.get(i.id) ?? 0) + q[k] * i.per); });
+    return m;
+  };
+  // What each input's market supplies a day, shared by the planets that use it in one order (the lowest tax first, then the order
+  // given): each planet runs for no more than what's left of every input it takes.
+  const left = new Map<number, number>();
+  for (const [id, amount] of needOf()) {
+    const max = buy(id, amount).max;
+    if (max != null && amount > max * (1 + 1e-9)) left.set(id, max);
+  }
+  if (left.size) {
+    for (const k of inst.map((_, k) => k).sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b)) {
+      for (const i of opts[inst[k]].inputs) {
+        const m = left.get(i.id);
+        if (m == null) continue;
+        const allows = Math.max(0, m) / i.per;
+        if (allows < q[k] - EPS) { q[k] = allows; limit[k] = i.id; }
+      }
+      for (const i of opts[inst[k]].inputs) if (left.has(i.id)) left.set(i.id, left.get(i.id)! - q[k] * i.per);
+    }
+    if (q.some((x) => !(x > MIN_RATE))) return null;
+  }
+  const soldBy = new Map<number, Sold>();
+  for (const [x, ks] of byX) soldBy.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
+  const need = needOf();
   let value = 0;
   for (const s of soldBy.values()) value += s.isk ?? 0;
   const bought = new Map<number, Bought>();
@@ -1777,7 +1838,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     const t = classes[opts[o].cls].t;
     return opts[o].inputs.reduce((n, i) => n + q[k] * i.per * (ix.byId.get(i.id)?.volume ?? 0) * 7, 0) / ix.planetTypes[t].pins.launchpad.capacity;
   });
-  return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, sold: soldBy, need, bought, tax, restocks };
+  return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, limit, sold: soldBy, need, bought, tax, restocks };
 }
 
 /**
@@ -1875,7 +1936,12 @@ export function planBought(input: PlanInput): Setup {
     const opt = ctx.opts[o], m = at[k];
     const count = factoriesFor(v.q[k], opt.perFactory / 24);
     const layout: Layout = { ecus: 0, heads: 0, basic: 0, storage: 0, launchpads: 1, advanced: opt.facility === 'advanced' ? count : 0, hightech: opt.facility === 'hightech' ? count : 0 };
-    const notes = count < opt.n ? [`the market takes ${unitsSaid(v.q[k])} ${name(opt.x)} a day here: ${count} of the ${opt.n} factories that fit run`] : [];
+    const lim = v.limit[k];
+    const held = typeof lim === 'number' ? v.bought.get(lim) : null;
+    const notes = count >= opt.n ? []
+      : typeof lim === 'number'
+        ? [`${held?.maxAt ?? 'the market'} supplies about ${unitsSaid(held?.max ?? 0)} ${name(lim)} a day${held?.maxSaid ? ` (${held.maxSaid})` : ''}${v.q.length > 1 && chosen.inst.some((o2, k2) => k2 !== k && ctx.opts[o2].inputs.some((i) => i.id === lim)) ? ', shared by the planets that take it' : ''}: enough for ${unitsSaid(v.q[k])} ${name(opt.x)} a day here, so ${count} of the ${opt.n} factories that fit run`]
+        : [`the market takes ${unitsSaid(v.q[k])} ${name(opt.x)} a day here: ${count} of the ${opt.n} factories that fit run`];
     roleOf.set(m.planet.planetId, {
       planetId: m.planet.planetId, charId: char.charId, does: 'factory', extracts: [],
       makes: [{ id: opt.x, perDay: v.q[k], facility: opt.facility, count }],

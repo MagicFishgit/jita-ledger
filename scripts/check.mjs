@@ -7807,6 +7807,39 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   // what 21 Advanced take. Its reason is the setup's, never "nothing pays more than its inputs cost", which would be false.
   const thinHub = planBought({ ...input, buy: (id, perDay) => (perDay <= 10 ? { isk: perDay * 100, where: 'home', why: null } : { isk: null, where: null, why: 'too thin to buy a week’s need at UALX-3' }) });
   eq('  bought from a hub too thin for a week: its reason, not "nothing pays"', [thinHub.iskDay, thinHub.why], [null, 'No input can be bought in the amount its factories need: too thin to buy a week’s need at UALX-3']);
+  // Ruling T11-3: what the market supplies of an input a day (`Bought.max`) sizes a setup down, never blocks it. Bacteria held to
+  // 10,000 a day: B (5%) makes 1,250 Nanites on 11 of its 21 Advanced (1,250 × (10,000 − 1,600 − 160 − 360)) and A (2%) a P2 that
+  // takes no Bacteria at full (2,640 × (3,000 − 1,600 − 64 − 144)); the other way round makes 539,280 less. Refused outright, as
+  // before the ruling, only the two uncapped P2s were left: 5,364,480.
+  {
+    const BACTERIA = idOf('Bacteria');
+    const capOf = (id) => (id === BACTERIA ? 10_000 : null);
+    const capBuy = (id, perDay) => {
+      const at = { max: capOf(id), maxAt: 'Jita', maxSaid: 'your 10% share of the 100,000 traded a day in The Forge' };
+      return capOf(id) != null && perDay > capOf(id) ? { isk: null, where: null, why: 'Jita supplies about 10,000 a day', ...at } : { isk: perDay * 100, where: 'jita', why: null, ...at };
+    };
+    const capped = planBought({ ...input, buy: capBuy });
+    eq('  bought with an input held to what Jita supplies: sized down to it, not blocked',
+      [capped.iskDay, role(capped, B).makes.map((m) => [m.id, m.perDay, m.count]), capped.inputs.find((x) => x.id === BACTERIA)?.perDay],
+      [9_850_000 + 3_146_880, [[NANITES, 1250, 11]], 10_000]);
+    eq('  … and the planet’s line says what held it', role(capped, B).why,
+      'Jita supplies about 10,000 Bacteria a day (your 10% share of the 100,000 traded a day in The Forge): enough for 1,250 Nanites a day here, so 11 of the 21 factories that fit run');
+  }
+  // Buying at Jita (Ruling T11-3): a week's need up others' listings, held to your share of the day.
+  {
+    const { jitaSupply } = await import('../src/lib/piPlan.ts');
+    const deep = [{ price: 100, volume: 700 }, { price: 110, volume: 700 }, { price: 130, volume: 70_000 }];
+    const thin = [{ price: 100, volume: 700 }, { price: 110, volume: 700 }];
+    eq('  Jita supply: a deep book is held to your share of the day', [jitaSupply(deep, 5000, 10, 1).max, jitaSupply(deep, 5000, 10, 1).maxSaid], [500, 'your 10% share of the 5,000 traded a day in The Forge']);
+    eq('  … a thin one to what its listings hold for a week', [jitaSupply(thin, 5000, 10, 1).max, jitaSupply(thin, 5000, 10, 1).maxSaid], [200, 'what its best listings hold for a week (1,400 listed)']);
+    eq('  … a week’s need is bought up the listings: 100 a day at the best ask, 200 a day half at the next', [jitaSupply(deep, 5000, 10, 100).avg, jitaSupply(deep, 5000, 10, 200).avg, jitaSupply(deep, 5000, 10, 300).avg],
+      [100, 105, (700 * 100 + 700 * 110 + 700 * 130) / 2100]);
+    eq('  … past what it supplies: no price, said, and the most it supplies still given', jitaSupply(deep, 5000, 10, 600),
+      { avg: null, max: 500, maxSaid: 'your 10% share of the 5,000 traded a day in The Forge', why: 'Jita supplies about 500 a day: your 10% share of the 5,000 traded a day in The Forge' });
+    eq('  … the most it supplies doesn’t depend on the amount asked', [1, 250, 499, 600, 10_000].map((n) => jitaSupply(deep, 5000, 10, n).max), [500, 500, 500, 500, 500]);
+    const sweep = Array.from({ length: 50 }, (_, i) => jitaSupply(deep, 5000, 10, 10 * (i + 1)).avg);
+    eq('  … a unit never costs less as the amount grows (Buy’s contract)', sweep.every((c, i) => c != null && (i === 0 || c >= sweep[i - 1] - 1e-9)), true);
+  }
   // A's tax not known: ranked before it (26,400,000 − 4,224,000 there, B as before), each 1% priced on A's bases: the import
   // at half (42,240 × 400 × ½) and the export (2,640 × 7,200).
   const blindB = planBought({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
@@ -8480,7 +8513,7 @@ console.log('\n--- Industry: the finder reads others\' books, and the ore a mine
   const book = { bestBuy: 100, bestSell: 120, topBuys: [{ price: 100, volume: 10 }, { price: 99, volume: 50 }], topSells: [{ price: 120, volume: 5 }, { price: 121, volume: 40 }], at: '2026-10-10T11:25:00Z' };
   const own = [{ typeId: 7, isBuy: true, price: 100, volume: 10 }, { typeId: 7, isBuy: false, price: 120, volume: 2 }, { typeId: 8, isBuy: false, price: 121, volume: 40 }];
   eq('  your own whole bid comes off, so the best bid is the next; your listing leaves 3 of the front', K.othersBook(book, own, 7, true),
-    { ask: 120, bid: 99, bids: [{ price: 99, volume: 50 }], at: '2026-10-10T11:25:00Z', live: true });
+    { ask: 120, bid: 99, bids: [{ price: 99, volume: 50 }], asks: [{ price: 120, volume: 3 }, { price: 121, volume: 40 }], at: '2026-10-10T11:25:00Z', live: true });
   eq('    another item\'s orders change nothing', K.othersBook(book, own, 9, false).bid, 100);
   // Two ores (invented): A gives 400 Tritanium a 100-unit portion at 0.1 m3 a unit, B 1,000 at 1 m3. At a 50% yield, A
   // gives 400 x 0.5 / 100 / 0.1 = 20 a m3, B 5: A it is.

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { homeAgo } from '../../lib/homeMarket';
+import { units } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { fillCost, HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Buy, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
-import { soldOf } from '../../lib/piPlan';
+import { jitaSupply, soldOf } from '../../lib/piPlan';
 import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
 import { customsRate, type Tax } from '../../lib/planetsDoc';
 import { reloadApp } from '../../lib/reload';
@@ -116,45 +117,64 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       if (best) return { isk: best.v, where: best.p, why: null };
       return { isk: null, where: null, why: [...new Set(nets.map((x) => x.why).filter((w): w is string => !!w))].join('; ') || 'no price read' };
     };
-    // What a unit costs to buy for `perDay` a day. Jita: its ask plus freight in on the hub's route, the minimum spread over a week of
-    // the market's pace at your share (so it never depends on the amount). The hub: its own read's levels walked for a week's need
-    // (`fillCost`), or Goonmetrics' best sell where it moves HOME_DEPTH times that need, else too thin. Both only rise with the amount.
-    const buyUnit = (t: number, perDay: number): { jita: number | null; jitaWhy: string | null; home: number | null; homeWhy: string | null } => {
+    // What a unit costs to buy for `perDay` a day, and the most a day each place supplies (`jitaMax`, `homeMax`: never depending on the
+    // amount). Jita (Ruling T11-3): a week's need bought up others' listings, held to your share of its day in The Forge (`jitaSupply`),
+    // plus freight in on the hub's route, the minimum spread over a week of the market's pace at your share. The hub: its own read's
+    // levels walked for a week's need (`fillCost`, at most what they hold), or Goonmetrics' best sell where it moves HOME_DEPTH times
+    // that need. A unit's cost only rises with the amount at either.
+    type Unit = { jita: number | null; jitaWhy: string | null; jitaMax: number | null; jitaMaxSaid: string | null; home: number | null; homeWhy: string | null; homeMax: number | null; homeMaxSaid: string | null };
+    const buyUnit = (t: number, perDay: number): Unit => {
       const s = salesOf(t);
       const need = 7 * perDay;
-      let jitaP: number | null = null, jitaWhy: string | null = null;
+      let jitaP: number | null = null, jitaWhy: string | null = null, jitaMax: number | null = null, jitaMaxSaid: string | null = null;
       const ask = s.m.jita?.ask ?? null;
+      const pace = s.jita.pace;
       if (!hub) jitaWhy = noHub ?? NO_HUB_WHY;
       else if (!s.m.jita) jitaWhy = 'No Jita book this morning';
       else if (ask == null) jitaWhy = 'none listed in Jita';
       else if (jitaLeg.kind === 'none') jitaWhy = NO_ROUTE_WHY;
-      else if (jitaLeg.kind === 'route' && s.jita.pace == null) jitaWhy = s.jita.why ?? 'No history this morning to say how fast it sells';
-      else if (jitaLeg.kind === 'route' && !(s.jita.pace! > 0)) jitaWhy = nothingTradedWhy(jitaLeg.f);
+      // Buying is held to your share of the day, so a day not known can't be bought on, never bought without a cap.
+      else if (pace == null) jitaWhy = s.jita.why ?? 'No history this morning to say how much trades in Jita';
+      else if (!(pace > 0)) jitaWhy = nothingTradedWhy(jitaLeg.kind === 'route' ? jitaLeg.f : null);
       else {
-        const cap = s.jita.pace != null && s.jita.pace > 0 ? (s.jita.pace * share) / 100 : 0;
-        const f = legCost(jitaLeg, volume(t), ask, cap > 0 ? 7 * cap : ANY_MAKES);
-        if (f == null) jitaWhy = NO_ROUTE_WHY; else jitaP = ask + f;
+        const sup = jitaSupply(s.m.jita.asks ?? [{ price: ask, volume: Infinity }], pace, share, perDay);
+        jitaMax = sup.max; jitaMaxSaid = sup.maxSaid;
+        if (sup.avg == null) jitaWhy = sup.why;
+        else {
+          const f = legCost(jitaLeg, volume(t), sup.avg, 7 * ((pace * share) / 100));
+          if (f == null) jitaWhy = NO_ROUTE_WHY; else jitaP = sup.avg + f;
+        }
       }
-      let homeP: number | null = null, homeWhy: string | null = null;
+      let homeP: number | null = null, homeWhy: string | null = null, homeMax: number | null = null, homeMaxSaid: string | null = null;
       const q = s.m.home;
       if (!hub) homeWhy = noHub ?? NO_HUB_WHY;
       else if (!q || q.sell == null) homeWhy = s.home.why ?? `No price at ${hub.short}`;
       else if (q.source === 'structure') {
-        const avg = fillCost(q.sells ?? [], need);
+        const levels = q.sells ?? [];
+        const listed = levels.reduce((n, l) => n + l.volume, 0);
+        homeMax = listed / 7; homeMaxSaid = `what its best listings hold for a week (${units(listed)} listed)`;
+        const avg = perDay <= homeMax * (1 + 1e-9) ? fillCost(levels, Math.min(need, listed)) : null;
         if (avg == null) homeWhy = `too thin to buy a week’s need at ${hub.short}`; else homeP = avg;
       } else if (q.weekly == null) homeWhy = `${hub.short}’s weekly movement isn’t known, so its depth can’t be judged`;
-      else if (q.weekly < HOME_DEPTH * need) homeWhy = `too thin to buy a week’s need at ${hub.short}`;
-      else homeP = q.sell;
-      return { jita: jitaP, jitaWhy, home: homeP, homeWhy };
+      else {
+        homeMax = q.weekly / (7 * HOME_DEPTH); homeMaxSaid = `a tenth of its weekly movement, ${units(q.weekly)} a week`;
+        if (q.weekly < HOME_DEPTH * need * (1 - 1e-9)) homeWhy = `too thin to buy a week’s need at ${hub.short}`;
+        else homeP = q.sell;
+      }
+      return { jita: jitaP, jitaWhy, jitaMax, jitaMaxSaid, home: homeP, homeWhy, homeMax, homeMaxSaid };
     };
     const buy: Buy = (t, perDay) => {
       const u = buyUnit(t, perDay);
-      const opts = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p)
-        .map((p) => ({ p, v: u[p] })).filter((x): x is { p: 'home' | 'jita'; v: number } => x.v != null).sort((a, b) => a.v - b.v);
+      const places = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p);
+      // The most a day: the larger place's, which takes it whole (an amount isn't split between places).
+      const caps = places.map((p) => ({ max: p === 'jita' ? u.jitaMax : u.homeMax, at: p === 'jita' ? 'Jita' : hub?.short ?? 'the hub', said: p === 'jita' ? u.jitaMaxSaid : u.homeMaxSaid }))
+        .filter((c): c is { max: number; at: string; said: string } => c.max != null).sort((a, b) => b.max - a.max);
+      const max = caps.length ? caps[0].max : null, maxAt = caps.length ? caps[0].at : null, maxSaid = caps.length ? caps[0].said : null;
+      const opts = places.map((p) => ({ p, v: u[p] })).filter((x): x is { p: 'home' | 'jita'; v: number } => x.v != null).sort((a, b) => a.v - b.v);
       // Bought at Jita because the hub couldn't take it (too thin for a week's need, its depth not known): the hub's reason is kept, so the page can say why.
-      if (opts.length) return { isk: opts[0].v * perDay, where: opts[0].p, why: null, note: where === 'best' && opts[0].p === 'jita' && u.home == null && hub ? u.homeWhy : null };
-      const why = [...new Set((['home', 'jita'] as const).filter((p) => where === 'best' || where === p).map((p) => u[p === 'jita' ? 'jitaWhy' : 'homeWhy']).filter((w): w is string => !!w))].join('; ');
-      return { isk: null, where: null, why: why || 'no price read' };
+      if (opts.length) return { isk: opts[0].v * perDay, where: opts[0].p, why: null, note: where === 'best' && opts[0].p === 'jita' && u.home == null && hub ? u.homeWhy : null, max, maxAt, maxSaid };
+      const why = [...new Set(places.map((p) => u[p === 'jita' ? 'jitaWhy' : 'homeWhy']).filter((w): w is string => !!w))].join('; ');
+      return { isk: null, where: null, why: why || 'no price read', max, maxAt, maxSaid };
     };
     return { sell, buy, unit };
   }, [doc.share, doc.hubFees, doc.sell, hub, noHub, jitaLeg, cache, liveBooks, homeHist, home, c, ix]);

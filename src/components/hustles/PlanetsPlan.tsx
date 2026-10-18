@@ -587,9 +587,19 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
           {s.inputs.length > 0 && (
             <div className="col pl-lines">
               <span className="lbl">Bought</span>
-              {s.inputs.map((i) => (
-                <span key={i.id} className="pl-line">{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}</span>
-              ))}
+              {s.inputs.map((i) => {
+                // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
+                const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
+                return (
+                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
+                    {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} supplies{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
+                  </span>
+                );
+              })}
+              {(() => {
+                const all = s.inputs.reduce((n, i) => (i.bought.isk == null || n == null ? null : n + i.bought.isk), 0 as number | null);
+                return all == null ? null : <span className="pl-line" data-planets="bought-total">In all, <b>{iskBig(all)}</b> a day of purchases{priced ? `, for ${iskBig(s.iskDay)} a day after them` : ''}.</span>;
+              })()}
             </div>
           )}
           <div className="col pl-lines">
