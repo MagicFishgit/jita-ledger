@@ -3671,6 +3671,23 @@ try {
       }
     }
 
+    // --- no home hub picked (the final review's I1): nothing is priced, so no setup shows a figure, each says why; then the hub back.
+    {
+      await page.locator('[data-planets="market"] select[aria-label="Home hub"]').selectOption('').catch((e) => problems.push(`couldn’t pick no home hub: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(400);
+      await settled();
+      for (const k of ['p1', 'p2', 'feed', 'bought', 'chain']) {
+        const fig = (await text(`[data-planets="setup:${k}"] .pl-isk b`)).trim();
+        const why = await text(`[data-planets="setup:${k}"] .pl-notes`);
+        if (fig !== '–' || why.length < 12) problems.push(`with no home hub picked, setup ${k} shows “${fig}” (notes “${why.slice(0, 160)}”): nothing is priced, so no figure`);
+      }
+      if (!/no home hub picked/i.test(await text('[data-planets="setup:p2"] .pl-notes'))) problems.push(`with no home hub picked, P0 → P2 doesn’t say why it has no figure: “${(await text('[data-planets="setup:p2"] .pl-notes')).slice(0, 200)}”`);
+      if (SHOTS) { await page.locator('[data-planets="setup:p1"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-nohub.png` }); }
+      await page.locator('[data-planets="market"] select[aria-label="Home hub"]').selectOption(String(UALX_HUB)).catch((e) => problems.push(`couldn’t pick UALX-3 again: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(400);
+      await settled();
+    }
+
     // --- the learned rate: Barren's Base Metals from the kept colony, not yet checked against the game.
     const learned = await text('[data-planets="rate:Barren:2267"]');
     if (!/learned/i.test(learned) || !learned.includes('not yet checked against the game’s total')) problems.push(`Barren’s Base Metals rate: “${learned}”`);

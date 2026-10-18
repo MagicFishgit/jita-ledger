@@ -7672,7 +7672,16 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   // Gas could make Water-Cooled CPU, priced: it does, so nothing is unvalued.
   eq('  a priced product beats an unpriced one', noPrice.unvalued, 0);
   const noPriceAll = planSingle({ ...input, sell: sellBy((id) => (['Coolant', 'Oxides', 'Synthetic Oil', 'Water-Cooled CPU'].includes(ix.byId.get(id).name) ? null : unitOf(id))) }, 'p2');
-  eq('  a price not known: unvalued 1, ISK counts the rest, "before" says so', [noPriceAll.unvalued, noPriceAll.iskDay, noPriceAll.before.includes('price')], [1, 2_400_000 - 120_960, true]);
+  // The final review's I1: a good nobody prices is neither credited nor taxed. Gas's P2 here is unpriced, so its 86,400 of export
+  // tax (240 × 7,200 × 5%) goes with its sale: 2,400,000 less Barren's Nanites tax alone (240 × 7,200 × 2% = 34,560) = 2,365,440,
+  // where 120,960 (both planets' tax) used to come off.
+  eq('  a price not known: unvalued 1, ISK counts the rest, "before" says so', [noPriceAll.unvalued, noPriceAll.iskDay, noPriceAll.before.includes('price')], [1, 2_400_000 - 34_560, true]);
+  eq('  and its customs aren’t counted either: the tax is Barren’s alone, no row for the Gas planet', [noPriceAll.taxDay, noPriceAll.taxes.filter((t) => t.planetId === B)], [34_560, []]);
+  // Nothing priced at all (no home hub picked): no figure, never one made of customs alone, the outputs' own reason said.
+  const NOHUB = 'no home hub picked: pick one on the Industry tab';
+  const none = (id, perDay) => ({ isk: null, units: 0, where: [], why: NOHUB });
+  const nothing = ['p1', 'p2'].map((k) => planSingle({ ...input, sell: none }, k));
+  eq('  nothing priced: P0 → P1 and P0 → P2 have no figure, and say why', nothing.map((s) => [s.iskDay, s.iskDayHigh, s.taxDay, s.why]), [[null, null, null, 'No home hub picked: pick one on the Industry tab'], [null, null, null, 'No home hub picked: pick one on the Industry tab']]);
   eq('  its output says why, and no building up claimed', [noPriceAll.outputs.find((o) => o.sold.isk == null)?.sold.why, noPriceAll.outputs.find((o) => o.sold.isk == null)?.buildingUp], ['No price read', 0]);
 
   // Skills not read, or an Alpha: said, no zeros.
@@ -8138,9 +8147,13 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     const s = planFeed({ ...input, char: { ...char, planets: 3 }, rateOf: () => rate(), sell: sellBy((id) => (id === glass ? 10_000 : null)),
       planets: [{ planetId: 1, name: 'Gas', type: 'Gas', radiusKm: 26370, tax: brave(0.05) }, { planetId: 2, name: 'Lava', type: 'Lava', radiusKm: 3360, tax: brave(0.05) }, { planetId: 3, name: 'Barren', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }] });
     // 240 a day; the second extractor on each feeder is on Base Metals (nothing else pays more: no P1 is priced), so both
-    // make Reactive Metals nobody prices: exported all the same (nothing says it builds up), taxed, one output unvalued.
-    // 2,400,000 − 15,360 import − 34,560 export − 2 × 3,840 × 400 × 5%.
-    eq('  feed: a P2 no planet makes alone', [role(s, 3).does, s.outputs.find((o) => o.id === glass)?.perDay, s.iskDay, s.outputs.filter((o) => o.sold.isk == null).map((o) => nameOf(o.id))], ['factory', 240, 2_400_000 - 15_360 - 34_560 - 153_600, ['Reactive Metals']]);
+    // make Reactive Metals nobody prices: shipped to market all the same (nothing says it builds up), one output unvalued, and
+    // neither credited nor taxed (the final review's I1). 2,400,000 − 15,360 import − 34,560 export − each feeder's export to
+    // the factory alone, 2 × 1,920 × 400 × 5% (it was 2 × 3,840, the Reactive Metals taxed too).
+    eq('  feed: a P2 no planet makes alone', [role(s, 3).does, s.outputs.find((o) => o.id === glass)?.perDay, s.iskDay, s.outputs.filter((o) => o.sold.isk == null).map((o) => nameOf(o.id))], ['factory', 240, 2_400_000 - 15_360 - 34_560 - 76_800, ['Reactive Metals']]);
+    const rm = idOf('Reactive Metals');
+    eq('  feed: what nobody prices still goes to market from each feeder, and the tax rows leave it out as the figure does',
+      [[1, 2].map((id) => role(s, id).ships.filter((x) => x.id === rm).map((x) => [x.to, Math.round(x.perDay)])), s.taxDay], [[[['market', 1920]], [['market', 1920]]], 15_360 + 34_560 + 76_800]);
   }
   // At no tax, a planet making a P2 alone ships it to the factory rather than its P1: the same ISK and less to restock.
   {

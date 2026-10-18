@@ -15,6 +15,13 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   your extractors deliver 12,000 P0 an hour each" and listed in `before`, never claimed. Heads are the rate's (`ceil` of its
   median); 0 heads means the colony didn't say and the layout takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
   programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
+- **An unvalued good is neither credited nor taxed** (the final review's I1; `assess`, `valueFed`). It is still shipped (nothing says
+  how much would build up), but its export tax goes with its sale: with no hub picked, P0 → P1 and P0 → P2 ranked first on a loss
+  made of customs alone (−173,363 and −195,034 ISK a day on the page case), and a setup with one unpriced output read under what its
+  valued ones make. What a feeder ships to the factory is taxed as ever, what it ships to market unpriced isn't. A setup none of
+  whose outputs is valued is blocked with their own reason ("No home hub picked: pick one on the Industry tab"); feed and chain
+  search only products priced, so there it is a guard. The bounds already counted such a good at nothing (a first unit's net,
+  floored at 0), so they stay sound: brute force agreed after the change (256 feed and chain systems, 0 differ; planner against brute force on bought, 0 of 400).
 - **One market cap per good, and what builds up isn't taxed** (Ruling T8-3). A good's output is summed across planets and
   characters and sold once (`sell` on the total). What the market takes is exported from the lowest-tax planets first; the rest
   stays on its planet, untaxed, and is said to build up. Taxing every unit made let `iskDayHigh` read under `iskDay` (P0 → P1 on

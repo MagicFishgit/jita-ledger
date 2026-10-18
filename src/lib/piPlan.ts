@@ -387,16 +387,20 @@ function seller(sell: Sell) {
 }
 type Seller = (id: number, q: number) => Sold;
 
-/** A set of planets' plans, worked out: each good summed and sold once, what each planet exports, and the ISK after the known tax. */
-type Assessed = { plans: Plan[]; outputs: Output[]; exports: Ship[][]; value: number; unpriced: number };
+/**
+ * A set of planets' plans, worked out: each good summed and sold once, what each planet exports, what of that is taxed (the goods
+ * that are valued), and the ISK after the known tax.
+ */
+type Assessed = { plans: Plan[]; outputs: Output[]; exports: Ship[][]; taxed: Ship[][]; value: number; unpriced: number };
 
 const bySlot = (plans: Plan[]) => [...plans].sort((a, b) => a.at - b.at);
 
 /**
  * Each good is summed over the planets and sold once, so two planets share one market's cap. What the market takes is
  * exported from the planets with the lowest known tax first (then the one listed first; a tax not known last); the rest
- * stays on its planet, building up, and pays no export tax. A good with no price is taken as all exported: nothing says
- * how much of it would build up.
+ * stays on its planet, building up, and pays no export tax. A good with no price is taken as all exported (nothing says
+ * how much of it would build up), and is neither credited nor taxed (the final review's I1): its customs are left out with
+ * its sale, so a figure is never made of the tax on what nobody prices.
  */
 function assess(input: PlanInput, plansIn: Plan[], sold: Seller): Assessed {
   const plans = bySlot(plansIn);
@@ -425,9 +429,11 @@ function assess(input: PlanInput, plansIn: Plan[], sold: Seller): Assessed {
       exports[k].push({ id: o.id, perDay: out });
     }
   }
+  const valued = new Set(outputs.filter((o) => o.sold.isk != null).map((o) => o.id));
+  const taxed = exports.map((xs) => xs.filter((x) => valued.has(x.id)));
   let value = outputs.reduce((t, o) => t + (o.sold.isk ?? 0), 0);
-  plans.forEach((p, k) => { for (const t of exportTax(input, p, exports[k])) value -= t.perDay ?? 0; });
-  return { plans, outputs, exports, value, unpriced: outputs.filter((o) => o.sold.isk == null).length };
+  plans.forEach((p, k) => { for (const t of exportTax(input, p, taxed[k])) value -= t.perDay ?? 0; });
+  return { plans, outputs, exports, taxed, value, unpriced: outputs.length - valued.size };
 }
 
 /** Within a hundredth of an ISK is the same: sums of the same figures in another order differ by rounding. */
@@ -583,6 +589,9 @@ function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]
   };
 }
 
+/** Why a setup none of whose outputs is valued has no figure: the outputs' own reasons, each once ("No home hub picked: …"). */
+const unvaluedWhy = (outputs: Output[]) => cap([...new Set(outputs.map((o) => o.sold.why ?? 'no price read'))].join('; '));
+
 /** Units of a sale that go to Jita: as `soldOf` splits them, else all when Jita is the only place. */
 const jitaUnits = (s: Sold) => s.jitaUnits ?? (s.where.length === 1 && s.where[0] === 'jita' ? s.units : 0);
 
@@ -649,6 +658,8 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
   const sold = seller(input.sell);
   const now = assess(input, choose(input, kind, allowed, sold), sold);
   const { plans, outputs } = now;
+  // Nothing it makes is valued (no home hub picked, say): no figure, never one made of customs alone; the outputs' own reasons say why.
+  if (outputs.length && outputs.every((o) => o.sold.isk == null)) return blocked(input, kind, unvaluedWhy(outputs), []);
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
 
   const byPlanet = new Map(plans.map((p, k) => [p.planet.planetId, k]));
@@ -683,7 +694,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
 
   const taxes: Setup['taxes'] = [];
   let perPctBase = 0;
-  plans.forEach((p, k) => { for (const t of exportTax(input, p, now.exports[k])) {
+  plans.forEach((p, k) => { for (const t of exportTax(input, p, now.taxed[k])) {
     taxes.push({ planetId: p.planet.planetId, tier: t.tier, perDay: t.perDay });
     if (t.perDay == null) perPctBase += t.base;
   } });
@@ -1030,9 +1041,11 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
     const left = S[g] - used[g];
     if (left > 1e-6) surplus.push({ g, perDay: left, sold: sold(goods[g], left) });
   }
-  // A good with no price is taken as all exported: nothing says how much of it would build up.
-  const toSell = new Float64Array(G);
-  for (const s of surplus) toSell[s.g] = s.sold.isk == null ? s.perDay : Math.min(s.perDay, s.sold.units);
+  // What sells is exported and taxed. A good with no price is taken as all shipped out (nothing says how much of it would build
+  // up), and neither credited nor taxed (the final review's I1): its export tax is left out with its sale. What the factory takes
+  // of it is taxed as ever.
+  const toSell = new Float64Array(G), unpricedOut = new Float64Array(G);
+  for (const s of surplus) { if (s.sold.isk == null) unpricedOut[s.g] = s.perDay; else toSell[s.g] = Math.min(s.perDay, s.sold.units); }
   const fRate = classes[f].rate;
   const xSold = soldX.isk == null ? 0 : soldX.units;
   let value = soldX.isk ?? 0;
@@ -1081,7 +1094,7 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
 
   // Each feeder's part, in the same order: what's exported leaves the lowest tax first, a class's feeders one after another;
   // what each exports goes to the factory and to market in the same proportion (which doesn't change the tax), so every
-  // feeder shows its part of what the factory takes.
+  // feeder shows its part of what the factory takes. A good nobody prices is added to market after, untaxed (below).
   const inst: number[] = [];
   counts.forEach((n, i) => { for (let k = 0; k < n; k++) inst.push(i); });
   const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[feeders[inst[a]].cls].rate, classes[feeders[inst[b]].cls].rate) || a - b);
@@ -1103,6 +1116,18 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
   const shipsOf = (a: Float64Array, b?: Float64Array): Ship[] => goods.map((id, g) => ({ id, perDay: a[g] + (b ? b[g] : 0) })).filter((x) => x.perDay > 0);
   v.feederTax = inst.map((i, k) => taxRows(ix, shipsOf(v.toFactory[k], v.toMarket[k]), classes[feeders[i].cls].rate, 1));
   v.factoryTax = mergeRows([...taxRows(ix, shipsOf(used), fRate, 0.5), ...taxRows(ix, [{ id: tree.x, perDay: xSold }], fRate, 1)]);
+  // What nobody prices goes to market too, untaxed, from what each feeder has left of it (after the taxes above, so they leave it out).
+  for (let g = 0; g < G; g++) {
+    let left = unpricedOut[g];
+    for (const k of order) {
+      if (!(left > 0)) break;
+      const room = feeders[inst[k]].ships[g] - v.toFactory[k][g] - v.toMarket[k][g];
+      if (!(room > 0)) continue;
+      const a = Math.min(room, left);
+      left -= a;
+      v.toMarket[k][g] += a;
+    }
+  }
   return v;
 }
 
@@ -1696,6 +1721,9 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     ...v.surplus.map((s) => ({ id: goods[s.g], perDay: s.perDay, sold: s.sold, buildingUp: s.sold.isk == null ? 0 : Math.max(0, s.perDay - s.sold.units) })),
   ].sort((a, b) => tierRank(ix, a.id) - tierRank(ix, b.id) || a.id - b.id);
   const unvalued = outputs.filter((o) => o.sold.isk == null).length;
+  // Nothing it makes valued: no figure, as P0 → P2 (the final review's I1). Its product is priced to be searched at all
+  // (`fedTargets`), so this is a guard, not a path seen.
+  if (unvalued === outputs.length) return blocked(input, kind, unvaluedWhy(outputs), []);
 
   const usedFeeders = ctx.feeders.filter((_, i) => counts[i] > 0);
   let high: number | null = null;

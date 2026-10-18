@@ -471,7 +471,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   if (s.cut && s.why == null) notes.push('The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.');
   if (priced && s.before.includes('tax')) notes.push(`Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.`);
   if (priced && s.before.includes('extraction')) notes.push('Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.');
-  if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted: never as 0.`);
+  if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted, and ${s.unvalued === 1 ? 'its' : 'their'} customs not counted either: never as 0.`);
   // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
   const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
   if (priced && unfit.length) notes.push(`${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.`);
@@ -574,7 +574,7 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
       {s.outputs.map((o) => (
         <span key={o.id} className="pl-line">
           <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
-          {o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}`
+          {o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
             : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
           {o.sold.isk != null && o.buildingUp > 1e-6 && <span className="pl-up">; {aDay(o.buildingUp)} a day build up: the market takes no more at your share</span>}
         </span>
