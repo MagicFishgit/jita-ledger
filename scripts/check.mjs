@@ -7429,6 +7429,72 @@ console.log('\n--- Planets: the bundle (scripts/planets-bundle.mjs, CCP static d
   eq('  sorted, so a rebuild of one build changes nothing', [b.schematics.every((s, i, a) => !i || a[i - 1].id < s.id), Object.values(b.planetTypes).every((t) => t.p0.every((x, i, a) => !i || a[i - 1] < x))], [true, true]);
 }
 
+console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down to P0, what a system can supply, which setups make a good) ---');
+{
+  const fsP = await import('node:fs');
+  const { indexPlanets, p0Of } = await import('../src/lib/piBundle.ts');
+  const { goodsByTier, typesWith, recipeOf, missingFor, canMake, makingIn, p0sOn, TIERS } = await import('../src/lib/piChart.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const id = (n) => ix.commodities.find((c) => c.name === n).id;
+  const nm = (x) => ix.byId.get(x).name;
+  const g = goodsByTier(ix);
+  eq('  83 goods by tier, each tier by name', [TIERS.map((t) => g[t].length), g.P0.slice(0, 3).map((c) => c.name)], [[15, 15, 24, 21, 8], ['Aqueous Liquids', 'Autotrophs', 'Base Metals']]);
+  eq('  the planet types a P0 is on, in the bundle’s order', [typesWith(ix, id('Microorganisms')), typesWith(ix, id('Base Metals')), typesWith(ix, id('Felsic Magma'))],
+    [['Temperate', 'Ice', 'Oceanic', 'Barren'], ['Gas', 'Lava', 'Barren', 'Storm', 'Plasma'], ['Lava']]);
+  // Nanites: 40 Bacteria + 40 Reactive Metals → 5 an hour; each P1 3,000 of its P0 → 20 every 30 minutes.
+  const nan = recipeOf(ix, id('Nanites'));
+  eq('  Nanites’ recipe down to P0: the good, then a tier at a time, and what one Nanites takes all the way down',
+    nan.map((s) => [nm(s.id), s.tier, s.need, s.schematic ? [s.schematic.cycleSeconds, s.schematic.facility] : null]),
+    [['Nanites', 'P2', 1, [3600, 'advanced']], ['Bacteria', 'P1', 8, [1800, 'basic']], ['Reactive Metals', 'P1', 8, [1800, 'basic']], ['Base Metals', 'P0', 1200, null], ['Microorganisms', 'P0', 1200, null]]);
+  // Every good's recipe against the long way round: every path to each good walked on its own, its needs summed. A good met by two
+  // paths (a P1 two P2s of a P3 take) is summed once per path; each good appears once; the recipe's P0s are p0Of's.
+  {
+    const walk = (x, n, acc) => { acc.set(x, (acc.get(x) ?? 0) + n); const s = ix.makes.get(x); if (s) for (const i of s.inputs) walk(i.id, (n * i.qty) / s.out.qty, acc); return acc; };
+    const off = ix.commodities.filter((c) => {
+      const r = recipeOf(ix, c.id), want = walk(c.id, 1, new Map());
+      return r.length !== want.size || new Set(r.map((s) => s.id)).size !== r.length || r.some((s) => Math.abs(s.need - want.get(s.id)) > 1e-9 * want.get(s.id))
+        || JSON.stringify(r.filter((s) => s.tier === 'P0').map((s) => s.id).sort((a, b) => a - b)) !== JSON.stringify(p0Of(ix, c.id));
+    }).map((c) => c.name);
+    eq('  every good’s recipe sums every path to each of its parts, once each', off, []);
+    eq('  a schematic’s inputs are always of a lower tier (the sum runs top down)', ix.schematics.every((s) => s.inputs.every((i) => TIERS.indexOf(ix.byId.get(i.id).tier) < TIERS.indexOf(s.tier))), true);
+  }
+  const UALX = ['Barren', 'Temperate', 'Temperate', 'Barren', 'Storm', 'Barren', 'Temperate', 'Gas'];
+  const NZNW = ['Barren', 'Lava', 'Barren', 'Barren', 'Temperate', 'Barren', 'Gas', 'Gas', 'Gas', 'Gas', 'Ice', 'Oceanic'];
+  eq('  UALX-3’s planets lack four P0s; 5-NZNW’s have all 15', [[...ix.commodities.filter((c) => c.tier === 'P0' && !p0sOn(ix, UALX).has(c.id))].map((c) => c.name).sort(), p0sOn(ix, NZNW).size],
+    [['Felsic Magma', 'Heavy Metals', 'Non-CS Crystals', 'Planktic Colonies'], 15]);
+  eq('  Broadcast Node at UALX-3 misses three of them; Nanites none; 40 goods miss one or more there, none at 5-NZNW',
+    [missingFor(ix, id('Broadcast Node'), UALX).map(nm), missingFor(ix, id('Nanites'), UALX), ix.commodities.filter((c) => missingFor(ix, c.id, UALX).length).length, ix.commodities.filter((c) => missingFor(ix, c.id, NZNW).length).length],
+    [['Planktic Colonies', 'Non-CS Crystals', 'Felsic Magma'], [], 40, 0]);
+  const can = (n, types) => canMake(ix, id(n), types).map((c) => [c.kind, c.can, c.can ? c.on : c.why]);
+  eq('  Nanites at 5-NZNW: P0 → P2 makes it alone on Barren planets; a fed factory and a bought one can; P0 → P1 and a chain can’t', can('Nanites', NZNW), [
+    ['p1', false, 'it sells P1 only'], ['p2', true, ['Barren']], ['feed', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']],
+    ['bought', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']], ['chain', false, 'a chain makes P3 and P4 only']]);
+  eq('  Broadcast Node at UALX-3: only on bought inputs, at its Barren and Temperate planets; a chain lacks three P0s', can('Broadcast Node', UALX), [
+    ['p1', false, 'it sells P1 only'], ['p2', false, 'it sells P2 only'], ['feed', false, 'its factory makes P2 and P3 only'],
+    ['bought', true, ['Barren', 'Temperate']], ['chain', false, 'Planktic Colonies, Non-CS Crystals and Felsic Magma aren’t on any planet here']]);
+  eq('  a P4 where no planet takes a High-Tech Production Plant; a P2 no planet makes alone; a P1 whose P0 isn’t here; a P0',
+    [can('Broadcast Node', ['Gas'])[3], can('Microfiber Shielding', NZNW)[1], can('Silicon', UALX)[0], can('Microorganisms', NZNW).map((c) => c[1])],
+    [['bought', false, 'only Barren and Temperate planets take its High-Tech Production Plant, and none is here'], ['p2', false, 'no planet here has all its P0s: they are on different planets'],
+      ['p1', false, 'Felsic Magma isn’t on any planet here'], [false, false, false, false, false]]);
+  // Where a ranking makes a good: its used planets' factories that make some, or extractors pulling it (a P0); a blocked setup, an
+  // unused planet and a factory line that makes none don't count; sold when it's among the setup's outputs.
+  const role = (planetId, does, makes = [], extracts = []) => ({ planetId, charId: 1, does, makes, extracts, ships: [], fit: null, why: null });
+  const mk = (x, perDay, count = 1) => ({ id: x, perDay, facility: 'basic', count });
+  const setup = (kind, roles, outputs = [], why = null) => ({ kind, roles, outputs: outputs.map((o) => ({ id: o, perDay: 1, sold: { isk: 1, units: 1, where: ['jita'], why: null }, buildingUp: 0 })), why });
+  const B = id('Bacteria'), M = id('Microorganisms'), V = id('Viral Agent');
+  eq('  where a ranking makes a good', [
+    makingIn([
+      setup('p1', [role(11, 'extract', [mk(B, 960)], [{ p0: M, perHour: 4000 }]), role(12, 'extract', [mk(B, 960)]), role(13, 'unused', [mk(B, 960)])], [B]),
+      setup('p2', [role(11, 'extract', [mk(B, 1920), mk(V, 240)]), role(14, 'extract', [mk(B, 0, 0)])], [V]),
+      setup('feed', [role(11, 'extract', [mk(B, 500)])], [B], 'Nothing priced'),
+    ], B),
+    makingIn([setup('p1', [role(11, 'extract', [mk(B, 960)], [{ p0: M, perHour: 4000 }])], [B])], M),
+  ], [
+    [{ kind: 'p1', planets: [11, 12], perDay: 1920, sold: true }, { kind: 'p2', planets: [11], perDay: 1920, sold: false }],
+    [{ kind: 'p1', planets: [11], perDay: 96000, sold: false }],
+  ]);
+}
+
 console.log('\n--- Planets: what fits (piFit.ts, the research\'s fit.py) ---');
 {
   const fsP = await import('node:fs');
