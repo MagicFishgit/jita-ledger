@@ -2272,10 +2272,13 @@ export function planBought(input: PlanInput): Setup {
       const s = sizeSet(ctx, inst);
       // Sized exactly, `s.value` is the set's most, so `cur + topFrom` bounds every set grown from it. A set the sizing zeroes a planet
       // in is worth what the rest are (they stand for it), and is no dead end: a planet added can bring the zeroed one back.
-      if (!s.refused) {
+      if (s.refused) ctx.buyWhy ??= s.refused;
+      else {
         const live = s.zeroed ? liveOf(ctx, inst.slice(), s) : { inst, s };
-        const score = live && { value: live.s.value, unpriced: 0, upkeep: live.s.upkeep };
-        if (live && score && beats(score, best?.score ?? null)) best = { score, inst: live.inst.slice() };
+        if (live) {
+          const score = { value: live.s.value, unpriced: 0, upkeep: live.s.upkeep };
+          if (beats(score, best?.score ?? null)) best = { score, inst: live.inst.slice() };
+        }
         if (left > 1) dfs(j, s.value, s.upkeep, left - 1);
       }
       inst.pop(); room[o.cls]++;
