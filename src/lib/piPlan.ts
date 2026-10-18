@@ -46,9 +46,10 @@ export type PlanInput = {
   /** The freight route from the home hub to Jita, for the contracts a week; absent or null, none is counted. */
   freight?: Freight | null;
   /**
-   * How many arrangements a setup's search may try (`SEARCH_BUDGET` when absent): feed and chain count arrangements of
-   * planets visited, across every product and number of characters; bought counts assignments valued. A setup whose search
-   * ran out of it before ruling out what's left says so (`Setup.cut`).
+   * How many arrangements a setup's search may try (`SEARCH_BUDGET` when absent, `CHAIN_BUDGET` for the chain): feed and
+   * chain count arrangements of planets visited, across every product and number of characters, and each one valued counts
+   * `VALUED` more; bought counts assignments valued. A setup whose search ran out of it before ruling out what's left says so
+   * (`Setup.cut`).
    */
   budget?: number;
 };
@@ -874,9 +875,13 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
   const xSold = soldX.isk == null ? 0 : soldX.units;
   let value = soldX.isk ?? 0;
   for (const s of surplus) value += s.sold.isk ?? 0;
+  // The feeders in the arrangement, the lowest tax first (walking every feeder for every good was most of the time on twenty
+  // planets at their own rates).
+  const present: number[] = [];
+  for (const i of ctx.byTax) if (counts[i] > 0) present.push(i);
   for (let g = 0; g < G; g++) {
     let left = used[g] + toSell[g];
-    for (const i of ctx.byTax) {
+    for (const i of present) {
       if (!(left > 0)) break;
       const have = counts[i] * feeders[i].ships[g];
       if (!(have > 0)) continue;
@@ -1059,11 +1064,25 @@ function boundByMargin(ctx: FedCtx, counts: Int32Array, S: Float64Array, R: numb
 }
 
 /**
- * The arrangements a setup's search may try when `PlanInput.budget` doesn't say. Measured on 18 October 2026: the heaviest
- * realistic systems tried (every P2 to P4 priced, up to 20 planets each at its own customs rate, three characters) took at
- * most about 250 ms a setup and 25 MB; without it, one took a minute or ran out of memory.
+ * The arrangements the feed's and bought's searches may try when `PlanInput.budget` doesn't say. Measured on 18 October 2026:
+ * the heaviest realistic systems tried (every P2 to P4 priced, up to 20 planets each at its own customs rate, three
+ * characters) took at most about 250 ms a setup and 25 MB; without it, one took a minute or ran out of memory.
  */
 export const SEARCH_BUDGET = 40_000;
+/**
+ * The chain's, twice the others': it searches every P4 and every P3 that needs more than one character, for one character
+ * and for each number of them, so its products share more. On 65 random Brave systems of 5-9 planets (two characters of 5),
+ * at 40,000 arrangements 18 read more than 2% under the best found and 3 more than 25%; at 80,000, 13 and 1. The heaviest
+ * cases measured on 18 October 2026 (twenty planets at their own rates, three characters of 6) take about 450 ms at it.
+ */
+export const CHAIN_BUDGET = 80_000;
+/**
+ * What working out an arrangement's ISK (at each place its factory could go) costs the budget besides the visit, so the
+ * budget follows a search's time rather than only the arrangements it visits. Where nearly every arrangement is worth
+ * valuing (twenty planets at their own rates, three characters of 6) the chain took 918 ms at 80,000 visits; charged two,
+ * 437 ms, with the same figure. On the 65 random systems one more read over 2% short (13, not 12).
+ */
+const VALUED = 2;
 /** What a covering search (does a product need more planets than one character has?) may try, for each product. */
 const COVER_BUDGET = 4000;
 
@@ -1081,7 +1100,42 @@ const keyWeights = (n: number) => {
   return Float64Array.from({ length: n }, () => ((next() % 262144) * 1048576) + (next() % 1048576) + 1);
 };
 
-type Searched = { b: FedBest | null; unfit: boolean };
+/**
+ * What a pool of searches found. `tried` once any arrangement had every feeder needed; `tooBig` while every such arrangement
+ * failed only because its factory doesn't fit even at the top level (so that, and nothing else, is why none was found).
+ */
+type Searched = { b: FedBest | null; tried: boolean; tooBig: boolean };
+const searched = (): Searched => ({ b: null, tried: false, tooBig: true });
+
+/**
+ * A product's search, picked up where it left off; `remaining` bounds what any arrangement it hasn't ruled out could be worth,
+ * and `round` is the round it is in (`ROUNDS`).
+ */
+type Run = { it: Generator<void, void, void>; remaining: () => number; round: number; done: boolean };
+
+/**
+ * Each round of a product's search: how many departures from the dive it allows, and how many of an arrangement's children
+ * it follows where departures are left (the dive's own and the next in order; the rest wait for a later round). The dive
+ * alone; two and then four departures among the first three children; four among them all; then any (a whole depth-first
+ * search, so a search let finish rules out nothing the bounds don't). Measured on 18 October 2026:
+ * - **the narrow rounds first**: on twenty planets at their own rates, a round of two departures over every child took more
+ *   than 30,000 arrangements for one product without finishing, and the chain read 11,655,648 a character, where the narrow
+ *   rounds find 19,508,928;
+ * - **the wide round after them**: on 65 random Brave systems of 5-9 planets (two characters of 5), the narrow rounds alone
+ *   left 15 short of the best found by more than 2% and 3 by more than 25%, against 13 and 1 with it;
+ * - **rounds of two and four departures, not one, two, three…**: each round walks again what the last walked (before the
+ *   widths, on the review's six-planet system at varied prices, 0, 1, 2, 4 read 12,162,240 at 40,000 arrangements where 0, 2,
+ *   4 read 16,748,160).
+ */
+const ROUNDS: { departures: number; width: number }[] = [
+  { departures: 0, width: 1 },
+  { departures: 2, width: 3 },
+  { departures: 4, width: 3 },
+  { departures: 4, width: Infinity },
+  { departures: Infinity, width: Infinity },
+];
+/** How a visit is stored: its round's width (Infinity as 999) and the departures it had left (at most 999). */
+const coverOf = (width: number, d: number) => Math.min(width, 999) * 1000 + Math.min(d, 999);
 
 /**
  * The best arrangement of feeders for X: every arrangement the rules allow in which each feeder is needed, found by adding at
@@ -1089,10 +1143,12 @@ type Searched = { b: FedBest | null; unfit: boolean };
  * that way), each arrangement once. An arrangement an upper bound says can't beat the best so far isn't followed. The
  * factory goes where its own taxes are least: the first class with room whose rate is known, the lowest first, or one whose
  * rate isn't known, ranked before its tax (as on every planet whose tax isn't known); its class changes nothing else. It
- * yields once an arrangement visited, so a caller can share a budget between products and pick each up where it left off;
- * it's done when the search has ended on its own.
+ * yields once an arrangement visited, so a caller can share a budget between products and pick each up where it left off,
+ * and takes `VALUED` off that budget for each arrangement it values.
+ * `remaining` is the highest bound among the children not finished on its path (each child's, the lower of its parent's
+ * bound and its own worth bound) and those a round left for the next; `root` until the search starts.
  */
-function* searchFed(ctx: FedCtx, who: Who[], best: Searched): Generator<void, void, void> {
+function searchFed(ctx: FedCtx, who: Who[], best: Searched, root: number, budget: Budget): Run {
   const { feeders, classes, eqs } = ctx;
   const K = who.length;
   const slots = who.reduce((n, w) => n + w.cap, 0) - 1;
@@ -1101,40 +1157,66 @@ function* searchFed(ctx: FedCtx, who: Who[], best: Searched): Generator<void, vo
   const G = ctx.goods.length;
   const counts = new Int32Array(feeders.length), S = new Float64Array(G);
   const weight = keyWeights(feeders.length);
-  const seen = new Set<number>();
-  let key = 0;
+  // An arrangement's key → how it was last visited (`coverOf`): one visited as wide or wider, with as many departures left or
+  // more, covers it.
+  const seen = new Map<number, number>();
+  let key = 0, worth = 0, started = false;
+  // Per depth on the path: the children's bounds in the order they're visited, as maxima from each on, and the one being visited.
+  const frames: Float64Array[] = [], at: number[] = [];
+  // The highest bound among the subtrees this round left for a later one (`limited` once any was), and the last round's.
+  let deferred = -Infinity, carried = root, limited = false, round = 0, width = 1;
   const consider = (R: number, n: number) => {
     // The bound with nothing added is this arrangement's own: what can't beat the best isn't worked out.
     if (best.b && !mayBeat(boundFed(ctx, counts, S, R, caps, 0), resets(ctx.input, n), best.b.score)) return;
     if (!allNeeded(ctx, counts, S, R)) return;
     // A later site of the same kind (rate known, or not) is worth no more, so the first that places decides for its kind; one
     // that can't beat the best already found decides too, without placing.
-    let known = false, unknown = false;
+    let known = false, unknown = false, tooBig = false, other = false;
     for (const f of sites) {
       const blind = classes[f].rate == null;
       if (caps[f] <= 0 || (blind ? unknown : known)) continue;
+      budget.left -= VALUED;
       const v = valueFed(ctx, counts, f, S, R);
-      if (v.fitsAtV === false) { best.unfit = true; continue; }
+      if (v.fitsAtV === false) { tooBig = true; continue; }
       if (beats(v.score, best.b?.score ?? null)) {
         const placed = placeFed(ctx, counts, f, who, v.layout);
-        if (!placed) continue;
+        if (!placed) { other = true; continue; }
         best.b = { ctx, f, counts: counts.slice(), score: v.score, who, placed };
       }
       if (blind) unknown = true; else known = true;
       if (known && unknown) break;
     }
+    if (!known && !unknown) {
+      best.tried = true;
+      if (!tooBig || other) best.tooBig = false;
+    }
+  };
+  // What this arrangement's subtree could be worth by the units' potential alone, with feeder i added and m more to come.
+  const worthWith = (i: number, m: number) => {
+    const c = feeders[i].cls;
+    caps[c]--;
+    let t = worth + feeders[i].worth, left = m;
+    for (const ci of ctx.byWorth) {
+      if (!left) break;
+      const k = Math.min(left, caps[ci]);
+      t += k * ctx.topWorth[ci]; left -= k;
+    }
+    caps[c]++;
+    return t;
   };
   const lim = new Float64Array(eqs.length);
-  function* visit(n: number): Generator<void, void, void> {
-    if (seen.has(key)) return;
-    seen.add(key);
+  function* visit(n: number, d: number): Generator<void, void, void> {
+    const had = seen.get(key), now = coverOf(width, d);
+    if (had != null && Math.floor(had / 1000) >= Math.floor(now / 1000) && had % 1000 >= now % 1000) return;
+    seen.set(key, now);
     yield;
     let low = Infinity;
     for (let k = 0; k < eqs.length; k++) { lim[k] = limitOf(eqs[k], S); if (lim[k] < low) low = lim[k]; }
     const R = low === Infinity || !(low > MIN_RATE) ? 0 : low;
-    if (R > 0) consider(R, n);
+    if (R > 0 && had == null) consider(R, n);
     if (n >= slots) return;
-    if (best.b && !mayBeat(boundFed(ctx, counts, S, R, caps, slots - n), resets(ctx.input, n), best.b.score)) return;
+    const ub = boundFed(ctx, counts, S, R, caps, slots - n);
+    if (best.b && !mayBeat(ub, resets(ctx.input, n), best.b.score)) return;
     // The P1 the factory runs short of first; of those, the one fewest feeders can ship.
     let e = -1, fewest = Infinity;
     for (let k = 0; k < eqs.length; k++) {
@@ -1146,63 +1228,155 @@ function* searchFed(ctx: FedCtx, who: Who[], best: Searched): Generator<void, vo
     if (e < 0 || !fewest) return;
     // The feeders of that P1, the one that would raise what the factory makes most first (each P1's limit, plus what the
     // feeder ships of it over what one X takes, the least of them), so a first dive pairs what's short with what's short.
-    const next = ctx.byEq[e].filter((i) => caps[feeders[i].cls] > 0);
-    const after = new Map<number, number>();
-    for (const i of next) {
+    const raises = (i: number) => {
       let r = Infinity;
       for (let k = 0; k < eqs.length; k++) r = Math.min(r, lim[k] + ctx.relieves[i][k] / ctx.perX[k]);
-      after.set(i, r);
-    }
-    next.sort((a, b) => after.get(b)! - after.get(a)!);
-    for (const i of next) {
-      const fd = feeders[i];
-      if (caps[fd.cls] <= 0) continue;
-      counts[i]++; caps[fd.cls]--; key += weight[i];
+      return r;
+    };
+    if (d === 0) {
+      // No departures left: only the first of them is followed (the first listed of those that raise it most, as the sort
+      // below would put first), and the rest are left for a later round at this arrangement's own bound, without working
+      // out each one's (on twenty planets at their own rates, under an earlier round schedule, working them out took the chain
+      // 843 ms, not 514).
+      let first = -1, top = -Infinity, rest = false;
+      for (const i of ctx.byEq[e]) {
+        if (caps[feeders[i].cls] <= 0) continue;
+        const r = raises(i);
+        if (r > top) { rest ||= first >= 0; top = r; first = i; } else rest = true;
+      }
+      if (rest) { limited = true; deferred = Math.max(deferred, ub); }
+      const own = Math.min(ub, worthWith(first, slots - n - 1));
+      if (best.b && !mayBeat(own, resets(ctx.input, n + 1), best.b.score)) return;
+      const fd = feeders[first];
+      frames.push(Float64Array.of(own)); at.push(0);
+      counts[first]++; caps[fd.cls]--; key += weight[first]; worth += fd.worth;
       for (let g = 0; g < G; g++) S[g] += fd.ships[g];
-      yield* visit(n + 1);
-      counts[i]--; caps[fd.cls]++; key -= weight[i];
+      yield* visit(n + 1, 0);
+      counts[first]--; caps[fd.cls]++; key -= weight[first]; worth -= fd.worth;
+      for (let g = 0; g < G; g++) { S[g] -= fd.ships[g]; if (Math.abs(S[g]) < 1e-9) S[g] = 0; }
+      frames.pop(); at.pop();
+      return;
+    }
+    const next = ctx.byEq[e].filter((i) => caps[feeders[i].cls] > 0);
+    const after = new Map<number, number>();
+    for (const i of next) after.set(i, raises(i));
+    next.sort((a, b) => after.get(b)! - after.get(a)!);
+    const own = Float64Array.from(next, (i) => Math.min(ub, worthWith(i, slots - n - 1)));
+    const from = Float64Array.from(own);
+    for (let j = from.length - 2; j >= 0; j--) from[j] = Math.max(from[j], from[j + 1]);
+    frames.push(from); at.push(0);
+    for (let j = 0; j < next.length; j++) {
+      at[at.length - 1] = j;
+      // The first child is the dive's own choice; any other is a departure from it, and a round allows d of them (d is at
+      // least 1 here: with none left, only the first is followed, above), among its first `width` children. What a round
+      // leaves, a later one takes, so its bound is carried until then.
+      if (j >= width) { limited = true; deferred = Math.max(deferred, from[j]); break; }
+      // A child whose bound can't beat the best isn't visited (the visit would rule it out on a tighter bound anyway).
+      if (best.b && !mayBeat(own[j], resets(ctx.input, n + 1), best.b.score)) continue;
+      const i = next[j], fd = feeders[i];
+      counts[i]++; caps[fd.cls]--; key += weight[i]; worth += fd.worth;
+      for (let g = 0; g < G; g++) S[g] += fd.ships[g];
+      yield* visit(n + 1, j > 0 ? d - 1 : d);
+      counts[i]--; caps[fd.cls]++; key -= weight[i]; worth -= fd.worth;
       for (let g = 0; g < G; g++) { S[g] -= fd.ships[g]; if (Math.abs(S[g]) < 1e-9) S[g] = 0; }
     }
+    frames.pop(); at.pop();
   }
-  yield* visit(0);
+  // The dive first, then every arrangement a few departures from it (limited discrepancy search, `ROUNDS`): a better
+  // arrangement that needs an early choice changed comes long before a depth-first search would back up to it, when every
+  // child's bound ties. A round that left nothing out searched everything, and the search ends; the last round allows any
+  // number of departures (d − 1 of Infinity is Infinity), so it never leaves anything out.
+  const run: Run = {
+    it: (function* () {
+      started = true;
+      for (let r = 0; r < ROUNDS.length; r++) {
+        round = r; width = ROUNDS[r].width;
+        limited = false; deferred = -Infinity;
+        yield* visit(0, ROUNDS[r].departures);
+        if (!limited) return;
+        carried = deferred;
+      }
+    })(),
+    remaining: () => {
+      if (run.done) return -Infinity;
+      if (!started) return root;
+      let m = Math.max(deferred, frames.length ? -Infinity : carried);
+      for (let k = 0; k < frames.length; k++) m = Math.max(m, frames[k][at[k]]);
+      return m;
+    },
+    get round() { return round; },
+    done: false,
+  };
+  return run;
 }
 
-/** Arrangements a product's search is given at a turn, before the next product's. */
-const SLICE = 256;
+/** Arrangements the open product with the best remaining bound is given before the bounds are compared again. */
+const CHUNK = 128;
 
 /** The classes X's factory can go on: any for Advanced factories, Barren and Temperate for High-Tech; the lowest tax first. */
 const factoryClasses = (ctx: FedCtx) => ctx.classes.map((c, ci) => ci)
   .filter((ci) => ctx.tree.facility !== 'hightech' || ctx.input.ix.planetTypes[ctx.classes[ci].t].pins.hightech != null)
   .sort((a, b) => byRate(ctx.classes[a].rate, ctx.classes[b].rate) || a - b);
 
+/** One set of characters' search over its products: its best is its own, compared on the whole arrangement's ISK. */
+type Pool = { ctxs: FedCtx[]; who: Who[]; best: Searched };
+
 /**
- * The best arrangement over the targets given, within the budget. Every product's search runs side by side, a slice of
- * arrangements a turn, the products in order of their upper bound, the highest first; one whose bound can't beat the best
- * found drops out. So no product whose search could take the whole budget keeps the rest unseen, and none is searched twice.
- * The budget is marked cut when a product not searched to the end could still beat the best found.
+ * Every pool's products searched within one budget, best first within a round: again and again, of the open products in
+ * the earliest round of departures (`ROUNDS`), the one whose remaining bound (per character in its pool, so pools of different
+ * sizes compare) is highest gets the next chunk of arrangements; a product whose remaining bound can't beat its pool's best
+ * found is closed. A product that could still beat it when the budget runs out marks the budget cut.
+ *
+ * Not by the bound alone: a product's bound fills its planets with their best feeders whether or not its factory can use or
+ * place them, and it stays at the root's for most of a search (it did through all 40,000 arrangements on each of the
+ * re-review's random systems that went wrong). Given the budget by bound alone, the loosest product took all of it. Searched
+ * a round per departure, as before 18 October 2026, on eight planets (scripts/fixtures/planets-sample.json, OLGTLLGI)
+ * Nano-Factory took all 40,000 arrangements and the chain read 11,809,359 a character, where 2 million arrangements find
+ * 16,245,784; on five (OIILI) Sterile Conduits, whose arrangements never place, took them all and the chain found nothing.
+ * With today's rounds and budget the eight planets still read 11,815,445 by bound alone. So every open product has its dive
+ * before any has a second round, and so on. On 65 random systems at the chain's budget it left 13 short of the best found by
+ * more than 2%, the bound alone 15, and 1 by more than 25% (the bound alone 2).
  */
-function bestFed(ctxs: FedCtx[], who: Who[], budget: Budget): Searched {
-  const slots = who.reduce((n, w) => n + w.cap, 0) - 1;
-  const best: Searched = { b: null, unfit: false };
-  const runs = ctxs.map((ctx) => {
-    const caps = ctx.classes.map((c) => c.members.length * who.length);
-    return { ctx, ub: boundFed(ctx, new Int32Array(ctx.feeders.length), new Float64Array(ctx.goods.length), 0, caps, slots), it: searchFed(ctx, who, best), done: false };
-  }).sort((a, b) => b.ub - a.ub || a.ctx.tree.x - b.ctx.tree.x);
-  const open = (u: number) => !best.b || mayBeat(u, 0, best.b.score);
-  for (let live = runs; budget.left > 0;) {
-    live = live.filter((r) => !r.done && open(r.ub));
-    if (!live.length) break;
-    for (const r of live) {
-      if (budget.left <= 0) break;
-      if (!open(r.ub)) continue;
-      for (let i = 0; i < SLICE && budget.left > 0; i++) {
-        if (r.it.next().done) { r.done = true; break; }
-        budget.left--;
-      }
+function searchPools(pools: Pool[], budget: Budget): void {
+  type Live = { run: Run; pool: Pool; per: number; closed: boolean };
+  const live: Live[] = [];
+  for (const pool of pools) {
+    const slots = pool.who.reduce((n, w) => n + w.cap, 0) - 1;
+    for (const ctx of pool.ctxs) {
+      const caps = ctx.classes.map((c) => c.members.length * pool.who.length);
+      const root = boundFed(ctx, new Int32Array(ctx.feeders.length), new Float64Array(ctx.goods.length), 0, caps, slots);
+      live.push({ run: searchFed(ctx, pool.who, pool.best, root, budget), pool, per: pool.who.length, closed: false });
     }
   }
-  if (runs.some((r) => !r.done && open(r.ub))) budget.cut = true;
-  return best;
+  const open = (l: Live) => {
+    if (l.run.done || l.closed) return false;
+    if (l.pool.best.b && !mayBeat(l.run.remaining(), 0, l.pool.best.b.score)) l.closed = true;
+    return !l.closed;
+  };
+  while (budget.left > 0) {
+    let pick: Live | null = null, round = Infinity, top = -Infinity;
+    for (const l of live) {
+      if (!open(l)) continue;
+      const p = l.run.remaining() / l.per;
+      // Bounds within a cent are a tie, and a tie goes to the product listed first, so which of several products tied on their
+      // bound gets the turn doesn't come down to a float's last digit (under an earlier round schedule that alone took the
+      // six-planet system at varied prices from 19,148,160 to 16,748,160 at 80,000 arrangements).
+      if (l.run.round < round || (l.run.round === round && p > top + SAME_ISK)) { round = l.run.round; top = p; pick = l; }
+    }
+    if (!pick) break;
+    for (let i = 0; i < CHUNK && budget.left > 0; i++) {
+      if (pick.run.it.next().done) { pick.run.done = true; break; }
+      budget.left--;
+    }
+  }
+  if (live.some(open)) budget.cut = true;
+}
+
+/** The best arrangement over the targets given, for one set of characters, within the budget. */
+function bestFed(ctxs: FedCtx[], who: Who[], budget: Budget): Searched {
+  const pool: Pool = { ctxs, who, best: searched() };
+  searchPools([pool], budget);
+  return pool.best;
 }
 
 /**
@@ -1412,20 +1586,30 @@ export function planFeed(input: PlanInput): Setup {
   if (!ctxs.length) return blocked(input, 'feed', 'Nothing a factory here could make from this system’s planets is priced', []);
   const who: Who[] = [{ c: char, cap: allowed, cc: char.ccLevel! }];
   const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
-  const { b: best, unfit } = bestFed(ctxs, who, budget);
-  if (!best) return withCut(blocked(input, 'feed', unfit ? NO_FIT : `No factory planet here can be fed within your ${allowed} planets`, []), budget);
+  const { b: best, tried, tooBig } = bestFed(ctxs, who, budget);
+  if (!best) {
+    if (budget.cut) return withCut(blocked(input, 'feed', RAN_OUT, []), budget);
+    return blocked(input, 'feed', tried && tooBig ? NO_FIT : `No factory planet here can be fed within your ${allowed} planets`, []);
+  }
   const used = best.placed.feeders.length + 1;
   return withCut(setupFed('feed', input, best, used >= allowed ? `Your ${allowed} planets go to ones that pay more` : 'Not needed by this setup'), budget);
 }
 
-/** When every arrangement's factory is too big for its planet even at the top level, that's why nothing is planned. */
+/**
+ * When every arrangement tried had its factory too big for its planet even at the top level, and the search wasn't cut short,
+ * that's why nothing is planned. One cut short before it found anything says so, never blaming the planets or characters.
+ */
 const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
+const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
 const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: true } : s);
 
 /**
- * A chain across characters, for a P3 or P4 whose chain needs more planets than the shown character has: the characters
- * whose skills are read and who aren't Alpha, in order from the shown one, each with its own planets and CCU level, as many
- * as pay most per character. Ranked by ISK a day per character in it; each one's share is the whole's, by its colonies.
+ * A chain, for a P4 (from one character's planets or more) or a P3 that needs more planets than the shown character has: the
+ * characters whose skills are read and who aren't Alpha, in order from the shown one, each with its own planets and CCU
+ * level, as many as pay most per character. A P4 the shown character can make alone is also a one-character chain, so more
+ * planets a character never take a P4 out of every setup (P2s and P3s one character can make are the feed's). Ranked by ISK
+ * a day per character in it; each one's share is the whole's, by its colonies. Every number of characters is searched in one
+ * budget, best first.
  */
 export function planChain(input: PlanInput): Setup {
   const { char } = input;
@@ -1436,35 +1620,35 @@ export function planChain(input: PlanInput): Setup {
   const usable: Who[] = [char, ...input.others].filter((c) => !seen.has(c.charId) && seen.add(c.charId) && charWhy(c) == null)
     .map((c) => ({ c, cap: c.planets!, cc: c.ccLevel! }));
   const sold = seller(input.sell);
-  const priced = fedTargets(input, sold, classesOf(input), ['P3', 'P4']);
-  if (!priced.length) return blocked(input, 'chain', 'Nothing a chain here could make from this system’s planets is priced', []);
-  const ctxs = priced.filter((ctx) => !coverable(ctx, usable.slice(0, 1)));
-  if (!ctxs.length) return blocked(input, 'chain', `Every P3 or P4 made here fits in your ${char.planets} planets: no chain needed`, []);
+  const classes = classesOf(input);
+  const p4 = fedTargets(input, sold, classes, ['P4']);
+  const p3 = fedTargets(input, sold, classes, ['P3']);
+  if (!p4.length && !p3.length) return blocked(input, 'chain', 'Nothing a chain here could make from this system’s planets is priced', []);
+  const p3Many = p3.filter((ctx) => !coverable(ctx, usable.slice(0, 1)));
+  const many = [...p4, ...p3Many];
+  if (!many.length) return blocked(input, 'chain', `No P4 is priced here, and every P3 made here fits in your ${char.planets} planets (the feed plans those)`, []);
 
-  // Each number of characters gets an even share of what the budget has left.
-  const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
-  let pick: { best: FedBest; per: number } | null = null, unfit = false;
-  for (let k = 2; k <= usable.length; k++) {
-    const share: Budget = { left: Math.floor(budget.left / (usable.length - k + 1)), cut: false };
-    const was = share.left;
-    const { b: best, unfit: tooBig } = bestFed(ctxs, usable.slice(0, k), share);
-    budget.left -= was - share.left;
-    if (share.cut) budget.cut = true;
-    if (tooBig) unfit = true;
-    if (!best) continue;
-    const used = new Set([best.placed.factory.char, ...best.placed.feeders.map((x) => x.char)]).size;
-    const per = best.score.value / used;
-    if (!pick || per > pick.per + SAME_ISK) pick = { best, per };
+  const pools: Pool[] = [{ ctxs: p4.filter((ctx) => coverable(ctx, usable.slice(0, 1))), who: usable.slice(0, 1), best: searched() }];
+  for (let k = 2; k <= usable.length; k++) pools.push({ ctxs: many, who: usable.slice(0, k), best: searched() });
+  const budget: Budget = { left: input.budget ?? CHAIN_BUDGET, cut: false };
+  searchPools(pools, budget);
+  let pick: { best: FedBest; per: number } | null = null;
+  for (const { best: { b } } of pools) {
+    if (!b) continue;
+    const used = new Set([b.placed.factory.char, ...b.placed.feeders.map((x) => x.char)]).size;
+    const per = b.score.value / used;
+    if (!pick || per > pick.per + SAME_ISK) pick = { best: b, per };
   }
   if (pick) return withCut(setupFed('chain', input, pick.best, 'The chain needs no colony here'), budget);
-  if (unfit && usable.length > 1) return withCut(blocked(input, 'chain', NO_FIT, []), budget);
+  if (budget.cut) return withCut(blocked(input, 'chain', RAN_OUT, []), budget);
+  if (pools.some((p) => p.best.tried) && pools.every((p) => !p.best.tried || p.best.tooBig)) return blocked(input, 'chain', NO_FIT, []);
 
   // Too few characters: how many more like the shown one the least demanding chain needs.
   const like: Who = { c: char, cap: char.planets!, cc: char.ccLevel! };
   let short = 0;
   for (let more = 1; more <= 6 && !short; more++) {
     const who = [...usable, ...Array.from({ length: more }, () => like)];
-    if (ctxs.some((ctx) => coverable(ctx, who))) short = more;
+    if (many.some((ctx) => coverable(ctx, who))) short = more;
   }
   const s = blocked(input, 'chain', short ? `Needs ${short} more character${short === 1 ? '' : 's'} with planetary industry` : 'No chain here can be made with the characters there are', []);
   const alphas = input.others.filter((c, i, a) => c.alpha === true && c.charId !== char.charId && a.findIndex((o) => o.charId === c.charId) === i).slice(0, short);
@@ -1614,7 +1798,7 @@ export function planBought(input: PlanInput): Setup {
   };
   dfs(0, 0, 0, allowed);
   const chosen = best as { score: Score; inst: number[] } | null;
-  if (!chosen) return blocked(input, 'bought', 'No product here pays more than its inputs cost', []);
+  if (!chosen) return cut ? { ...blocked(input, 'bought', RAN_OUT, []), cut: true } : blocked(input, 'bought', 'No product here pays more than its inputs cost', []);
   const v = valueBought(ctx, chosen.inst)!;
 
   // Each class's factories on its planets in order.

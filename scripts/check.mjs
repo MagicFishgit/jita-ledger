@@ -7818,6 +7818,69 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const vary = (id) => ({ P1: 400, P2: 3000 + (id % 7) * 500, P3: 40_000 + (id % 5) * 4000, P4: 1_200_000 + (id % 3) * 200_000 })[ix.byId.get(id).tier] ?? null;
   const wide = planChain({ ...big, sell: sellBy(vary), others: [{ ...second, ccLevel: 4 }], budget: 3000 });
   eq('  a search past its budget: the best it tried, marked cut', [wide.iskDay > 0, wide.cut, wide.perChar.length, wide.why], [true, true, 2, null]);
+  // The re-review's case: six Brave planets, one of each of Barren, Lava, Temperate, Gas, Ice and Oceanic; two characters of 5
+  // planets at CCU IV; P1 150, P2 7,000, P3 90,000, P4 1,500,000. With 2 million arrangements the chain makes 17,588,160 a
+  // character (searched to the end), against the feed's 12,464,640. Dealt evenly between products tied on their bound, the
+  // budget starved the one that wins, read 9,702,240 and ranked the feed first. Spent best-first, the default reaches it.
+  {
+    const SIX = ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'];
+    const six = { ...big, planets: SIX.map((type, i) => ({ planetId: 1 + i, name: type, type, radiusKm: MEDIAN[type], tax: brave(type === 'Barren' || type === 'Temperate' ? 0.02 : 0.05) })),
+      sell: sellBy((id) => ({ P1: 150, P2: 7000, P3: 90_000, P4: 1_500_000 })[ix.byId.get(id).tier] ?? null), others: [{ ...second, ccLevel: 4 }] };
+    const ranked = planSystem(six);
+    const ch = ranked.find((s) => s.kind === 'chain');
+    eq('  six Brave planets, two characters: the chain within 2% of its best and ranked above the feed', [ch.iskDay >= 17_588_160 * 0.98, ranked.findIndex((s) => s.kind === 'chain') < ranked.findIndex((s) => s.kind === 'feed')], [true, true]);
+    // The same six at the review's `vary` prices make 19,148,160 a character searched to the end; dealt evenly, the chain
+    // read 12,162,240.
+    const varied = planChain({ ...six, sell: sellBy(vary) });
+    eq('  six Brave planets at varied prices: the chain within 2% of its best', varied.iskDay >= 19_148_160 * 0.98, true);
+  }
+  // Trials of the random samples (scripts/fixtures/planets-sample.json: Brave planets, every P1 to P4 priced at random, two
+  // characters of 5 at CCU IV). A product's bound fills its planets with their best feeders whether its factory can use them
+  // or not, so a loose one stays high through a whole search.
+  {
+    const fx = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-sample.json', import.meta.url), 'utf8'));
+    const trial = (name) => ({ ...big, planets: fx.trials[name].planets.map((p, i) => ({ planetId: 1 + i, name: `P${i}`, type: p.type, radiusKm: p.radiusKm, tax: typed(p.tax) })),
+      sell: sellBy((id) => fx.trials[name].prices[nameOf(id)] ?? null), others: [{ ...second, ccLevel: 4 }] });
+    // Five planets (Oceanic, Ice, Ice, Lava, Ice): 3,497,163 a character searched to the end. Searched a round per departure
+    // and best-first by bound alone, Sterile Conduits, whose arrangements never place, took all 40,000 arrangements and the
+    // chain found nothing.
+    const s = planChain({ ...trial('OIILI'), budget: 40_000 });
+    eq('  five planets, a loose bound: the chain still finds its best', [s.why, Math.round(s.iskDay ?? 0)], [null, 3_497_163]);
+    // The best each of these reads at 2 million arrangements (cut): the chain gets within 2% of it.
+    const near = (name, want) => planChain(trial(name)).iskDay >= want * 0.98;
+    // Eight planets: best-first by bound alone the chain reads 11,815,445 (searched a round per departure, Nano-Factory took
+    // every arrangement and it read 11,809,359). Every product's dive before any product's second round, and so on.
+    eq('  eight planets, a loose bound: no product takes the whole budget', near('OLGTLLGI', 16_245_784), true);
+    // Seven planets: with only the narrow rounds before the last (the first three children of each), 12,892,397.
+    eq('  seven planets: a round over every child before the last', near('BTLBTIO', 18_680_144), true);
+    // Eight planets: at 40,000 arrangements (the feed's budget), 12,963,614.
+    eq('  eight planets: the chain’s own budget', near('LGBOTIIO', 18_826_479), true);
+  }
+  // Twenty planets at their own rates (one of each type in turn, 1%, 1.1%, 1.2%…), two characters of 5 at CCU V: a round of
+  // two departures over every child took over 30,000 arrangements for one product without finishing, and the chain read
+  // 11,655,648 a character. With the narrow rounds first it reads 19,508,928 (2 million arrangements: the same, cut).
+  {
+    const EIGHT = ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic', 'Storm', 'Plasma'];
+    const radius = { ...MEDIAN, Storm: 6530, Plasma: 3120 };
+    const twenty = { ...big, planets: Array.from({ length: 20 }, (_, i) => { const type = EIGHT[i % 8]; return { planetId: 1 + i, name: `P${i}`, type, radiusKm: radius[type], tax: typed(0.01 + i * 0.001) }; }),
+      sell: sellBy(vary), char: { ...big.char, ccLevel: 5 }, others: [{ ...second, ccLevel: 5 }] };
+    eq('  twenty planets at their own rates: narrow rounds first', planChain(twenty).iskDay >= 19_508_928 * 0.98, true);
+  }
+  // A P4 one character can make alone is a one-character chain (per character, its total). On twelve planets of all eight
+  // types at CCU V, characters with 6 planets could each make Organic Mortar Applicators alone: it left the chain, nothing else
+  // planned it, and the chain fell from 19,125,120 a character at 5 planets each to 7,425,600 at 6. More planets never lower it.
+  {
+    const EIGHT = ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic', 'Storm', 'Plasma'];
+    const radius = { ...MEDIAN, Storm: 6530, Plasma: 3120 };
+    const twelve = { ...big, planets: Array.from({ length: 12 }, (_, i) => { const type = EIGHT[i % 8]; return { planetId: 1 + i, name: `P${i}`, type, radiusKm: radius[type], tax: brave(type === 'Barren' || type === 'Temperate' ? 0.02 : 0.05) }; }),
+      sell: sellBy(vary) };
+    const at = (n) => planChain({ ...twelve, char: { ...big.char, planets: n, ccLevel: 5 }, others: [{ ...second, planets: n, ccLevel: 5 }] });
+    const five = at(5), sixEach = at(6);
+    eq('  more planets a character never drop the chain', [five.iskDay > 0, sixEach.iskDay >= five.iskDay], [true, true]);
+    const OMA = idOf('Organic Mortar Applicators');
+    const alone = planChain({ ...twelve, char: { ...big.char, planets: 6, ccLevel: 5 }, others: [], sell: sellBy((id) => (id === OMA ? 1_500_000 : ix.byId.get(id).tier === 'P1' ? 400 : null)) });
+    eq('  a P4 one character makes alone is a one-character chain', [alone.why, alone.perChar.length, alone.iskDay === alone.perChar[0]?.iskDay, alone.outputs.some((o) => o.id === OMA)], [null, 1, true, true]);
+  }
   const all = planSystem(big);
   eq('  every kind, P0 → P2 always there', all.map((s) => s.kind).sort(), ['bought', 'chain', 'feed', 'p1', 'p2']);
   eq('  ranked by ISK a day', all.filter((s) => s.iskDay != null).every((s, i, a) => i === 0 || a[i - 1].iskDay >= s.iskDay), true);
@@ -7940,6 +8003,11 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   // Extractors at 400,000 an hour: one Barren planet feeding the Gas one would need 67 Advanced, where 24 fit even at V.
   eq('  feed: no factory fits even at CCU V: said', planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 } }).why,
     'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V');
+  // A budget that runs out before any arrangement is found says so and is cut; it never blames the planets, the characters or
+  // the factory's size (not every arrangement was tried).
+  const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
+  const outFeed = planFeed({ ...big, budget: 1 }), outChain = planChain({ ...big, budget: 1 }), outFit = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 }, budget: 1 });
+  eq('  a budget that runs out with nothing found: said, cut', [outFeed.why, outFeed.cut, outChain.why, outChain.cut, outFit.why, outFit.cut], [RAN_OUT, true, RAN_OUT, true, RAN_OUT, true]);
   // At 30,000 an hour two Barren planets feed 1,200 Nanites a day: 10 Advanced on the Gas planet, where CCU I fits 5. The
   // factory says so and the character lacks II (14 fit). 12,000,000 − 2 × 9,600 × 400 × 2% − 19,200 × 400 × 5% × ½ − 1,200 × 7,200 × 5%.
   {
