@@ -6,9 +6,10 @@ Pages on every push to `main`; the Worker deploys from GitHub Actions too, when 
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
-(Abyssal / Hauling / Planets / Mining / Freelance / Research), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
+(Abyssal / Hauling / Planets / Mining / Freelance / Research / Industry), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
-Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
+Planets plans a system (`hustles/planets/<section>`): Plan ranks every way of setting its planets up by ISK a day and says
+which planet does what, Chart is every good from P0 to P4, Colonies your colonies, kept as a synced document.
 
 The look is the HUD redesign in `docs/Jita Ledger space console redesign/` (untracked, not committed):
 `Jita Ledger HUD.dc.html` is the source of truth for layout and copy, but **every number in it was invented
@@ -104,7 +105,8 @@ is null, never an error). `npm run worker:deploy` still works by hand from this 
 **The Worker runs the app's own rules**, imported straight from `src/lib`: `esiRecords`, `flow`, `split`, `relist`,
 `fills`, `fees`, `prefs`, `prospects`, `evaluate`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`, `snipe`,
 `track`, `share`, `watchdog`, `roster`, `alphaCaps`, `mining`, `abyssTracker` (with `abyssal` for a type), `plans`,
-`research`, `industry`, `homeMarket` (values, and the home markets' answer types), `bookFold` (the fold the scan and a structure's read share), `industryTrack` (jobs, the blueprints doc), `blueprints` (which it imports), `industryRank` (a type import that `tsc -p worker` still pulls in), `copyMarket` (the copy round's rules), `copyContracts` (the merge of your copy contracts' document, which imports only types, from `contracts` and `industryTrack`) and `bpContracts` (EVE Ref's snapshot read as it decompresses). These must stay free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker`
+`research`, `industry`, `homeMarket` (values, and the home markets' answer types), `bookFold` (the fold the scan and a structure's read share), `industryTrack` (jobs, the blueprints doc), `blueprints` (which it imports), `industryRank` (a type import that `tsc -p worker` still pulls in), `copyMarket` (the copy round's rules), `copyContracts` (the merge of your copy contracts' document, which imports only types, from `contracts` and `industryTrack`), `bpContracts` (EVE Ref's snapshot read as it decompresses) and `colonies` (the main's colonies kept hourly,
+`worker/src/planets.ts`; it pulls in `pi` for the planet types). These must stay free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker`
 pulls in whatever they import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `constants`, and
 `soldFrom`, `sidePaceOf`, `judgeOrder`, `orderFindings` and `piFindings` were moved out of the I/O modules.
 
@@ -141,8 +143,12 @@ before you change it, and add to it when you learn something: what was wrong, th
 Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded. On 1
 October 2026 the three biggest path-loaded notes were split by area as well (no fact cut): opening `Mining.tsx` loaded
 eve-facts, loyalty-hustles and characters whole, about 146,000 characters with this file; it now loads about 100,000.
-The heaviest file to open is now `Orders.tsx`, at about 120,000. If one file's notes come near 150,000 again, split
-the biggest of them by area the same way.
+The heaviest file to open was then `Orders.tsx`, at about 120,000. Measured again on 18 October 2026 (this file, its
+imports and every rule note whose `paths:` match, in characters): what every session starts with is about 94,000 and any file
+under `src/` adds eve-facts' 17,000; `Industry.tsx` loads about 212,000, `Orders.tsx` 202,000, `Mining.tsx` 158,000 and
+`lib/todo.ts` 151,000, past the budget, since limits.md (always loaded, 37,000), industry.md (99,000) and the order notes grew.
+The Planets notes were split by area from the start (planets, planets-planner, planets-colonies) to keep a Planets file under
+135,000. If one file's notes come near 150,000 again, split the biggest of them by area the same way.
 
 Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
 session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
@@ -153,13 +159,14 @@ answering in its area**:
   evidence.
 - `eve-market.md`: what ESI's books, history and prices say and don't; rate limits.
 - `eve-ships.md`: hulls, holds, fits, mining yields and the Abyss, from ESI's dogma and research.
-- `eve-planets.md`: planets, colonies and planetary goods.
+- `eve-planets.md`: planets, colonies and planetary goods, from ESI and CCP's static data (recipes, CPU and powergrid,
+  volumes, customs and skyhooks, the extraction formula).
 - `eve-client.md`: EVE mail, notifications, the Sell window, inventory filters, asset safety.
 - `market-reading.md`: how books, prices and paces are judged (reach, the buyer/seller split, Clears in, relist advice).
 - `finding-trades.md`: Prospects, the Capital planner, the full-market scan, the Sniper, Place and leave.
 - `orders-alerts.md`: To do, browser notifications, in-game mail.
 - `positions-results.md`: positions, fees, Results, the Wallet, goals, standings.
-- `loyalty-hustles.md`: Loyalty, Planets, Freelance, Reprocessing, skills.
+- `loyalty-hustles.md`: Loyalty, Freelance, Reprocessing, skills.
 - `mining.md`: the Mining side hustle, Scaling up, mining across characters.
 - `abyssal-hauling-combat.md`: Abyssal, Hauling, Combat.
 - `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
@@ -169,6 +176,11 @@ answering in its area**:
   sites, the finder, home prices from Goonmetrics, the ladder, what copies sell (the cloud's copy round).
 - `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
   sorted out.
+- `planets.md`: the Planets side hustle: its static-data bundle, what fits on a planet, the extraction readings and the
+  in-game check that settles them, the `colonies` and `planets` documents, customs tax (Brave's default), the cloud's hourly
+  read of the main's colonies, and the page (Plan, Chart, Colonies).
+- `planets-planner.md`: how Plan ranks a system's setups: what each counts, the searches' budget, the exact sizing of a
+  bought setup (a linear programme), the prices it sells and buys at, upkeep and the ranking.
 
 Always loaded, imported below, because they apply to any change:
 

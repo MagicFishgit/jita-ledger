@@ -1,7 +1,8 @@
 # Loyalty and side hustles
 
-Decisions worth not undoing. Loyalty points, planetary industry, freelance jobs, reprocessing and skills. Mining is in
-mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 October 2026).
+Decisions worth not undoing. Loyalty points, freelance jobs, reprocessing and skills. Mining is in
+mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 October 2026); Planets in planets.md and
+planets-planner.md (17 October 2026).
 R&D agents (the Research tab under Side hustles, datacores from research points) are in research.md.
 
 - **Loyalty ranks per point, not per ISK**, because points are the scarce thing. An offer's output is
@@ -35,8 +36,6 @@ R&D agents (the Research tab under Side hustles, datacores from research points)
   times", "each purchase", "times to buy". The code keeps `runs` as the field name.
 - **Liquidity notes are judged on one purchase, never on the plan.** A capped plan fills the horizon by
   construction, so its length says nothing about the item.
-- **PI separates what is known from what is assumed.** Planet locations are exact; income is
-  arithmetic on the extraction rate *you* read off the client. Never present the second as the first.
 - **The whole skill map is synced, not just the seven trade skills.** `Data.skills` holds every
   trained level, because the hustle pages ask about hauling, tanking and planet skills and the
   skills response already contains all of them.
@@ -57,17 +56,11 @@ R&D agents (the Research tab under Side hustles, datacores from research points)
   have out). The pips fill once as they appear and the training one breathes; Off motion and reduced motion still both.
   The range skills (Marketing, Procurement, Daytrading, Visibility) aren't weighed: they matter only away from the
   order's station. Combat's "can you fly this fit" was offered and declined ("at this point we are rebuilding the game").
-- **Interplanetary Consolidation fills in the PI planet count** (one, plus one per level) until the
-  user types over it. A skill that exactly determines a field should populate that field.
-- **PI factories are per colony and are not fed continuously.** One planet cannot supply another, and
-  a factory receiving less than 6,000 an hour does not stop working — it runs fewer cycles. So show
-  how many are needed to keep up (rounded up) and how busy they will be, never how many the
-  extraction can "afford".
-- **The Planets page is a walkthrough whose instructions follow its own verdict.** Pick a product
-  (all 15 priced live and ranked per 1,000 units of extraction), find planets, see the return, build
-  it. Told to sell raw, the build guide drops the factories and draws extractor straight to
-  launchpad. Refining currently ranges 0.76×–1.57× across the products, so the answer genuinely
-  differs per product and moves with the market.
+- **Planets has notes of its own: planets.md and planets-planner.md.** The four-step walkthrough (pick a product, find planets
+  in a region, see the return, build it) was replaced on 17 October 2026 by a planner for one system: every way of setting
+  planets up ranked by ISK a day, which planet does what, a P0 → P4 chart and the colonies kept. Its principles went with it:
+  what's known (planets, recipes, fits) is kept apart from what's assumed (the extraction rate), the planets allowed follow
+  Interplanetary Consolidation, and a factory short of input runs fewer cycles rather than stopping.
 - **The Wallet prices loyalty points itself** (`lib/lpStore.ts`, shared with the Loyalty page): the same
   rough-rank-then-price-the-top-40 pass, run in the background when a store has no usable rate or it is over
   12 hours old, valued at what the spend plan would make and only for as many points as the markets take.

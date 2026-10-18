@@ -24,11 +24,33 @@ State these rather than letting them be discovered:
   the hangar, and filaments you looted rather than bought aren't counted as runs at all.
 - Hauling reads The Forge only. Contracts starting elsewhere are invisible, which is the right
   default for someone sitting in Jita and the wrong one for a dedicated hauler.
-- A PI region scan is one request per planet (~610 for The Forge). Cached permanently since planet
-  types never change, but the first run on a region takes a minute.
-- **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
-  and factories physically fit; "1 factory per planet" does not check that you can fit it. The
-  per-structure costs and per-level budgets are not in ESI.
+- **Planets' fits are CPU and powergrid at minimum-length links** (planets.md): the command centre's budget at your Command
+  Center Upgrades level, extractors and heads, factories, one launchpad and the links, all from the static data on the planet's
+  own radius. Not modelled: links longer than the minimum (a real layout's are, so it fits less), storage, link upgrades and
+  whether a route's bandwidth carries the flow, and where pins sit (head overlap moves the yield, not the fit).
+- **A planet's yield can't be known before it is built.** A learned rate averages your own extractors of that planet type and
+  P0, measured at their head count and programme length (another length says so, never rescaled), and planets of one type
+  differ; with none, a setup is ranked at what its factories take, "if your extractors deliver" 12,000 an hour, never claimed.
+- **Which reading of `qty_per_cycle` is the game's is unconfirmed** until one programme's total is checked in game
+  (`PI_READING`, planets.md). Until then Plan ranks on the lower reading and shows the higher beside it: over a programme they
+  differ by 1.19× on CCP's example (47.5 h), and by the formula's averages about 2× on 3 days and 3× on 14. Either way a
+  programme's output decays: no per-hour figure is steady.
+- **Planets' customs tax is typed or Brave's wiki's 2023 rates** (2% Barren and Temperate, 5% the rest, in sov null-sec): ESI
+  shows no skyhook's or office's rate, and what a high-sec InterBus office charges is unverified. A system "not Brave's" or a
+  wormhole is ranked before the tax.
+- **Planets compares setups within one system**, prices nothing until a home hub is picked on the Industry tab (Jita is priced
+  through the hub's freight route, so even a high-sec system planned with no hub gets no prices), and at a thin home market a
+  price moves with a few trades.
+- **A bought setup runs each planet to its last unit that pays** after the other planets' share, all sized together exactly
+  (a linear programme over the planets' amounts, the sale steps and the buy steps): a sale or a book that steps down sizes it
+  under what sells, on purpose. Buying at Jita is held to your industry share of the good's day in The Forge, walked up the
+  book (seven levels, the morning scan's or the live one) for a week's need; at a hub, its own read's levels spread over a
+  week, or a tenth of Goonmetrics' weekly movement. A deeper book isn't seen.
+- **Plan's chain can read short of what the system can do**, said as "the best of the arrangements tried" (a budget of 80,000
+  arrangements): at 12,000 P0 an hour 13 of 65 random systems read over 2% short and 1 over 25%; at 25,000 it ranks under a setup
+  it beats in 8 of 21; at 50,000–100,000 an hour it can find nothing within its budget and says so (5-NZNW, two characters of 5:
+  a bigger budget finds 44–83 M ISK a day). A P4 one character makes alone is planned only for the character shown, so the
+  main's view doesn't offer an alt's (one case: 10.83 M a character across both against 18.70 M for the alt alone).
 - Alert mails were seen in game, sent from a second character: the ARGB `<font>` colours, `<b>` and the links
   render as intended, and the market link opens the market window through the app (the client's external-link prompt can be told never to ask again). The cost is
   focus: the OS brings the browser forward to open the link, and on a single monitor the game drops behind
@@ -36,8 +58,9 @@ State these rather than letting them be discovered:
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
   bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
   hulls and the figure stays editable.
-- The colony panel's rendering of live data is **unverified**: it needs the planets scope and a
-  character with planets. Its logic is unit-tested; the screen has never been seen with real data.
+- **No real colony has been drawn yet.** Colonies draws the main's kept `colonies` document, which the cloud keeps hourly, and the
+  page case draws a seeded one; nothing of Planets has shipped, so the first real look is after the first hourly read
+  following the ship (planets.md).
 - **The buy/sell split is an estimate.** The book's reading was a median 0.17 from what traded in the next hour
   or so (history's guess 0.26), tested on items trading 20+ units in that time; thin items weren't in the test,
   and a side of single-unit orders can't be read at all. The book reflects its orders' whole lives (a bid can be

@@ -1,0 +1,102 @@
+# Planets: the planner
+
+Decisions worth not undoing. How Plan ranks a system's setups (`src/lib/piPlan.ts`, `src/lib/lp.ts`) and the prices it sells and
+buys at (`planetsMarket.ts`). The data, the `planets` document and the page are in `planets.md`, the colonies in
+`planets-colonies.md`. Each ruling's number is the ledger's
+(`.superpowers/sdd/2026-10-17-planets/progress.md`); the evidence is in that folder's task reports and reviews, the probes in
+`.playwright-mcp/planets-build/` (gitignored).
+
+- **What every setup counts.** Rates come from the schematics, never typed: a Basic takes 6,000 P0 an hour for 40 P1, an Advanced
+  40 of each of two P1s for 5 P2, a P3 20 or 30 P2s for 3, a P4 on a High-Tech plant (Barren and Temperate only). Extraction is the
+  rate's `perHour` (the lower reading until the in-game check), and `iskDayHigh` the same arrangement on the higher. A layout is
+  sized to the rate (Basics `ceil(P0 an hour ÷ 6,000)`, Advanced `ceil(the lesser P1 ÷ 40)`), not picked from fixed 2 + 4 or
+  3 + 6: a factory short of input runs fewer cycles rather than stopping, so a layout counts the factories that keep up,
+  rounded up, and how busy they are (`runs`). With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if
+  your extractors deliver 12,000 P0 an hour each" and listed in `before`, never claimed. Heads are the rate's (`ceil` of its
+  median); 0 heads means the colony didn't say and the layout takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
+  programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
+- **One market cap per good, and what builds up isn't taxed** (Ruling T8-3). A good's output is summed across planets and
+  characters and sold once (`sell` on the total). What the market takes is exported from the lowest-tax planets first; the rest
+  stays on its planet, untaxed, and is said to build up. Taxing every unit made let `iskDayHigh` read under `iskDay` (P0 → P1 on
+  the review's 12-planet case: 954,240 against 913,280; now 1,161,600 both).
+- **What doesn't fit is judged a planet at a time** (Ruling T11-2). `Role.lacks` comes from that planet's own fit (`fitted`,
+  `levelFor`), never the character's union: a Barren at 10 heads that fits at no level beside a Lava that fits at V read "train
+  Command Center Upgrades V" for both. A layout that doesn't fit is still ranked and said (the spec).
+- **P0 → P1 and P0 → P2: greedy, then a pick taken first gives way** (Ruling T8-2). Greedy by marginal value (what a pick adds to
+  what's already sold, less its tax), then `improve`: re-pick a chosen planet, swap in an unused one, and re-pick a planet sharing
+  a good jointly, until nothing gains (`MAX_MOVES` 50). The greedy alone read 2,605,440 on the review's case where 4,525,440 was
+  there (Test Cultures capped at 240 a day on Temperate). Measured 3–6 ms (P0 → P2) and 32 ms (P0 → P1) on 12 planets.
+- **Feed** (`planFeed`): extraction planets make P1 (or a P2 alone) and ship to one factory planet making a P2 or P3, the three P2s
+  no planet makes alone among them; export tax at each feeder, import at half and export at the factory.
+  - **Every feeder must be needed** (`allNeeded`): without it the search dressed planets that only sell their own P1 up as
+    feeders (a Test Cultures case read 2,649,600 where 2,620,800 is the feed's).
+  - **The factory runs at the lesser of its supply and what sells** (Ruling T9-5); the feeders' other units join the surplus. Run
+    at supply, a Nanites factory capped at 100 a day read 2,400,160 where 3,318,560 was there.
+  - The factory is sized to what it's fed and must fit at CCU V; it goes to the first character, from the shown one, at whose
+    level it fits; feeders to a character they fit at its own level before one merely with more room (Rulings T9-3, T9-6).
+- **The chain** (`planChain`): a P4, or a P3 needing more planets than one character has, across `[shown, ...others]`, only those
+  whose skills are read and who aren't Alpha; a clone not read is worked out as Omega and said (Ruling T9-7).
+  - **Ranked by ISK a day per character used** (the spec), so it sits in one list with one character's setups; the row shows the
+    total and each character's colonies, share (by colonies) and lacks. Too few characters says how many more.
+  - **A P4 one character makes alone is a one-character chain** (Ruling T9-9, revising T9-2): pool 0 holds the P4s the shown
+    character covers alone, the pools of two characters and more every P4 and the P3s one character can't make. Before it, more
+    planets could drop a P4 out of every setup (12 planets, 5 → 6 planets a character: 19.1 M → 7.4 M; now 20.63 M). P2 and P3 one
+    character makes stay the feed's. Pool 0 is the **shown** character's alone (Ruling T9-12): an alt that could make a P4 alone
+    shows it when it is the one shown.
+- **The searches have a budget, and say when it binds** (Ruling T9-4). Searched to the end, a feed or chain took 2.5–72 s and up to
+  1.9 GB on realistic systems, or ran out of memory (task-9-report.md, fix round 1). `SEARCH_BUDGET` 40,000 arrangements
+  (feed, bought), `CHAIN_BUDGET` 80,000 (at 40,000, 18 of 65 random systems read over 2% short), valuing one costing `VALUED`
+  (2) more. A finished search is exact.
+  - **Spent in rounds, not by the bound alone** (Ruling T9-11, the implementer's measured deviation from T9-8): every open
+    product's first dive before any second round, the highest remaining bound first within a round, then narrow departures,
+    then a whole depth-first search. The bound never tightens (a product's bound fills its planets whether or not they place), so
+    by the bound alone the loosest product took everything: OIILI found nothing, OLGTLLGI read 11.8 M against 16.2 M.
+  - **Cut is said** (`Setup.cut`: "the best of the arrangements tried … may be well under what this system can do"); a search that
+    found nothing in budget says `RAN_OUT`, never a planets, characters or size shortage (Ruling T9-10); `NO_FIT` only when
+    arrangements were tried, every one failed for size alone, and the search wasn't cut. Brute force agrees where the search
+    finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in limits.md.
+- **Bought** (`planBought`): each planet allowed is a factory planet of one step (a P2 or P3 on Advanced, a P4 on High-Tech), at
+  `maxFactories` for the character's level with one launchpad, buying its inputs. A product whose input can't be priced isn't a
+  candidate (never a cost of 0).
+  - **Its planets are sized together, exactly, by a linear programme** (Ruling T11-11; `sizeGroup`, `lp.ts`). Planets linked by a
+    product or an input are one programme: columns each planet's amount, each sale step that pays and each buy step; rows what
+    sells ≤ what's made and what's bought = what's used; the objective sales less purchases less taxes. The steps are found from
+    the `Sell` and `Buy` closures (`kinksOf`, at most 400 evaluations a curve), so the price hooks don't expose their levels.
+  - **Why not sized by rules** (never go back): sizing each planet to its own last paying unit (T11-6) let two planets sharing a
+    market or a book run units at a loss (37,966,080 where 40,063,680 was there); holding each in tax order and settling (T11-8,
+    T11-10) stalled at kinks, about 7% of random pairs over 1% under the best (worst 96%), and the search's prune on `cur +
+    topFrom` is sound only when `cur` is the set's exact best: 2 of 400 random setups came out under brute force (12.03 M against
+    13.58 M, 19.54 M against 22.29 M). **Never heuristic sizing with `cur + topFrom`.** With the LP: 0 of 400 differ, an
+    independent grid of 39,144 pairs and triples never above the planner's figure, the solver against vertex enumeration on 5,500
+    random programmes 0 wrong, its optimum equal to `worthOf` within 7e-15.
+  - The search (branch and bound over products by class, best alone first) prunes on `cur + topFrom`: the set's exact worth plus
+    what the options still open make alone, as many as each class has room for. It goes on past a set the sizing zeroes a planet
+    in (that set less the planet), and stops at a refused set (refusal only grows with what's bought). A held planet's line says which limit binds: its input's supply, what the market takes, its last unit paying,
+    or "after the other planets' share".
+  - **`lp.ts`**: a bounded-variable primal simplex on a dense tableau, maximising over 0 ≤ x ≤ hi, starting at all amounts zero
+    (a row not met there throws). Dantzig's rule, Bland's after `DEGENERATE_RUN` (8) pivots that move nothing, so it can't cycle;
+    tolerances relative to the problem's sizes (prices to 1e6, amounts to 1e5). 'stalled' is a pivot cap for the tests.
+- **Selling** (`soldOf`, Ruling T10-1): under Either, each place's listing and bid sides are filled in order of their net, never a
+  place at a time: place by place, a hub's bids ahead of Jita's listings read 350,000 for 55 units where 500,000 sells. The
+  `Sell` contract the exact sizing rests on: the next unit never nets more (concave), what sells never falls, no charge a call.
+  Jita is priced through the `industry` doc's freight route from the home hub (`legFor`); a Jita pace of 0 or null is unpriced
+  with its reason, never a freight minimum spread over nothing (Ruling T10-2). With no hub picked nothing is priced (Ruling
+  T10-3). A character whose fees aren't read is waited on, in Industry's words.
+- **Buying** (Rulings T11-3, T11-7). Jita: others' listings walked up the book for a week's need (the morning scan's seven levels,
+  the live book's for the goods the ranking names), each level with its own freight in, **held to your industry share of the
+  good's day in The Forge**; past that, unpriced with what Jita supplies. Nothing capped it before: 5-NZNW's top setup read
+  133.64 M ISK a day buying 75% of High-Tech Transmitters' Forge day at one ask; held, 70.09 M. The hub: its own read's levels
+  spread over a week, or Goonmetrics' best sell up to a tenth of its weekly movement. Under Either an input is bought across both
+  places **cheapest first, each to its own max**, as `soldOf` sells: when the whole amount went to the cheaper place that could
+  take it, every unit past its max moved to the dearer place, the cost wasn't convex and the sizing missed (36,355,440 against
+  37,044,880). The `Buy` contract: a unit's
+  marginal cost never falls.
+- **Upkeep**, beside the ISK (Ruling T11-4): resets a week (colonies × 168 ÷ the programme hours); restocks counting what comes in
+  and what's made, since the launchpad (10,000 m³) holds both (the reviewer's count was about 102 a week where inputs alone read
+  57.5); the m³ out and the m³ in, how much from Jita; freight contracts each way, "at least 1" once a week's m³ is over what a
+  contract's minimum pays for (5 M at 900 ISK a m³ is about 5,556 m³), else time between (small outputs batch up).
+- **The ranking** (`rankSetups`): ISK a day rounded to the cent, then less upkeep (a chain's per character), then the order run,
+  so it's transitive. P0 → P2 always shows.
+- **On the page case's 5-NZNW** (seeded colony, the research's prices): bought first at 71.86 M ISK a day (one Broadcast Node
+  planet at 96 a day on 5 of its 15 High-Tech plants, held by Jita's supply of High-Tech Transmitters); P0 → P2 second at
+  14.78 M, 57.08 M under it. The whole planner 148–240 ms with one character doing PI (task-11-rereview-4.md).

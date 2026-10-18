@@ -11,8 +11,8 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   `src/data/industry.json` (the tab's chunk: 2,693 blueprints, 5,670 types in 602 named groups, 106 rigs, 2,305 stations,
   57 skills; 1,056 KB, 145 KB gzipped, against a budget of 1.2 MB and 160 KB), `industryEiv.json` (every published blueprint's ME 0
   materials, 4,039, for stage 2's first-sight EIV: nothing reads it in stage 1), and `industryTypes.json` (the cloud's watch
-  set, 2,916 types: every Tech I and Tech II product, their materials and the datacores (1,858 before Tech II), and the 1,673
-  blueprints whose NPC sellers the scan keeps).
+  set, 2,959 types: every Tech I and Tech II product, their materials and the datacores (1,858 before Tech II, 2,916 before
+  Planets added every planetary good), and the 1,673 blueprints whose NPC sellers the scan keeps).
 - **Which blueprints**: every published blueprint on the market whose product is on the market (1,741), and every one
   they invent (1,020 Tech II). 68 are both (the old Tech II originals: Helios, Crow, Raptor…): they're Tech II here,
   costed through invention, since NPCs never sold them and an original you'd buy would be a fiction.
@@ -113,8 +113,8 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
 - **A security not known is its own band** (`secBand` returns `'unknown'` for NaN, undefined or null; Task 2's review). Null-sec
   has the best rig multiplier, so a home typed as a system the map lacks must not take it: `rigFor` gives an unknown band no
   rig bonus, `siteFacts` carries it, and the sites table shows no security for it.
-- **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 2,916 types: every Tech I and Tech II
-  product, their materials and the datacores (1,858 before Tech II)). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
+- **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 2,959 types: every Tech I and Tech II
+  product, their materials, the datacores and every planetary good (1,858 before Tech II, 2,916 before Planets)). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
   the finder has a Jita book and history for them; one with no Jita order still gets no row, and the finder says "No Jita
   book this morning". They are appended after the trading candidates, so a run that hits the time budget drops them first.
   **Marked `watchOnly` on the stats, not the book** (a correction to the spec): `overScan` rebuilds a
@@ -660,7 +660,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   otherwise (or switches one off with `removed_at`), and any hub you add (at most 10), which carries the system and region the finder needs
   (read publicly when it was added). `home_books` is **the structure's own**, keyed by structure: nothing of it is filed under the main or the
   alt that read it, and `read_by` says whose login the last good read was. A read folds page by page (`foldStructurePage`, the scan's fold with
-  no queue count), keeping the watch set's types only (2,916), five levels a side as `[price, units]`, order counts and what the live orders
+  no queue count), keeping the watch set's types only (2,959; 2,916 when built), five levels a side as `[price, units]`, order counts and what the live orders
   sold: about 150 bytes a type. **A read cut short, or with a page failed, is never stored**, and a market over 300 pages isn't read: ESI's
   pages are shuffled by type, so part of them would price every type wrong; the last good read (`at`, `data`, `pages`, `types`) stands apart from
   the last try (`tried`, `reader`, `error`). `refused_at` is when this reader was first refused in a row: a read clears it, another failure

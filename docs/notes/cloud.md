@@ -95,3 +95,10 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
 - **The cloud reads home markets with logins handed to it** (`worker/src/homeMarkets.ts`, Industry stage 4): a reader's login, the main's or an
   alt's, reads a structure's market hourly; nothing is filed under any character (`home_books` is the structure's), and the readers use
   `ledgerReader` / `altReader` as the other reads do, so a login's refresh and refusal are unchanged.
+
+- **The main's colonies are kept hourly, whatever the alert settings say** (`worker/src/planets.ts`; planets-colonies.md). The
+  read lived inside the alert round behind `cfg.ev.pi && cfg.mailEv.pi`, so PI alerts off kept no colonies; now it runs hourly,
+  before each ledger's alert round, whenever the main's login holds the planets permission, pushing only when the merged document
+  changed, and the alert round reads the kept document, never ESI. **`'pi'` is watchdog-mailed**, so a failing read now mails
+  "Cloud job failing" with PI alerts off too, as intended. It pushes under `who.ledger` (the main's); an alt's must go under
+  `who.char`.
