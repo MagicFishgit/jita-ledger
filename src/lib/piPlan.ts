@@ -32,32 +32,36 @@ export type Sold = { isk: number | null; units: number; where: ('jita' | 'home')
 export type Sell = (typeId: number, perDay: number) => Sold;
 /**
  * A good's whole output a day sold: `sell` picks the place (Jita, the home hub, or the better of the two). Each place's sale
- * is worked out by `slotDay` at your share of its pace. Under 'best' the place whose first unit nets more is filled to its cap
- * first and the other takes what's left, only where its unit pays, so every output is valued where it can sell; `where` lists
+ * is worked out by `slotDay` at your share of its pace. Under 'best' the sides of both places are filled in order of net, each to its
+ * cap, a side after the first only where its unit pays, so every output is valued where it can sell; `where` lists
  * both when both sell and `jitaUnits` is how many go to Jita (for the week's freight volume). Works on nets already worked
  * out: a freight minimum belongs in the `Sale`s (spread over a week's sales), never charged per call here. `why` is the
  * sales' own reasons when neither prices. Pure.
  */
 export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | null }, sell: 'jita' | 'home' | 'best', share: number): Sold {
   const places = (['home', 'jita'] as const).filter((p) => sell === 'best' || sell === p).map((p) => ({ p, sale: sales[p] }));
-  const first = (sale: Sale | null) => (sale ? Math.max(sale.listNet ?? -Infinity, sale.bidNet ?? -Infinity) : -Infinity);
-  const priced = places.filter((x) => x.sale && slotDay(1, x.sale, 0, share)).sort((a, b) => first(b.sale) - first(a.sale) || (a.p === 'home' ? -1 : 1));
-  if (!priced.length) {
+  // The sides of both places in order of net, not a place at a time: a place filled whole would sell its bids ahead of the other
+  // place's better listings, and a unit's net would rise with the amount (the contract on `Sell`).
+  const sides = places.flatMap((x) => (x.sale ? [
+    { p: x.p, net: x.sale.listNet, sale: { ...x.sale, bidNet: null } },
+    { p: x.p, net: x.sale.bidNet, sale: { ...x.sale, listNet: null } },
+  ] : [])).filter((s) => s.net != null).sort((a, b) => b.net! - a.net! || (a.p === b.p ? 0 : a.p === 'home' ? -1 : 1));
+  if (!sides.length) {
     const why = [...new Set(places.map((x) => x.sale?.why).filter((w): w is string => !!w))].join('; ');
     return { isk: null, units: 0, where: [], why: why || 'no price read', jitaUnits: 0 };
   }
   let left = perDay, isk = 0, units = 0, jita = 0;
-  const where: ('jita' | 'home')[] = [];
-  priced.forEach((x, i) => {
-    if (!(left > 0)) return;
-    if (i > 0 && !(first(x.sale) > 0)) return;
-    const d = slotDay(left, x.sale!, 0, share);
+  const where = new Set<'jita' | 'home'>();
+  sides.forEach((sd, i) => {
+    // The first side is sold even at a loss (the loss is shown); the rest only where a unit pays.
+    if (!(left > 0) || (i > 0 && !(sd.net! > 0))) return;
+    const d = slotDay(left, sd.sale, 0, share);
     if (!d || !(d.units > 0)) return;
     isk += d.profit; units += d.units; left -= d.units;
-    if (x.p === 'jita') jita += d.units;
-    where.push(x.p);
+    if (sd.p === 'jita') jita += d.units;
+    where.add(sd.p);
   });
-  return { isk, units, where, why: null, jitaUnits: jita };
+  return { isk, units, where: [...where], why: null, jitaUnits: jita };
 }
 /** What `perDay` units cost a day to buy, and where; null with `why` when not known. */
 export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };

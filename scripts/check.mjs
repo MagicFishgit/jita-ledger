@@ -8075,7 +8075,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
 {
   const { soldOf } = await import('../src/lib/piPlan.ts');
-  const { sellAt } = await import('../src/lib/industryRank.ts');
+  const { sellAt, slotDay } = await import('../src/lib/industryRank.ts');
   const sale = (place, listNet, listPace, why = null) => ({ place, list: listNet, listNet, bid: null, bidNet: null, pace: listPace, listPace, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why });
   const jita = sale('jita', 9000, 1000), home = sale('home', 10000, 50);
   const best = soldOf(300, { jita, home }, 'best', 10);
@@ -8104,6 +8104,31 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   eq('  the freight minimum is in the sale, spread over a week\'s sales (not 0)', once.freight > 2700 + 75, true);
   const planted = nets((n) => soldOf(n, { jita: saleFor(n), home: null }, 'jita', 10));
   eq('  planted: a sale worked out for each call\'s amount breaks it (so this test can fail)', nonIncreasing(planted), false);
+
+  // Under 'best', across both places (the review's import market: the hub's list over Jita's, its bids under Jita's). The sides of
+  // both places are filled in order of net; a place filled whole sold the hub's bids ahead of Jita's better listings.
+  const two = (place, listNet, bidNet, listPace, bidPace) => ({ ...sale(place, listNet, listPace), bid: bidNet, bidNet, pace: listPace + bidPace, bidPace });
+  const imp = { home: two('home', 10000, 6000, 50, 500), jita: two('jita', 9000, 7000, 1000, 1000) };
+  const qs = [1, 5, 10, 30, 55, 60, 100, 155, 200, 300];
+  const avgsBest = (f) => qs.map((q) => { const r = f(q); return r.isk / r.units; });
+  const bestAvg = avgsBest((q) => soldOf(q, imp, 'best', 10));
+  eq('  best across both places: a unit\'s net never rises as the amount grows', nonIncreasing(bestAvg), true);
+  const one = soldOf(1, imp, 'best', 10);
+  eq('  best: no amount is worth more than its units at the first unit\'s net (the planner\'s bound)', qs.every((q) => { const r = soldOf(q, imp, 'best', 10); return r.isk <= one.isk * r.units + 1e-6; }), true);
+  eq('  best: at 55 units, the listings first (500,000), not the hub\'s bids ahead of Jita\'s', soldOf(55, imp, 'best', 10).isk, 5 * 10000 + 50 * 9000 + 0);
+  // The old order, planted: a place at a time, its best side then its other side.
+  const placeByPlace = (q) => {
+    const order = ['home', 'jita']; let left = q, isk = 0, units = 0;
+    for (const p of order) { const d = slotDay(left, imp[p], 0, 10); if (d && d.units > 0) { isk += d.profit; units += d.units; left -= d.units; } }
+    return { isk, units };
+  };
+  eq('  planted: filling a place at a time breaks it (so these tests can fail)', nonIncreasing(avgsBest(placeByPlace)), false);
+
+  // Buying at a hub walks its levels for a week's need: what a unit costs only rises with the amount.
+  const { fillCost } = await import('../src/lib/industryRank.ts');
+  const levels = [{ price: 100, volume: 50 }, { price: 110, volume: 100 }, { price: 150, volume: 500 }];
+  const costs = [1, 10, 50, 120, 300, 700].map((n) => fillCost(levels, n));
+  eq('  a hub\'s levels: a unit costs no less as the amount grows, and too much is none', [costs.slice(0, 5).every((c, i, a) => i === 0 || c >= a[i - 1] - 1e-9), costs[5]], [true, null]);
 }
 
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');

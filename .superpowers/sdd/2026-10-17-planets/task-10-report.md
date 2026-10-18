@@ -28,3 +28,21 @@
 - Planted: `jitaUnits: 0` made 2 new assertions fail ("a sale split ... sends the Jita part", "Jita alone"); the per-call sale
   (planted inside the test) makes the monotone check read false, asserted.
 - `PORT=5288 npm run check-pages`: all 145 page loads passed. `PORT=5289 npm run check-income`: figures as recorded, unchanged.
+
+## Fix round 1
+- **C1** `soldOf` under 'best' now orders the single-side copies of both places' sales by net and fills them in that order (one
+  `slotDay` per side; the first side always, the rest only where a unit pays). New tests: import market (home list 10,000 / bids
+  6,000, Jita list 9,000 / bids 7,000) non-increasing over 1..300 units, no amount worth more than its units at the first unit's
+  net, 55 units = 500,000. Planted (old place-by-place code restored): "never rises" and "55 units" fail (got 350,000); a copy of
+  the old order inside the test also reads non-monotone.
+- **I1** `said` branches on the leg: a route names it; none says no route is picked and nothing is priced at Jita.
+- **I2** Jita pace 0 with a freight route: Jita unpriced ("nothing traded in Jita in the last 14 days…") for selling and buying;
+  pace null: buying with a route uses the sale's reason (selling already unpriced by `sellAt`).
+- **I3** `waiting` first checks `c.feeKnown`, in Industry's "skills aren't read yet" words.
+- **I4** the memos use `Date.now()` inside, not `useNow`; `now` only feeds `said`. `sell`/`buy`/`unit` keep identity until inputs change.
+- **m1** no-hub `said` is a closed sentence that also says Jita is unpriced; the broker-fee sentence only when home is used.
+- **m2** `ready` waits while the hub list loads for a hub picked. **m3** `said` names Jita's source (morning books / live for the
+  named goods). **m4** hub buying walks the structure's levels for a week's need (`fillCost`), or Goonmetrics' best sell only where
+  weekly movement >= `HOME_DEPTH` x the need; thinner falls to Jita. Test: `fillCost` per-unit cost never falls with the amount.
+- **m5** the hook returns `freight` (the hub to Jita route's terms, or null).
+- Checks: `npm run check` all passed; `npm run build` passes; check-pages and check-income check-pages: all 145 page loads passed; check-income: figures as recorded.
