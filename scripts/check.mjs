@@ -7749,6 +7749,197 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   }
 }
 
+console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan.ts: feed, bought, chain, planSystem) ---');
+{
+  const fsP = await import('node:fs');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { planSingle, planFeed, planBought, planChain, planSystem, rankSetups } = await import('../src/lib/piPlan.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
+  const nameOf = (id) => ix.byId.get(id).name;
+  const NANITES = idOf('Nanites'), BROADCAST_NODE = idOf('Broadcast Node');
+  const brave = (rate) => ({ rate, from: 'brave', npc: 0, interbus: false });
+  const typed = (rate) => ({ rate, from: 'typed', npc: 0, interbus: false });
+  const rate = (over = {}) => ({ perHour: 12000, higher: null, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: true, ...over });
+  const sellBy = (price, cap = () => Infinity) => (id, perDay) => {
+    const u = price(id);
+    if (u == null) return { isk: null, units: 0, where: [], why: 'No price read' };
+    const units = Math.min(perDay, cap(id));
+    return { isk: units * u, units, where: ['jita'], why: null };
+  };
+  const noBuy = () => ({ isk: null, where: null, why: 'Not bought here' });
+  const role = (s, id) => s.roles.find((r) => r.planetId === id && r.does !== 'unused') ?? s.roles.find((r) => r.planetId === id);
+  const factories = (s) => s.roles.filter((r) => r.does === 'factory');
+
+  // Task 8's system: A Barren and B Gas at Brave's 2% / 5%, C Shattered; two planets at CCU IV.
+  const A = 40000001, B = 40000002, C = 40000003;
+  const planets = [
+    { planetId: A, name: 'Test I', type: 'Barren', radiusKm: 3750, tax: brave(0.02) },
+    { planetId: B, name: 'Test II', type: 'Gas', radiusKm: 26370, tax: brave(0.05) },
+    { planetId: C, name: 'Test III', type: null, radiusKm: 1000, tax: brave(0.05) },
+  ];
+  const char = { charId: 1, name: 'Owner', planets: 2, ccLevel: 4, alpha: false };
+  const unitOf = (id) => (id === NANITES ? 10_000 : { P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
+  const input = { ix, planets, char, others: [], rateOf: (t) => (t === 'Barren' || t === 'Gas' ? rate() : null), sell: sellBy(unitOf), buy: noBuy, programHours: 72 };
+
+  // big, shaped like 5-NZNW: I, III, IV and VI Barren; II Lava; V Temperate; VII–X Gas; XI Ice; XII Oceanic, each at its
+  // type's median radius (CCP's mapPlanets, the research's mechanics.md), at Brave's taxes.
+  const MEDIAN = { Barren: 3750, Lava: 3360, Temperate: 6440, Gas: 26370, Ice: 14600, Oceanic: 4365 };
+  const shape = [['I', 'Barren'], ['II', 'Lava'], ['III', 'Barren'], ['IV', 'Barren'], ['V', 'Temperate'], ['VI', 'Barren'], ['VII', 'Gas'], ['VIII', 'Gas'], ['IX', 'Gas'], ['X', 'Gas'], ['XI', 'Ice'], ['XII', 'Oceanic']];
+  const bigPlanets = shape.map(([n, type], i) => ({ planetId: 40400001 + i, name: `5-NZNW ${n}`, type, radiusKm: MEDIAN[type], tax: brave(type === 'Barren' || type === 'Temperate' ? 0.02 : 0.05) }));
+  const typeAt = (id) => bigPlanets.find((p) => p.planetId === id)?.type;
+  // The second character is at CCU II, not the brief's III: at III every role the Broadcast Node chain gives it fits (a P1
+  // planet's 10 heads, and even its factory of 15 Advanced and a High-Tech), so nothing could be said to lack.
+  const OWNER = 1, SECOND = 2, UNREAD = 3;
+  const second = { charId: SECOND, name: 'Second', planets: 5, ccLevel: 2, alpha: false };
+  const unread = { charId: UNREAD, name: 'Unread', planets: null, ccLevel: null, alpha: null };
+  const bigPrice = (id) => (id === BROADCAST_NODE ? 1_500_000 : { P1: 400, P2: 3000, P3: 40_000 }[ix.byId.get(id).tier] ?? null);
+  const big = { ix, planets: bigPlanets, char: { charId: OWNER, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, others: [second, unread],
+    rateOf: () => rate(), sell: sellBy(bigPrice), buy: noBuy, programHours: 72 };
+
+  // The brief's own lines.
+  const feed = planFeed(big);
+  eq('  feeds one factory planet', feed.roles.filter((r) => r.does === 'factory').length, 1);
+  eq('  imports pay half the tax', feed.taxDay > 0 && feed.roles.some((r) => r.does === 'factory'), true);
+  // Every P1 bought at 100 ISK a unit (Bought.isk is the cost a day of perDay units).
+  const bought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  // A (Barren, 2%): 22 Advanced → 2,640 Nanites a day = 26,400,000; inputs 42,240 P1 = 4,224,000; import 42,240 × 400 × 2% × ½ = 168,960;
+  //   export 2,640 × 7,200 × 2% = 380,160 → 21,626,880.
+  // B (Gas, 5%): 21 Advanced → 2,520 = 25,200,000; inputs 40,320 = 4,032,000; import 403,200; export 907,200 → 19,857,600.
+  eq('  bought inputs: outputs less inputs and both taxes', bought.iskDay, 41_484_480);
+  const chain = planChain(big);
+  eq('  a Broadcast Node chain across two characters', [chain.outputs.some((o) => o.id === BROADCAST_NODE), chain.perChar.length], [true, 2]);
+  eq('  ranked per character used', chain.iskDay, chain.perChar.reduce((t, c) => t + c.iskDay, 0) / chain.perChar.length);
+  eq('  the CCU II character lacks the level its roles need', chain.perChar[1].lacks.some((x) => x.startsWith('Command Center Upgrades')), true);
+  eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
+  const all = planSystem(big);
+  eq('  every kind, P0 → P2 always there', all.map((s) => s.kind).sort(), ['bought', 'chain', 'feed', 'p1', 'p2']);
+  eq('  ranked by ISK a day', all.filter((s) => s.iskDay != null).every((s, i, a) => i === 0 || a[i - 1].iskDay >= s.iskDay), true);
+  eq('  nulls last', all.findIndex((s) => s.iskDay == null) < 0 || all.slice(all.findIndex((s) => s.iskDay == null)).every((s) => s.iskDay == null), true);
+
+  // Bought, worked through: the roles, the inputs summed over both planets, the upkeep.
+  const ba = role(bought, A), bb = role(bought, B);
+  eq('  bought: each planet makes Nanites at as many Advanced as fit at CCU IV', [ba.does, ba.makes.map((m) => [m.id, m.perDay, m.facility, m.count]), bb.makes.map((m) => [m.id, m.perDay, m.count])],
+    ['factory', [[NANITES, 2640, 'advanced', 22]], [[NANITES, 2520, 21]]]);
+  eq('  bought: taxes per planet and tier, import and export', bought.taxes.filter((t) => t.planetId === A).map((t) => [t.tier, t.perDay]).sort(), [['P1', 168_960], ['P2', 380_160]]);
+  eq('  bought: the inputs, summed over both planets', bought.inputs.map((x) => [nameOf(x.id), x.perDay, x.bought.isk]).sort(), [['Bacteria', 41_280, 4_128_000], ['Reactive Metals', 41_280, 4_128_000]]);
+  eq('  bought: no resets, restocks from the launchpad', [bought.upkeep.resetsPerWeek, bought.upkeep.restocksPerWeek], [0, (42_240 + 40_320) * 0.19 * 7 / 10_000]);
+  eq('  bought: one character, nothing lacking', bought.perChar, [{ charId: 1, iskDay: 41_484_480, lacks: [] }]);
+  eq('  bought: the Shattered planet says why', role(bought, C).why, 'No planetary industry on this kind of planet');
+  // Nanites capped at 300 a day: the 2% planet makes the uncapped 3,000 P2 at full (2,640 × (3,000 − 1,600 − 64 − 144)) and the 5%
+  // one the 300 Nanites (300 × (10,000 − 1,600 − 160 − 360)), on 3 of its 21 Advanced; the other way round pays 5,364,480 less.
+  const cappedB = planBought({ ...input, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  eq('  bought under a cap: the low-tax planet makes the uncapped good, the factories run for what sells',
+    [cappedB.iskDay, role(cappedB, B).makes.map((m) => [m.id, m.perDay, m.count]), role(cappedB, A).makes[0].id !== NANITES], [3_146_880 + 2_364_000, [[NANITES, 300, 3]], true]);
+  const unpricedBuy = planBought(input);
+  eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
+  // P4 on big, buying every input at big's prices: 15 High-Tech on each 2% Barren or Temperate planet, 360 Broadcast Nodes a day,
+  // 6,480 P3 bought (259.2 M); import 6,480 × 60,000 × 2% × ½; export 360 × 1,200,000 × 2%: 268,272,000 a planet, five of them.
+  const boughtBig = planBought({ ...big, buy: (id, perDay) => ({ isk: perDay * bigPrice(id), where: 'jita', why: null }) });
+  const p4Roles = boughtBig.roles.filter((r) => r.makes.some((m) => ix.byId.get(m.id).tier === 'P4'));
+  eq('  P4 only on Barren or Temperate', [p4Roles.length, p4Roles.every((r) => ['Barren', 'Temperate'].includes(typeAt(r.planetId)))], [5, true]);
+  eq('  P4 bought: 15 High-Tech each, 268,272,000 a planet', [p4Roles.map((r) => r.makes[0].count), boughtBig.iskDay], [[15, 15, 15, 15, 15], 5 * 268_272_000]);
+
+  // Feed, worked through: two Barren planets each ship 1,920 Bacteria and 1,920 Reactive Metals a day to a factory on the Gas
+  // planet, which makes 480 Nanites a day on 4 Advanced. 4,800,000 less the feeders' export (2 × 3,840 × 400 × 2%), the factory's
+  // import (7,680 × 400 × 5% × ½) and its export (480 × 7,200 × 5%).
+  {
+    const D = 40000004;
+    const three = { ...input, char: { ...char, planets: 3 }, planets: [planets[0], { planetId: D, name: 'Test IV', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }, planets[1]],
+      sell: sellBy((id) => (id === NANITES ? 10_000 : null)) };
+    const f = planFeed(three);
+    const g = role(f, B);
+    eq('  feed: ISK after the feeders’ export, the factory’s import at half and its export', f.iskDay, 4_800_000 - 61_440 - 76_800 - 172_800);
+    eq('  feed: the factory on the Gas planet, 4 Advanced making 480 Nanites', [g.does, g.makes.map((m) => [m.id, m.perDay, m.facility, m.count])], ['factory', [[NANITES, 480, 'advanced', 4]]]);
+    eq('  feed: the factory imports what it’s fed, from each planet', (g.imports ?? []).map((x) => [nameOf(x.id), x.perDay, x.from]).sort(), [['Bacteria', 1920, A], ['Bacteria', 1920, D], ['Reactive Metals', 1920, A], ['Reactive Metals', 1920, D]]);
+    eq('  feed: each Barren planet ships its P1 to the factory', role(f, A).ships.map((s) => [nameOf(s.id), s.perDay, s.to]).sort(), [['Bacteria', 1920, B], ['Reactive Metals', 1920, B]]);
+    eq('  feed: taxes per planet and tier, the import at half the rate', f.taxes.filter((t) => t.planetId === B).map((t) => [t.tier, t.perDay]).sort(), [['P1', 76_800], ['P2', 172_800]]);
+    eq('  feed: upkeep: two resets each program, restocks from the launchpad, the Nanites hauled', [f.upkeep.resetsPerWeek, f.upkeep.restocksPerWeek, f.upkeep.haulM3PerWeek], [2 * 168 / 72, 7680 * 0.19 * 7 / 10_000, 480 * 0.75 * 7]);
+    eq('  feed: one output, nothing unvalued', [f.outputs.map((o) => [o.id, o.perDay]), f.unvalued, f.why], [[[NANITES, 480]], 0, null]);
+    // Rates unchecked at 14,000: 2,240 a line, 560 Nanites; 5,600,000 − 2 × 4,480 × 400 × 2% − 8,960 × 400 × 5% × ½ − 560 × 7,200 × 5%.
+    const high = planFeed({ ...three, rateOf: () => rate({ higher: 14_000, checked: false }) });
+    eq('  feed: the higher reading beside, the same arrangement', [high.iskDay, Math.round(high.iskDayHigh)], [4_488_960, 5_600_000 - 71_680 - 89_600 - 201_600]);
+    // The factory's planet's tax not known: ranked before it, each 1% priced (import base at half, and the export base).
+    const blind = planFeed({ ...three, planets: three.planets.map((p) => (p.planetId === B ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)) });
+    eq('  feed: a factory whose tax isn’t known, ranked before it', [blind.iskDay, blind.taxDay, blind.perPct, blind.before], [4_800_000 - 61_440, null, (7680 * 400 * 0.5 + 480 * 7200) / 100, ['tax']]);
+    // Two Barren planets, Ice and Oceanic, four planets allowed; Nanites and Bacteria priced, nothing else. Reactive Metals
+    // comes only from Barren (neither other has Base Metals), so an Ice or Oceanic planet shipping Bacteria isn't needed:
+    // Reactive Metals still binds. Selling its surplus Bacteria (+691,200 after its export tax) isn't feeding, so the fourth
+    // planet stays unused; the factory goes on the other 5% planet.
+    const I = 40000005, O = 40000006, BACTERIA = idOf('Bacteria');
+    const four = planFeed({ ...three, char: { ...char, planets: 4 }, sell: sellBy((id) => (id === NANITES ? 10_000 : id === BACTERIA ? 400 : null)),
+      planets: [three.planets[0], three.planets[1], { planetId: I, name: 'Test V', type: 'Ice', radiusKm: 14600, tax: brave(0.05) }, { planetId: O, name: 'Test VI', type: 'Oceanic', radiusKm: 4365, tax: brave(0.05) }] });
+    eq('  feed: every feeder needed, the rest unused', [four.iskDay, four.roles.filter((r) => r.does === 'extract').map((r) => r.planetId).sort(), four.roles.filter((r) => r.does === 'unused').map((r) => r.why)],
+      [4_488_960, [A, D], ['Not needed by this setup']]);
+  }
+  // Test Cultures (Bacteria and Water) where Aqueous Liquids comes out at 3,000 an hour (480 Water a day): Gas 5%, Ice 2%,
+  // Temperate 2%, Lava 2%, three planets allowed, most P1 at 400. The factory on Ice; Gas ships its 480 Water and sells 1,920
+  // Oxidizing Compound; Temperate ships 480 Bacteria and sells 1,440 Bacteria and 1,920 Proteins: 60 a day. 600,000 + 2,112,000
+  // less Gas's export (2,400 × 400 × 5%), Temperate's (3,840 × 400 × 2%), the import (960 × 400 × 2% × ½) and the export
+  // (60 × 7,200 × 2%). A second planet that sold its own P1 while Ice fed the factory alone would pay 28,800 more: it isn't feeding.
+  {
+    const TC = idOf('Test Cultures'), slowP0 = new Set(['Aqueous Liquids', 'Base Metals', 'Felsic Magma', 'Ionic Solutions', 'Noble Gas', 'Non-CS Crystals', 'Suspended Plasma'].map(idOf));
+    const priced = new Set([TC, ...['Bacteria', 'Electrolytes', 'Oxidizing Compound', 'Oxygen', 'Precious Metals', 'Proteins', 'Reactive Metals', 'Silicon', 'Water'].map(idOf)]);
+    const s = planFeed({ ...input, char: { ...char, planets: 3 }, rateOf: (t, p0) => rate({ perHour: slowP0.has(p0) ? 3000 : 12_000 }),
+      sell: sellBy((id) => (!priced.has(id) ? null : id === TC ? 10_000 : 400)),
+      planets: [['Gas', 0.05], ['Ice', 0.02], ['Temperate', 0.02], ['Lava', 0.02]].map(([type, r], i) => ({ planetId: 1 + i, name: type, type, radiusKm: MEDIAN[type], tax: brave(r) })) });
+    eq('  feed: a planet that only sells its own P1 isn’t feeding', [s.iskDay, s.roles.map((r) => r.does)], [2_712_000 - 48_000 - 30_720 - 3840 - 8640, ['extract', 'factory', 'extract', 'unused']]);
+  }
+  // The three P2s no planet makes alone: Silicate Glass from Reactive Gas on a Gas planet and Felsic Magma on a Lava planet.
+  {
+    const glass = idOf('Silicate Glass');
+    const s = planFeed({ ...input, char: { ...char, planets: 3 }, rateOf: () => rate(), sell: sellBy((id) => (id === glass ? 10_000 : null)),
+      planets: [{ planetId: 1, name: 'Gas', type: 'Gas', radiusKm: 26370, tax: brave(0.05) }, { planetId: 2, name: 'Lava', type: 'Lava', radiusKm: 3360, tax: brave(0.05) }, { planetId: 3, name: 'Barren', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }] });
+    // 240 a day; the second extractor on each feeder is on Base Metals (nothing else pays more: no P1 is priced), so both
+    // make Reactive Metals nobody prices: exported all the same (nothing says it builds up), taxed, one output unvalued.
+    // 2,400,000 − 15,360 import − 34,560 export − 2 × 3,840 × 400 × 5%.
+    eq('  feed: a P2 no planet makes alone', [role(s, 3).does, s.outputs.find((o) => o.id === glass)?.perDay, s.iskDay, s.outputs.filter((o) => o.sold.isk == null).map((o) => nameOf(o.id))], ['factory', 240, 2_400_000 - 15_360 - 34_560 - 153_600, ['Reactive Metals']]);
+  }
+  // At no tax, a planet making a P2 alone ships it to the factory rather than its P1: the same ISK and less to restock.
+  {
+    const robotics = idOf('Robotics');
+    const s = planFeed({ ...input, char: { ...char, planets: 3 }, rateOf: () => rate(), sell: sellBy((id) => (id === robotics ? 100_000 : null)),
+      planets: [{ planetId: 1, name: 'Barren', type: 'Barren', radiusKm: 3750, tax: typed(0) }, { planetId: 2, name: 'Lava', type: 'Lava', radiusKm: 3360, tax: typed(0) }, { planetId: 3, name: 'Gas', type: 'Gas', radiusKm: 26370, tax: typed(0) }] });
+    eq('  feed: P2 made alone and shipped, the factory making Robotics from it', [s.iskDay, role(s, 3).makes.map((m) => [nameOf(m.id), m.perDay]), (role(s, 3).imports ?? []).map((x) => nameOf(x.id)).sort()],
+      [72 * 100_000, [['Robotics', 72]], ['Consumer Electronics', 'Mechanical Parts']]);
+  }
+  eq('  feed with one planet allowed: said', planFeed({ ...input, char: { ...char, planets: 1 } }).why, 'A factory planet and one to feed it take 2 planets: you have 1');
+  eq('  feed: skills not read, an Alpha', [planFeed({ ...input, char: { ...char, planets: null } }).why, planFeed({ ...input, char: { ...char, alpha: true } }).perChar[0].lacks], ['Skills not read', ['Omega']]);
+
+  // The chain, worked through on big: Lava II is the only Lava, so two colonies there (one each) give 2 × 1,920 Silicon a day and
+  // one Suspended Plasma and one Non-CS Crystals line: 12 Broadcast Nodes a day, the rest of the P1 balanced to it.
+  const node = chain.outputs.find((o) => o.id === BROADCAST_NODE);
+  eq('  chain: 12 Broadcast Nodes a day, on one High-Tech', [node.perDay, factories(chain).length, factories(chain)[0].makes.find((m) => m.id === BROADCAST_NODE).count], [12, 1, 1]);
+  eq('  chain: both characters have a colony on Lava II', chain.roles.filter((r) => typeAt(r.planetId) === 'Lava' && r.does === 'extract').map((r) => r.charId).sort(), [OWNER, SECOND]);
+  eq('  chain: the factory on a 2% Barren planet, the shown character’s', [typeAt(factories(chain)[0].planetId), factories(chain)[0].charId], ['Barren', OWNER]);
+  eq('  chain: each character’s share by its colonies; the shares add up to the whole', [chain.perChar.map((c) => c.charId), Math.abs(chain.perChar.reduce((t, c) => t + c.iskDay, 0) - chain.iskDay * 2) < 1e-6], [[OWNER, SECOND], true]);
+  eq('  chain: the shown character lacks nothing at CCU IV', chain.perChar[0].lacks, []);
+  eq('  chain: every colony within each character’s planets', [OWNER, SECOND].map((c) => chain.roles.filter((r) => r.charId === c && r.does !== 'unused').length <= 5), [true, true]);
+  // A second character with 3 planets holds fewer colonies, so a smaller share; the per-character figure is still the whole ÷ 2.
+  {
+    const c3 = planChain({ ...big, others: [{ ...second, planets: 3 }] });
+    const held = [OWNER, SECOND].map((c) => c3.roles.filter((r) => r.charId === c && r.does !== 'unused').length);
+    const whole = c3.perChar.reduce((t, c) => t + c.iskDay, 0);
+    eq('  chain: each character’s share by its colonies', [held[0] > held[1], c3.perChar.map((c) => Math.round(c.iskDay)), c3.iskDay], [true, held.map((n) => Math.round((whole * n) / (held[0] + held[1]))), whole / 2]);
+  }
+  // Short of characters: one with planetary industry and an Alpha alt; the Alpha is named with what it lacks.
+  const alphaAlt = { charId: 4, name: 'Alpha Alt', planets: 5, ccLevel: 4, alpha: true };
+  const short = planChain({ ...big, others: [alphaAlt, unread] });
+  eq('  chain short of characters: no figure, says how many', [short.iskDay, short.why], [null, 'Needs 1 more character with planetary industry']);
+  eq('  chain short: the Alpha who could make it up, named with Omega', short.perChar.map((c) => [c.charId, c.iskDay, c.lacks]), [[OWNER, null, []], [4, null, ['Omega']]]);
+
+  // planSystem's order: by ISK a day, nulls last, and at equal ISK less upkeep first.
+  const fake = (kind, iskDay, resets, restocks) => ({ kind, iskDay, upkeep: { resetsPerWeek: resets, restocksPerWeek: restocks } });
+  eq('  ranking: at equal ISK the one with less upkeep first; nulls last', rankSetups([fake('p1', 5, 3, 0), fake('feed', null, 0, 0), fake('p2', 5, 2, 0), fake('bought', 7, 9, 9)]).map((s) => s.kind), ['bought', 'p2', 'p1', 'feed']);
+
+  // Task 8's lacks: the level a layout needs, at least one head an extractor. A 5-head rate at CCU III on Barren with 2 + 4:
+  // 10 heads where 7 fit, so IV (11). No rate on Gas at CCU I: the layout doesn't fit without heads; with one head each it needs
+  // III (II fits one), where counting no heads said II.
+  const one = (type, radiusKm, ccLevel, rateOf) => planSingle({ ...input, planets: [{ planetId: 9, name: 'One', type, radiusKm, tax: brave(0.02) }], char: { ...char, planets: 1, ccLevel }, rateOf }, 'p2');
+  eq('  a 5-head rate at CCU III on Barren lacks Command Center Upgrades IV', one('Barren', 3750, 3, () => rate()).perChar[0].lacks, ['Command Center Upgrades IV']);
+  eq('  no rate at CCU I on Gas: at least a head an extractor, so III', one('Gas', 26370, 1, () => null).perChar[0].lacks, ['Command Center Upgrades III']);
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
