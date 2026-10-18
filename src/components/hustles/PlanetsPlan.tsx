@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import { iskBig, units } from '../../lib/format';
+import { dayCount } from '../../lib/split';
 import { secBand } from '../../lib/industry';
 import { secText } from '../../lib/industrySites';
 import type { Graph } from '../../lib/jumps';
@@ -22,6 +23,9 @@ import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import { usePlanetMarket, useSystemPlanets, type SystemPlanet } from './planetsMarket';
 import { useMainSystem } from './rightNow';
+
+/** An amount a day as a pace is said (N2): whole from 10, one decimal under it, "under 0.1" below that; never a known 0.4 read as 0. */
+const aDay = (n: number) => dayCount(n);
 
 /**
  * Plan: give it a system and every way of setting its planets up is ranked by ISK a day for the character shown, with the upkeep
@@ -592,7 +596,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
                 // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
                 const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
                 return (
-                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
+                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
                     {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} supplies{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
                   </span>
                 );
@@ -632,10 +636,10 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
       <span className="lbl">What it makes, valued</span>
       {s.outputs.map((o) => (
         <span key={o.id} className="pl-line">
-          <b>{name(o.id)}</b>: {units(o.perDay)} a day
+          <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
           {o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}`
-            : `, ${units(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
-          {o.sold.isk != null && o.buildingUp > 1e-6 && <span className="pl-up">; {units(o.buildingUp)} a day build up: the market takes no more at your share</span>}
+            : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
+          {o.sold.isk != null && o.buildingUp > 1e-6 && <span className="pl-up">; {aDay(o.buildingUp)} a day build up: the market takes no more at your share</span>}
         </span>
       ))}
     </div>
@@ -653,9 +657,9 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
     const heads = e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : e.rate && !(e.rate.heads > 0) ? 'heads not known: the colony didn’t say how many' : 'heads not known';
     return `${name(e.p0)} at ${units(e.perHour)} an hour (${from}; ${heads})`;
   });
-  const makes = r.makes.filter((m) => m.count > 0 || m.perDay > 0).map((m) => `${m.count} ${FAC[m.facility][m.count === 1 ? 0 : 1]} make${m.count === 1 ? 's' : ''} ${units(m.perDay)} ${name(m.id)} a day`);
-  const imports = (r.imports ?? []).map((x) => `${units(x.perDay)} ${name(x.id)} a day from ${x.from === 'market' ? 'the market' : pname(x.from)}`);
-  const ships = r.ships.map((x) => `${units(x.perDay)} ${name(x.id)} a day to ${x.to === 'market' ? 'market' : pname(x.to)}`);
+  const makes = r.makes.filter((m) => m.count > 0 || m.perDay > 0).map((m) => `${m.count} ${FAC[m.facility][m.count === 1 ? 0 : 1]} make${m.count === 1 ? 's' : ''} ${aDay(m.perDay)} ${name(m.id)} a day`);
+  const imports = (r.imports ?? []).map((x) => `${aDay(x.perDay)} ${name(x.id)} a day from ${x.from === 'market' ? 'the market' : pname(x.from)}`);
+  const ships = r.ships.map((x) => `${aDay(x.perDay)} ${name(x.id)} a day to ${x.to === 'market' ? 'market' : pname(x.to)}`);
   const rows = s.taxes.filter((t) => t.planetId === r.planetId);
   const tax = rows.length === 0 ? null : rows.some((t) => t.perDay == null) ? 'not known: ranked before it' : `${iskBig(rows.reduce((n, t) => n + t.perDay!, 0))} a day (${rows.map((t) => `${t.tier} ${iskBig(t.perDay)}`).join(', ')})`;
   const parts: [string, string][] = [
@@ -681,7 +685,9 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
 /** Weeks between, said: "1.2 weeks", "56 weeks", "2.1 years". */
 function weeksSaid(w: number): string {
   if (w >= 104) return `${+(w / 52).toFixed(1)} years`;
-  return `${w < 10 ? +w.toFixed(1) : Math.round(w)} weeks`;
+  const n = w < 10 ? +w.toFixed(1) : Math.round(w);
+  // "one every week", never "one every 1 weeks" (N2).
+  return n === 1 ? 'week' : `${n} weeks`;
 }
 /** A rate a week: under one, said as time between (m2), as Industry says a slot's day. */
 const perWeekSaid = (x: number) => (!(x > 0) ? '0' : x < 1 ? `one every ${weeksSaid(1 / x)}` : (+x.toFixed(1)).toLocaleString('en-US'));
