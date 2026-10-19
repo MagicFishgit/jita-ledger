@@ -26,9 +26,14 @@ import { SkillPanel } from './SkillPanel';
 const SECTION_KEY = 'jita-ledger:planets-section';
 const SHOW_KEY = 'jita-ledger:planets-show';
 const SYSTEM_KEY = 'jita-ledger:planets-system';
+/** Plan it: the good Plan is held to, kept per browser until Every product lets it go. */
+const GOOD_KEY = 'jita-ledger:planets-plan-good';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
 const forget = (k: string) => { try { localStorage.removeItem(k); } catch { /* just not kept */ } };
+
+/** A good Plan can be held to: one the bundle knows that a setup makes (P1 to P4); a P0 or an address's stray ID is every product. */
+const heldTo = (ix: PiIndex, id: number | null): number | null => (id != null && ix.makes.has(id) ? id : null);
 
 export const SECTIONS = [
   { key: 'plan', label: 'Plan', tip: 'Give it a system: each way of setting planets up, ranked by ISK a day, and which planet does what' },
@@ -54,6 +59,14 @@ export function Planets({ route }: { route: Route }) {
 
   const [systemId, setSystemId] = useState<number | null>(() => Number(readKept(SYSTEM_KEY)) || null);
   const chooseSystem = (id: number | null) => { setSystemId(id); if (id == null) forget(SYSTEM_KEY); else keep(SYSTEM_KEY, String(id)); };
+
+  // Plan it (19 October 2026): the good Plan is held to, from the address (hustles/planets/plan?good=<id>, the Chart's Plan it) and
+  // kept per browser, so coming back to Plan keeps it; Every product lets it go, back to the ranking of every product.
+  const asked = Number(route.query.get('good')) || null;
+  const [keptGood, setKeptGood] = useState<number | null>(() => Number(readKept(GOOD_KEY)) || null);
+  useEffect(() => { if (asked != null) { setKeptGood(asked); keep(GOOD_KEY, String(asked)); } }, [asked]);
+  const planGood = (id: number) => { setKeptGood(id); keep(GOOD_KEY, String(id)); keep(SECTION_KEY, 'plan'); navigate(`hustles/planets/plan?good=${id}`); };
+  const everyProduct = () => { setKeptGood(null); forget(GOOD_KEY); navigate('hustles/planets/plan'); };
 
   // Each character's kept colonies: the main's document, an alt's from its pulled copy once the cloud keeps it (stage 2).
   const colonies = useMemo(() => Object.fromEntries(chars.map((c): [number, ColoniesDoc | undefined] =>
@@ -84,9 +97,10 @@ export function Planets({ route }: { route: Route }) {
         ) : !ix || !graph ? (
           <p className="note small" style={{ margin: 0 }}>Loading the planets’ data and the map…</p>
         ) : section === 'chart' ? (
-          <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} />
+          <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} />
         ) : (
-          <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name} />
+          <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
+            good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} />
         )}
         <div data-planets="skills">
           <SkillPanel title="Skills this wants" needs={PI_SKILLS}

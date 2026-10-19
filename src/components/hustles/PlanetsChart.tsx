@@ -55,8 +55,10 @@ const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jita�
 /** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
 const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
-export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
+export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
+  /** Plan it: opens Plan held to this good (`hustles/planets/plan?good=<id>`). */
+  onPlanGood: (id: number) => void;
 }) {
   const p = usePlanning({ c, chars, colonies, ix, systemId });
   const tiers = useMemo(() => goodsByTier(ix), [ix]);
@@ -97,7 +99,7 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
           ))}
         </div>
         {pick != null && ix.byId.has(pick)
-          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} />
+          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} onPlanGood={onPlanGood} />
           : <p className="note small pl-tree-none">Pick a good for its recipe down to P0{sysName ? `, which of ${sysName}’s planets supply it, and which setups make it there` : ''}.</p>}
       </div>
     </section>
@@ -159,8 +161,8 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
 }
 
 /** A picked good: its recipe down to P0, what the system lacks of it, its P0s' planets here, and which setups can make it there. */
-function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan }: {
-  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void;
+function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan, onPlanGood }: {
+  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void; onPlanGood: (id: number) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   // Below the grid (a phone, a narrow window) a recipe picked now would land out of sight: brought into view when it isn't. Only
@@ -239,7 +241,8 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan 
           );
         })}
       </div>
-      {sysName && <Makes id={id} ix={ix} p={p} sysName={sysName} onPlan={onPlan} />}
+      {sysName ? <Makes id={id} ix={ix} p={p} sysName={sysName} onPlan={onPlan} onPlanGood={onPlanGood} />
+        : g.tier !== 'P0' && <div className="row" style={{ gap: 8, alignItems: 'baseline' }}><PlanIt id={id} name={g.name} onPlanGood={onPlanGood} /><span className="note small">Choose a system there to plan it.</span></div>}
     </section>
   );
 }
@@ -248,7 +251,19 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan 
  * Which setups can make it at the system: each kind that can (by what it sells, from these planets' types) or that the Plan section's
  * ranking does make it with, and for each what the ranking does; the kinds that can't, in one line.
  */
-function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; sysName: string; onPlan: () => void }) {
+/**
+ * Plan it (the user, 19 October 2026: "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go to PLAN I
+ * don't think it is showing how to build it on which planet to make that item"): opens Plan held to this good, every setup type's
+ * best way to make it here ranked, with which planet does what. No setup sells a P0, so a P0 has none.
+ */
+function PlanIt({ id, name, onPlanGood }: { id: number; name: string; onPlanGood: (id: number) => void }) {
+  return (
+    <button type="button" className="btn" data-planets="plan-it" onClick={() => onPlanGood(id)}
+      data-tip={`Plan ${name}: each setup type’s best way to make it here, ranked by ISK a day, with which planet does what`}>Plan it</button>
+  );
+}
+
+function Makes({ id, ix, p, sysName, onPlan, onPlanGood }: { id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; sysName: string; onPlan: () => void; onPlanGood: (id: number) => void }) {
   const planets = p.value?.planets ?? [];
   const types = [...new Set(planets.map((x) => x.type).filter((t): t is PlanetType => !!t))];
   const can = canMake(ix, id, types);
@@ -289,7 +304,10 @@ function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: Ret
   };
   return (
     <div className="col pl-lines" data-planets="makes">
-      <span className="lbl">Which setups can make it at {sysName}</span>
+      <div className="row" style={{ gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <span className="lbl">Which setups can make it at {sysName}</span>
+        {g.tier !== 'P0' && <PlanIt id={id} name={g.name} onPlanGood={onPlanGood} />}
+      </div>
       {blocked ? <span className="note small">{blocked === NO_SKILLS ? 'Skills aren’t read for this character, so no setup is ranked; what each kind of setup can make here is by these planets alone.' : `${blocked}: no setup is ranked for this character; what each kind can make here is by these planets alone.`}</span>
         : waiting ? <span className="note small">Prices aren’t in yet, so no setup is ranked: {p.morning.said}</span>
           : working ? <span className="note small" data-planets="working">Working the setups out as Plan does…</span> : null}

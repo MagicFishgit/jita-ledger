@@ -8604,7 +8604,7 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   const rf = of(rep, 'feed').repeat;
   eq('  repeated: who it suits and why not, counted, and the feed’s two together on the summed output (no market binds)',
     [rf.chars.map((c) => [c.charId, c.why, c.cloneUnknown]), rf.n, Math.round(rf.iskDay), rf.caps],
-    [[[1, null, false], [2, null, true], [3, 'Command Center Upgrades II', false], [4, '3 planets: this takes 5', false]], 2, 2 * 11_532_535, []]);
+    [[[1, null, false], [2, null, true], [3, 'Command Center Upgrades II', false], [4, '3 planets, and this takes 5', false]], 2, 2 * 11_532_535, []]);
   // Bought: one character already buys all of Jita's 10% share of Oxides, so two make no more than one, and the words name the input.
   const rb = of(rep, 'bought').repeat;
   eq('  repeated bought: two characters buy no more Oxides than Jita supplies at your share, so no more than one makes',

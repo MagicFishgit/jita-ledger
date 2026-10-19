@@ -39,8 +39,8 @@ type Planned = { setups: Setup[] | null; working: boolean };
  * are never asked for again). The last ranking stays (marked as being worked out again) until the new one lands; a different
  * `scope` (another system) drops it, since its planets are another system's.
  */
-function usePlanned(input: PlanInput | null, scope: number | null): Planned {
-  const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: number | null }>({ setups: null, for: null, scope: null });
+function usePlanned(input: PlanInput | null, scope: string | number | null): Planned {
+  const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: string | number | null }>({ setups: null, for: null, scope: null });
   useEffect(() => {
     if (!input) return;
     const of = input;
@@ -88,10 +88,18 @@ export type Planning = {
   setups: Setup[] | null; working: boolean;
   /** The ranking is being worked out again only on the live books (the second pass), not for an input that changed. */
   livePass: boolean;
+  /**
+   * Plan it: the setups held to the good chosen (`only`), ranked, beside the ranking of every product above (which says what
+   * choosing it costs); null while they're worked out, and with no good chosen. `heldWorking` and `heldLive` as `working` and
+   * `livePass` for them.
+   */
+  held: Setup[] | null; heldWorking: boolean; heldLive: boolean;
 };
 
-export function usePlanning({ c, chars, colonies, ix, systemId }: {
+export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null;
+  /** Plan it: the good the Plan section is held to, or null for every product (the Chart passes none). */
+  only?: number | null;
 }): Planning {
   const doc = useData().planets;
   // Keyed on what the planner reads (the final review's I2), never on the character objects: those are rebuilt on every write to
@@ -132,5 +140,21 @@ export function usePlanning({ c, chars, colonies, ix, systemId }: {
   const working = first.working || (!!inputL && second.working);
   const livePass = !first.working && !!inputL && second.working;
 
-  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass };
+  // Plan it: the same input held to one good, worked out beside the ranking of every product (whose best the head line compares it
+  // with), on live books of its own: one live set for both would read the held ranking's goods into the full ranking's prices and work
+  // it out again for nothing. Scoped to the system and the good, so another good's held ranking never stands in for this one.
+  const inputMO = useMemo((): PlanInput | null => (inputM && only != null ? { ...inputM, only } : null), [inputM, only]);
+  const heldScope = `${systemId}:${only}`;
+  const firstO = usePlanned(inputMO, heldScope);
+  const goodsKeyO = goodsOf(firstO.setups);
+  const liveO = useMemo(() => (goodsKeyO ? goodsKeyO.split(',').map(Number) : []), [goodsKeyO]);
+  const marketO = usePlanetMarket(c, ix, { live: liveO });
+  const inputLO = useMemo((): PlanInput | null => (inputMO && marketO.live && marketO.ready ? { ...inputMO, sell: marketO.sell, buy: marketO.buy, freight: marketO.freight } : null),
+    [inputMO, marketO.live, marketO.ready, marketO.sell, marketO.buy, marketO.freight]);
+  const secondO = usePlanned(inputLO, heldScope);
+  const held = only == null ? null : (inputLO && secondO.setups) ? secondO.setups : firstO.setups;
+  const heldWorking = only != null && (firstO.working || (!!inputLO && secondO.working));
+  const heldLive = only != null && !firstO.working && !!inputLO && secondO.working;
+
+  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive };
 }

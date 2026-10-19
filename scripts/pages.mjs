@@ -3789,7 +3789,8 @@ try {
       }
     }
     const upkeep = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
-    if (!/Resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
+    // Led by what you do (Plan it's fix): how often, then the planets each time; the seeded colony's 47.5-hour program.
+    if (!/Resets Every 47\.5 hours \d+ planets \(\d+ extractors\) each time: about [\d.]+ sittings and [\d.]+ planet resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
     if (SHOTS) { await page.locator('[data-planets="setup:p2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-plan.png` }); }
 
     // --- Not Brave's space: no tax assumed, so the tax is not known and the rows are before it.
@@ -4105,6 +4106,64 @@ try {
       if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with 5 heads an extractor');
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (5 heads an extractor): ${o}`);
       if (SHOTS) { await page.locator(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-fit.png` }); }
+    }
+
+    // --- Plan it (19 October 2026): the Chart's Gel-Matrix Biopaste → Plan it lands on Plan held to it, with whom and where and what
+    // choosing it costs; the feed's factory planet makes it, P0 → P2 says why it can't, the repeat line counts the characters doing
+    // planetary industry (Planet Alt at Command Center Upgrades III, its clone not read, beside the main), and Every product goes back.
+    // A 72-hour program, typed: resets read "Every 3 days" and the planets each time, never "11.7 a week".
+    {
+      const GEL = 2348, PLANET_ALT = 900103;
+      const plAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(PLANET_ALT, 'Planet Alt')] },
+        [`alt:${PLANET_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 3, 2406: 3 }, meta: { attributes: ATTRS } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, planets: { systems: {}, programHours: 72 }, industry: DOC, cloud: CLOUD_STATE }, plAlts, { prospects: SCAN });
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew for Plan it'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (Plan it): ${e.message.split('\n')[0]}`));
+      await settled();
+      if (!/72 hours, typed/.test(await text('[data-planets="system"] [data-planets="program"]'))) problems.push(`the program length isn't at the top beside the system: “${await text('[data-planets="system"]')}”`);
+      await section('Chart');
+      await page.locator(good(GEL)).click().catch((e) => problems.push(`couldn't pick Gel-Matrix Biopaste: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-planets="tree"] [data-planets="plan-it"]', { timeout: 10_000 }).catch(() => problems.push('Gel-Matrix Biopaste’s recipe has no Plan it'));
+      await page.locator('[data-planets="tree"] [data-planets="plan-it"]').click().catch(() => undefined);
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 10_000 }).catch(() => problems.push('Plan it didn’t land on Plan held to the good'));
+      const hash = await page.evaluate(() => location.hash);
+      if (!/^#\/hustles\/planets\/plan\?good=2348$/.test(hash)) problems.push(`Plan it's address: “${hash}”`);
+      const head = await text('[data-planets="planning-head"]');
+      if (head !== 'Planning Gel-Matrix Biopaste for Owner at 5-NZNW · Every product') problems.push(`Plan it's head line: “${head}”`);
+      await settled();
+      // What choosing it costs, once both rankings are worked out: every product's best (bought's Cryoprotectant Solution on this
+      // fixture) and how far under it Gel-Matrix Biopaste's best is.
+      await page.waitForSelector('[data-planets="planning-cost"]', { timeout: 30_000 }).catch(() => problems.push('Plan it never said what choosing the good costs'));
+      const cost = await text('[data-planets="planning-cost"]');
+      if (!/^Every product’s best here: [\d.,]+ (?:[kMB] )?ISK a day \(bought, Cryoprotectant Solution\); Gel-Matrix Biopaste’s best is [\d.,]+ (?:[kMB] )?ISK a day under it\.$/.test(cost)) problems.push(`Plan it's cost line: “${cost}”`);
+      if (!/The setups that make Gel-Matrix Biopaste, best first/.test(await text('[data-planets="plan"]'))) problems.push('the held setups aren’t headed with the good');
+      // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
+      const feedOpen = page.locator('[data-planets="setup:feed"] button[aria-expanded="false"]', { hasText: 'What it makes' });
+      if (await feedOpen.count()) await feedOpen.click().catch(() => undefined);
+      await page.waitForTimeout(300);
+      const feedRoles = (await page.locator('[data-planets="setup:feed"] [data-planets^="role:"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+      if (!feedRoles.some((t) => /factory planet/.test(t) && /Makes .*Gel-Matrix Biopaste a day/.test(t))) problems.push(`the feed's factory planet doesn't make Gel-Matrix Biopaste: ${JSON.stringify(feedRoles.map((t) => t.slice(0, 200)))}`);
+      if (!/Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only\./.test(await text('[data-planets="setup:p2"] .pl-notes'))) problems.push(`P0 → P2 doesn't say why it can't make Gel-Matrix Biopaste: “${await text('[data-planets="setup:p2"] .pl-notes')}”`);
+      // The repeat line: the main and Planet Alt, its clone not read and said; a figure for them together, or why it doesn't suit it.
+      const rep = await text('[data-planets="setup:feed"] [data-planets="repeat"]');
+      if (!/^On each of your 2 characters doing planetary industry: (?:about [\d.,]+ (?:[kMB] )?ISK a day together \([\d.,]+ (?:[kMB] )?ISK a month\)\.|it suits only Owner\. Planet Alt: Command Center Upgrades III\.)/.test(rep)) problems.push(`the feed's repeat line: “${rep}”`);
+      if (/about/.test(rep) && !/Planet Alt’s clone state isn’t read: counted as Omega/.test(rep)) problems.push(`the repeat line doesn't say Planet Alt's clone isn't read: “${rep}”`);
+      // Resets at the typed 72 hours: every 3 days, the feed's planets each time, and the week's sittings and planet resets.
+      const feedUp = await text('[data-planets="setup:feed"] [data-planets="upkeep"]');
+      if (!/Resets Every 3 days \d+ planets \(\d+ extractors\) each time: about 2\.3 sittings and [\d.]+ planet resets a week/.test(feedUp)) problems.push(`the feed's resets at 72 hours: “${feedUp.slice(0, 300)}”`);
+      if (/Resets a week/.test(await text('[data-planets="plan"]'))) problems.push('a setup still counts resets a week as its lead');
+      if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN held to a good');
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-plan-it.png` }); }
+      // Every product: back to the ranking of every product, the good forgotten.
+      await page.locator('[data-planets="every-product"]').click().catch((e) => problems.push(`no Every product: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(500);
+      await settled();
+      if (await page.locator('[data-planets="planning-head"]').count()) problems.push('Every product left the good’s head line');
+      if (!/The setups, best first/.test(await text('[data-planets="plan"]'))) problems.push('Every product didn’t go back to every product’s ranking');
+      if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test((await text('[data-planets="setup:p2"] .pl-isk b')).trim())) problems.push(`after Every product P0 → P2 has no figure: “${await text('[data-planets="setup:p2"] .pl-isk b')}”`);
+      if (await page.evaluate(() => localStorage.getItem('jita-ledger:planets-plan-good'))) problems.push('Every product left the good kept');
     }
     }
 

@@ -14,9 +14,9 @@ import { PI_LINKS, setupSteps, type PlanetType } from '../../lib/pi';
 import type { Facility, PiIndex } from '../../lib/piBundle';
 import { PI_UNCHECKED, rateFor, type Learned } from '../../lib/piLearn';
 import {
-  boughtFallbackSaid, fallbackGoods, fallbackSaid,
+  boughtFallbackSaid, fallbackGoods, fallbackSaid, shippedOutput,
   ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
-  type Bought, type PlanChar, type Role, type Setup, type SetupKind,
+  type Bought, type PlanChar, type Repeat, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
 import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
 import { update, useData } from '../../lib/store';
@@ -72,13 +72,19 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName }: {
+export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
   systemId: number | null; onSystem: (id: number | null) => void; mainName: string;
+  /** Plan it: the good Plan is held to (from the address, else kept), or null for every product; `onEveryProduct` lets it go. */
+  good: number | null; onEveryProduct: () => void;
 }) {
   const doc = useData().planets;
-  // One ranking from one input, shared with the Chart (planetsPlanning.ts).
-  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass } = usePlanning({ c, chars, colonies, ix, systemId });
+  // One ranking from one input, shared with the Chart (planetsPlanning.ts); held to the good chosen beside it.
+  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive } = usePlanning({ c, chars, colonies, ix, systemId, only: good });
+  // The rows: held to the good when one is chosen, else every product's ranking, as before.
+  const rows = good != null ? held : setups;
+  const rowsWorking = good != null ? heldWorking : working;
+  const rowsLive = good != null ? heldLive : livePass;
 
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   const blockedWhy = charWhy(planChar);
@@ -94,7 +100,9 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
         ]} />
       </div>
       <Who c={c} pc={planChar} />
-      <SystemChooser c={c} graph={graph} colonies={colonies[c.charId]} systemId={systemId} onSystem={onSystem} mainName={mainName} chosen={value ? value.system.name : null} />
+      {good != null && <PlanningGood ix={ix} good={good} name={name} who={c.name} system={value?.system.name ?? null} all={!working && !heldWorking && !blockedWhy && morning.ready ? setups : null} held={held} onEvery={onEveryProduct} />}
+      <SystemChooser c={c} graph={graph} colonies={colonies[c.charId]} systemId={systemId} onSystem={onSystem} mainName={mainName} chosen={value ? value.system.name : null}
+        extra={<ProgramLength programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />} />
       {systemId != null && (sys.state === 'loading' ? <p className="note small" style={{ margin: 0 }}>Reading the system’s planets…</p>
         : sys.state === 'failed' ? (
           <p className="note small" style={{ margin: 0 }}>The planets couldn’t be read: {sys.error}.{' '}
@@ -104,10 +112,10 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             <SystemHead name={value.system.name} security={value.system.security} planets={value.planets} />
             <Selling said={market.said} />
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
-              <Setups setups={setups} working={!working ? null : livePass ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} />
+              <Setups setups={rows} working={!rowsWorking ? null : rowsLive ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
-              learned={learned} programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />
+              learned={learned} programHours={programHours} />
             <PlanetList ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} learned={learned} />
           </>
         ))}
@@ -136,9 +144,63 @@ function Who({ c, pc }: { c: IndustryChar; pc: PlanChar }) {
   );
 }
 
-/** Choosing the system: by name (the stargate map's names, else ESI's), where the main is, or a system the shown character's colonies are in. */
-function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chosen }: {
-  c: IndustryChar; graph: Graph; colonies: ColoniesDoc | undefined; systemId: number | null; onSystem: (id: number | null) => void; mainName: string; chosen: string | null;
+/** A setup's kind in a few words, for the head line's "(bought, Broadcast Node)". */
+const SHORT: Record<SetupKind, string> = { p1: 'P0 → P1', p2: 'P0 → P2', feed: 'a fed factory', bought: 'bought', chain: 'a chain' };
+/** What a setup makes, for the head line: its shipped outputs of the highest tier, the most ISK first, two named and the rest counted. */
+function makesSaid(s: Setup, ix: PiIndex): string {
+  const tier = (id: number) => ['P0', 'P1', 'P2', 'P3', 'P4'].indexOf(ix.byId.get(id)?.tier ?? 'P0');
+  const out = s.outputs.filter(shippedOutput);
+  const top = Math.max(...out.map((o) => tier(o.id)));
+  const xs = out.filter((o) => tier(o.id) === top).sort((a, b) => (b.sold.isk ?? 0) - (a.sold.isk ?? 0)).map((o) => ix.byId.get(o.id)?.name ?? `type ${o.id}`);
+  return xs.length > 2 ? `${xs.slice(0, 2).join(', ')} and ${xs.length - 2} more` : listSaid(xs);
+}
+
+/**
+ * Plan it: which good Plan is held to, for whom and where, with Every product to let it go; and what choosing it costs (the user: "max
+ * profit will probably be best to use planner as it is currently"): every product's best here and how far the good's best is under it,
+ * said only once both rankings are worked out for these inputs, never a guess. Held to a subset of the candidates, the good's best can't
+ * be over every product's, except where that search ran out of its budget (a held search spends its own on the one good): then said so.
+ */
+function PlanningGood({ ix, good, name, who, system, all, held, onEvery }: {
+  ix: PiIndex; good: number; name: (id: number) => string; who: string; system: string | null; all: Setup[] | null; held: Setup[] | null; onEvery: () => void;
+}) {
+  const best = all?.find((s) => s.iskDay != null) ?? null;
+  const mine = held?.find((s) => s.iskDay != null) ?? null;
+  const g = name(good);
+  const perChar = (s: Setup) => (s.kind === 'chain' ? ' per character' : '');
+  let cost: string | null = null;
+  if (best && held) {
+    const head = `Every product’s best here: ${iskBig(best.iskDay)} a day${perChar(best)} (${SHORT[best.kind]}, ${makesSaid(best, ix)})`;
+    const gap = best.iskDay! - (mine?.iskDay ?? 0);
+    cost = !mine ? `${head}; nothing here makes ${g} with a figure.`
+      : Math.abs(gap) < 1 ? `${head}, and that is ${g}’s best.`
+        : gap > 0 ? `${head}; ${g}’s best is ${iskBig(gap)} a day under it${mine.kind === 'chain' && best.kind !== 'chain' ? ' (its figure a chain’s, per character)' : ''}.`
+          : all!.some((s) => s.cut) ? `${head}; ${g}’s best is ${iskBig(-gap)} a day over it: the search of every product ran out of its budget before it reached it.` : `${head}.`;
+  }
+  return (
+    <div className="col" style={{ gap: 4 }} data-planets="planning">
+      <p style={{ margin: 0 }} data-planets="planning-head">Planning <b>{g}</b> for {who}{system ? <> at <b>{system}</b></> : null} ·{' '}
+        <button type="button" className="link-btn" onClick={onEvery} data-planets="every-product">Every product</button></p>
+      {cost && <p className="note small" style={{ margin: 0 }} data-planets="planning-cost">{cost}</p>}
+    </div>
+  );
+}
+
+/** The program length: how often you reset, at the top since it changes every row's figures (the user: "that control seems like it should rather be at the top"). */
+function ProgramLength({ programHours, defaultHours, ownHours, typedHours }: { programHours: number; defaultHours: number; ownHours: boolean; typedHours: number | null }) {
+  return (
+    <span data-planets="program" className="row tight">
+      <NumChip label="Program, hours" width={60} decimals={1} placeholder="–" value={typedHours}
+        onChange={(n) => update((x) => ({ planets: sanitizePlanets({ ...x.planets, programHours: n }) }))}
+        tip={'How often you reset, as the extraction program’s length.\n\n• It sets how often each setup is reset, in its upkeep.\n• A learned or typed rate holds at the program length it was measured at: the rows say when yours differs.'} />
+      <span className="note small">{typedHours != null ? `${+programHours.toFixed(1)} hours, typed` : ownHours ? `${+defaultHours.toFixed(1)} hours: your own programs’ median` : '3 days until you type one or your colonies show yours'}</span>
+    </span>
+  );
+}
+
+/** Choosing the system: by name (the stargate map's names, else ESI's), where the main is, or a system the shown character's colonies are in. `extra` sits at the row's end (the program length). */
+function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chosen, extra }: {
+  c: IndustryChar; graph: Graph; colonies: ColoniesDoc | undefined; systemId: number | null; onSystem: (id: number | null) => void; mainName: string; chosen: string | null; extra?: ReactNode;
 }) {
   const where = useMainSystem();
   const [typed, setTyped] = useState('');
@@ -201,6 +263,7 @@ function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chose
             {sysName(id) ?? 'Reading…'}
           </button>
         ))}
+        {extra}
       </div>
       {where === 'noScope' && <p className="note small" style={{ margin: 0 }}>Where {mainName} is needs EVE’s permission to read your location, which this login wasn’t given. Log in again and EVE asks for it.</p>}
       {said && <p className="note small" style={{ margin: 0 }}>{said}</p>}
@@ -297,10 +360,10 @@ function PlanetList({ ix, systemId, security, planets, prefs, learned }: { ix: P
   );
 }
 
-/** The inputs: the program length, customs tax per planet type, Not Brave's space, and the extraction rates. */
-function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programHours, defaultHours, ownHours, typedHours }: {
+/** The inputs: customs tax per planet type, Not Brave's space, and the extraction rates (the program length sits at the top: `ProgramLength`). */
+function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programHours }: {
   ix: PiIndex; systemId: number; security: number; planets: SystemPlanet[]; prefs: SystemPrefs; cce: number | null;
-  learned: Partial<Record<PlanetType, Record<string, Learned>>>; programHours: number; defaultHours: number; ownHours: boolean; typedHours: number | null;
+  learned: Partial<Record<PlanetType, Record<string, Learned>>>; programHours: number;
 }) {
   const doc = useData().planets;
   const types = [...new Set(planets.map((p) => p.type).filter((t): t is PlanetType => !!t))];
@@ -309,20 +372,14 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
   const [edit, setEdit] = useState<{ t: PlanetType; p0: number } | null>(null);
   return (
     <div className="col inset-box" style={{ gap: 12 }} data-planets="inputs">
-      <div className="row ind-choices">
-        <span data-planets="program" className="row tight">
-          <NumChip label="Program, hours" width={60} decimals={1} placeholder="–" value={typedHours}
-            onChange={(n) => update((x) => ({ planets: sanitizePlanets({ ...x.planets, programHours: n }) }))}
-            tip={'How often you reset, as the extraction program’s length.\n\n• It sets the resets a week in each setup’s upkeep.\n• A learned or typed rate holds at the program length it was measured at: the rows say when yours differs.'} />
-          <span className="note small">{typedHours != null ? `${+programHours.toFixed(1)} hours, typed` : ownHours ? `${+defaultHours.toFixed(1)} hours: your own programs’ median` : '3 days until you type one or your colonies show yours'}</span>
-        </span>
-        {band === 'null' && systemId < 31_000_000 && (
+      {band === 'null' && systemId < 31_000_000 && (
+        <div className="row ind-choices">
           <span data-planets="notBrave" className="pl-notbrave">
             <Check checked={prefs.notBrave} onChange={(on) => setPrefs(systemId, (s) => ({ ...s, notBrave: on }))}
               tip={`Brave’s wiki’s rates are taken for sovereign null-sec (${BRAVE_TAX_SOURCE}). A system that isn’t Brave’s has no default: type its rates, or it is ranked before tax.`}>Not Brave’s space: no tax assumed</Check>
           </span>
-        )}
-      </div>
+        </div>
+      )}
       <div className="col" style={{ gap: 6 }}>
         <div className="panel-title">Customs tax by planet type<Tip title="Customs tax" text={'What the customs office (in sovereign null-sec, the skyhook) takes on what leaves a planet, on CCP’s fixed base value a unit, not the market’s price.\n\n• Exporting pays the rate; importing pays half of it.\n• Null-sec: Brave’s wiki’s rates until you type one: 2% on Barren and Temperate, 5% on the rest.\n• High-sec: a player office’s owner rate plus 10%, less a point a level of Customs Code Expertise.\n• Low-sec: typed.'} /></div>
         <div className="row pl-taxes">
@@ -430,8 +487,9 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
  * The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. `working`: what's being worked out again,
  * in words (an input changed, or the live books came in), or null.
  */
-function Setups({ setups, working, ix, planets, chars, shown, name }: {
+function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
+  programHours: number; good: number | null;
 }) {
   // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
   const plex = usePlexPrice();
@@ -443,19 +501,19 @@ function Setups({ setups, working, ix, planets, chars, shown, name }: {
   return (
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-        <span className="panel-title">The setups, best first</span>
+        <span className="panel-title">{good != null ? `The setups that make ${name(good)}, best first` : 'The setups, best first'}</span>
         {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
       <span className="note small">Worked out at the customs tax, extraction rates and program length below; change any and they are worked out again.</span>
-      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} />)}
+      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} />)}
     </div>
   );
 }
 
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega }: {
-  s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost;
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours }: {
+  s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
 }) {
   const [open, setOpen] = useState(false);
   // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
@@ -541,10 +599,11 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega }: {
         })()}</span>
       )}
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
+      {priced && s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} />}
       {priced && (
         <>
           <div data-planets="upkeep">
-            <Tiles min={150} items={upkeepTiles(s)} />
+            <Tiles min={150} items={upkeepTiles(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} />
           </div>
           {(s.kind === 'chain' || lacks) && (
             <div className="col pl-lines">
@@ -667,6 +726,38 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   );
 }
 
+/**
+ * Plan it: a one-character setup repeated on each character doing planetary industry (the user: "mostly repeat the P3 setup on each
+ * character to make things simple to manage and scale"), valued together on what they make (`Repeat`), with whom it doesn't suit and
+ * why, what holds the figure under so many times one's, and a clone not read said.
+ */
+function RepeatLine({ r, chars, shown, name }: { r: Repeat; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string }) {
+  const who = (id: number) => chars.find((x) => x.charId === id)?.name ?? `Character ${id}`;
+  const all = r.chars.length;
+  const per = periods(r.iskDay);
+  const together = per ? `about ${iskBig(per.day)} a day together (${iskBig(per.month)} a month)` : 'what they make together isn’t known';
+  const lead = r.n === all ? `${together}.` : r.n > 1 ? `it suits ${r.n} of them, ${together}.` : `it suits only ${shown.charId === r.chars[0].charId ? who(shown.charId) : who(r.chars[0].charId)}.`;
+  const times = (n: number) => (n === 2 ? 'twice' : `${n} times`);
+  const capSaid = (c: Repeat['caps'][number]) => (c.side === 'bought'
+    ? `${c.at ?? 'The market'} ${(c.at ?? '').includes(' and ') ? 'supply' : 'supplies'} about ${aDay(c.perDay)} ${name(c.id)} a day${c.said ? ` (${c.said})` : ''}, not ${times(r.n)} what one buys`
+    : c.market !== false ? `the market takes about ${aDay(c.perDay)} ${name(c.id)} a day at your share, not ${times(r.n)} one character’s ${aDay(c.one)}`
+      : `past about ${aDay(c.perDay)} ${name(c.id)} a day together, a unit costs more to make than it sells for`);
+  // What holds it: an input's supply before the sale it holds back, at most two.
+  const caps = [...r.caps.filter((c) => c.side === 'bought'), ...(r.caps.some((c) => c.side === 'bought') ? [] : r.caps.filter((c) => c.side === 'sold'))].slice(0, 2);
+  const out = r.chars.filter((c) => c.why);
+  const unread = r.chars.filter((c) => !c.why && c.cloneUnknown);
+  return (
+    <span className="note small" data-planets="repeat">
+      On each of your {all} characters doing planetary industry: {lead}
+      {caps.length > 0 && <> {cap(caps.map(capSaid).join('; '))}.</>}
+      {out.map((c) => <span key={c.charId} data-planets={`repeat-out:${c.charId}`}> {who(c.charId)}: {c.why}.</span>)}
+      {unread.length > 0 && <> {unread.length === 1 ? `${who(unread[0].charId)}’s clone state isn’t read` : `The clone states of ${listSaid(unread.map((c) => who(c.charId)))} aren’t read`}: counted as Omega.</>}
+      <Tip title="Repeated on each character" text={'Each character runs this same layout on the same planets: a character holds one colony a planet, so each has its own colony on every planet this uses.\n\n• Valued on what they make together: each good summed and sold once, so a market that can’t take that many times as much sells less, and what doesn’t sell builds up, untaxed.\n• Customs on what each colony exports; a bought setup’s inputs summed and bought once, every colony sized together to its last paying unit.\n• A character with fewer planets, or at a lower Command Center Upgrades level this layout doesn’t fit at, isn’t counted, and says why.'} />
+    </span>
+  );
+}
+const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+
 /** Where an input is bought (Ruling T11-7): the home hub, Jita, or both, with how many at Jita when it's both. */
 function boughtWhere(b: Bought, perDay: number): string {
   const w = b.where ?? [];
@@ -689,7 +780,7 @@ const perWeekSaid = (x: number) => (!(x > 0) ? '0' : x < 1 ? `one every ${weeksS
  * m³ hauled to market and brought in (and how much of that from Jita); freight contracts each way, "at least" one a week once a
  * week's m³ is over the route's batch (no contract's size is known), else time between; customs.
  */
-function upkeepTiles(s: Setup) {
+function upkeepTiles(s: Setup, programHours: number, charName: (id: number) => string) {
   const u = s.upkeep;
   const factories = s.roles.filter((r) => r.does === 'factory').length;
   const dirs = [
@@ -702,7 +793,7 @@ function upkeepTiles(s: Setup) {
   const freightN = u.contractsPerWeek == null ? 'no freight route to Jita picked' : !dirs.length ? 'nothing goes to or from Jita'
     : `${dirs.map((d) => `${units(d.m3)} m³ ${d.to}${d.c < 1 - 1e-9 ? ` (one contract every ${weeksSaid(1 / d.c)})` : ''}`).join(', ')}${full ? `: one contract a week${full > 1 ? ' each way' : ''} at the least, more if one can’t carry it` : ''}`;
   return [
-    { l: 'Resets a week', v: perWeekSaid(u.resetsPerWeek), n: u.resetsPerWeek > 0 ? 'a program each extraction planet, at the length chosen' : 'none: it has no extractors' },
+    resetsTile(s, programHours, charName),
     ...(u.restocksPerWeek > 0 ? [{ l: 'Restocks a week', v: perWeekSaid(u.restocksPerWeek),
       n: `a launchpad (10,000 m³) emptied and refilled, on what comes in and what it makes${factories > 1 ? `, across ${factories} factory planets` : ''}` }] : []),
     { l: 'Hauled a week', v: `${units(u.haulM3PerWeek)} m³`, n: 'from the planets to market' },
@@ -711,6 +802,29 @@ function upkeepTiles(s: Setup) {
     { l: 'Freight a week', v: freightV, n: freightN },
     { l: 'Customs a day', v: s.taxDay == null ? '–' : iskBig(s.taxDay), n: s.taxDay == null ? 'some planets’ tax isn’t known' : 'export and import, every planet' },
   ];
+}
+
+/**
+ * Resets, led by what you do (the user, 19 October 2026, on "Resets a week: 11.7": "why does this say i wil have to reset 11 times a week,
+ * thats impossible"; it was 5 planets × 168 ÷ 72, every planet's reset counted): how often you sit down to reset ("Every 3 days", "every
+ * 18 hours" under a day), the planets (and extractors) each time, then the week's sittings and planet resets. A chain's each character's.
+ */
+function resetsTile(s: Setup, programHours: number, charName: (id: number) => string) {
+  const ext = s.roles.filter((r) => r.does === 'extract');
+  if (!ext.length || !(programHours > 0)) return { l: 'Resets', v: 'None', n: 'it has no extractors' };
+  const h = +programHours.toFixed(1);
+  const every = h % 24 === 0 ? `Every ${h / 24 === 1 ? 'day' : `${h / 24} days`}` : `Every ${h} hours`;
+  const sittings = 168 / programHours;
+  const planetsSaid = (rs: Role[]) => {
+    const e = rs.reduce((n, r) => n + r.extracts.length, 0);
+    return `${rs.length} planet${rs.length === 1 ? '' : 's'}${e !== rs.length ? ` (${e} extractor${e === 1 ? '' : 's'})` : ''}`;
+  };
+  const byChar = [...new Set(ext.map((r) => r.charId))];
+  const each = s.kind === 'chain' && byChar.length > 1
+    ? `${byChar.map((id) => `${charName(id)} ${planetsSaid(ext.filter((r) => r.charId === id))}`).join(', ')} each time`
+    : `${planetsSaid(ext)} each time`;
+  const week = `about ${perWeekSaid(sittings)} sitting${sittings === 1 ? '' : 's'}${s.kind === 'chain' && byChar.length > 1 ? ' a character' : ''} and ${perWeekSaid(ext.length * sittings)} planet resets a week`;
+  return { l: 'Resets', v: every, n: `${each}: ${week}` };
 }
 
 /**

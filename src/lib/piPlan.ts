@@ -1129,7 +1129,7 @@ function repeatOf(input: PlanInput, colonies: readonly Colony[], at: (n: number)
   const cc = input.char.ccLevel!;
   const chars = pi.map((c, i) => {
     const why: string[] = [];
-    if (i > 0 && c.planets! < colonies.length) why.push(`${c.planets} planet${c.planets === 1 ? '' : 's'}: this takes ${colonies.length}`);
+    if (i > 0 && c.planets! < colonies.length) why.push(`${c.planets} planet${c.planets === 1 ? '' : 's'}, and this takes ${colonies.length}`);
     if (i > 0 && c.ccLevel! < cc && colonies.some((k) => k.r != null && k.r > 0 && !fitOf(input.ix, k.t, c.ccLevel!, k.layout, k.r).fits)) {
       why.push(c.ccLevel! > 0 ? `Command Center Upgrades ${ROMAN[c.ccLevel!]}` : 'no Command Center Upgrades');
     }
