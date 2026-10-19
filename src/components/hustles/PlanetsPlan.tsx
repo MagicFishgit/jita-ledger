@@ -504,7 +504,7 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
         <span className="panel-title">{good != null ? `The setups that make ${name(good)}, best first` : 'The setups, best first'}</span>
         {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
-      <span className="note small">Worked out at the customs tax, extraction rates and program length below; change any and they are worked out again.</span>
+      <span className="note small">Worked out at the program length above and the customs tax and extraction rates below; change any and they are worked out again.</span>
       {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} />)}
     </div>
   );
