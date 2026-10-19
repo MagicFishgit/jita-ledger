@@ -8627,6 +8627,9 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const P = chainOf(padFed);
   eq('  fed from its launchpad: no flag, what it makes while kept stocked, and what that takes', [P.flags, P.makes.map((m) => [m.id, near(m.perDay)]), P.imports?.map((i) => [i.id, near(i.perDay)])], [[], [[NANITES, 240]], [[BACTERIA, 1920], [REACTIVE, 1920]]]);
   eq('  its ISK a day isn’t known, though every output is priced: the imports’ cost isn’t, never 0', [P.iskDay, P.iskDayHigh, P.taxDay, P.why, P.outputs.map((o) => [o.id, near(o.sold.isk)])], [null, null, null, 'Its Bacteria and Reactive Metals come from off the planet, and their cost isn’t known here', [[NANITES, 2_400_000]]]);
+  // One factory fed from the launchpad but missing its other input: it draws nothing, so nothing is brought in for it.
+  const halfFed = chainOf(colony([pin(1, CC), pin(30, PAD, { contents: [[BACTERIA, 4000]] }), fac(51, ADV, S_NAN)], [[30, 51, BACTERIA, 40], [51, 30, NANITES, 5]]));
+  eq('  a launchpad-fed factory missing its other input: its flag, no imports, ISK a day 0 (nothing leaves), no import why', [flagsOf(halfFed), halfFed.imports, halfFed.iskDay, halfFed.why], [[['starving', REACTIVE, 51]], [], 0, null]);
 
   // An output nobody prices is neither credited nor taxed (the planner's I1).
   const noReactive = chainOf(nanites(), { sell: sellBy(unitOf({ [REACTIVE]: null })) });

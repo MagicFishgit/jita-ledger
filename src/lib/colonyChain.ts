@@ -242,6 +242,7 @@ function flowOf(net: Net, rate: (x: Ext) => number): Flow {
       add(exported, g, back);
       if (excess - back > MIN_FLOW) add(stuck, g, excess - back);
     }
+    if (!net.runs.has(f.pin.id)) continue;
     for (const g of net.imported.get(f.pin.id) ?? []) {
       const i = f.s.inputs.find((x) => x.id === g)!;
       add(imports, g, r * anHour(f.s, i.qty));
@@ -533,7 +534,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   }
   const v = valuedOf(ix, flow, sell, tax);
   // Its inputs come from off the planet: what they cost isn't known here, so no figure, never one without them (Ruling T15-2).
-  const brought = [...new Set([...imported.values()].flatMap((s) => [...s]))].sort((a, b) => tierAt(a) - tierAt(b) || a - b);
+  // Only a running factory's imports: one whose other input doesn't reach it draws nothing (its own flag says why).
+  const brought = [...new Set([...imported].filter(([id]) => runs.has(id)).flatMap(([, s]) => [...s]))].sort((a, b) => tierAt(a) - tierAt(b) || a - b);
   if (brought.length) {
     const one = brought.length === 1;
     return {
