@@ -27,36 +27,74 @@ export function usableSkills(trained: Record<number, number>, active?: Record<nu
 
 /** Which login the app asked EVE for. */
 export type Asked = 'main' | 'mailer' | 'alt';
-export type Sorted = { as: Asked } | { refuse: 'notMain' | 'isMain' | 'isAlt' };
+/**
+ * What a login handed to the cloud is kept as. The sender's (`as: 'mailer'`) says whether its character is on the
+ * roster after it (`alt`: added, or there already), and `notAdded` when adding it was asked for and couldn't be done.
+ */
+export type Sorted =
+  | { as: 'main' | 'alt' }
+  | { as: 'mailer'; alt: boolean; notAdded?: 'mailOnly' }
+  | { refuse: 'notMain' | 'isMain' | 'isAlt' };
+
+/**
+ * The two permissions a mail sender's own login carries (auth.ts `MAILER_SCOPES`, from config, which the Worker can't
+ * import): sending mail, and deleting what it sent.
+ */
+export const MAIL_ONLY = ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1'];
+/**
+ * Whether a login can be read as one of your characters: it carries a permission beyond sending and tidying mail. A
+ * sender's own login (`MAIL_ONLY`) reads nothing; the login the app asks for a character (`loginAltForCloud`'s set)
+ * carries the wallet, the skills and the rest.
+ */
+export const readsAsAlt = (scopes: string[]) => scopes.some((s) => !MAIL_ONLY.includes(s));
 
 /**
  * EVE's login page, not the app, decides which character a login is for, and it has already stopped that
  * character's earlier logins with a different set of permissions by the time the cloud is handed the new one. So a
  * wrong pick while adding an alt is kept as what it is: the main as the main's login, the mail sender as the
- * sender's (the alt flow asks for the main's permissions, which include sending and tidying mail). Both are offered
- * on EVE's page whenever you're still signed in to the main account there.
+ * sender's. Both are offered on EVE's page whenever you're still signed in to the main account there.
  *
- * The reverse can't be kept: a sender login has two permissions and can't read for an alt. `onRoster`: the character
- * is an alt of this ledger now (one removed from the roster is nobody's alt, and may be the sender).
+ * The sender can be one of your characters too (the user, 19 October 2026, starting planetary industry on it). EVE
+ * allows a character one set of permissions and refresh tokens rotate, so one login does both jobs: the sender's, which
+ * the cloud reads that character with. So a sender login that can read (`reads`, readsAsAlt) is kept as the sender, and
+ * its character goes on the roster when adding it was asked, or stays there when it was on it already. `adding`: true
+ * from Characters, false from Settings' sender hand-over; an app version behind sends neither, and then the scopes say
+ * it, since its plain sender hand-overs ask only `MAIL_ONLY` and only adding a character asks more. A sender login that
+ * can't read is refused when the character is on the roster (its reads would stop), else kept as the sender and not
+ * added (`notAdded`, which the app says).
+ *
+ * `onRoster`: the character is an alt of this ledger now (one removed from the roster is nobody's alt). `mailer`: the
+ * character the cloud sends mail from now.
  */
-export function sortLogin(asked: Asked, char: number, ledger: number, mailer: number | null, onRoster: boolean): Sorted {
+export function sortLogin(asked: Asked, char: number, ledger: number, mailer: number | null, onRoster: boolean, reads: boolean, adding?: boolean): Sorted {
   if (asked === 'main') return char === ledger ? { as: 'main' } : { refuse: 'notMain' };
-  if (asked === 'mailer') return char === ledger ? { refuse: 'isMain' } : onRoster ? { refuse: 'isAlt' } : { as: 'mailer' };
-  if (char === ledger) return { as: 'main' };
-  if (char === mailer) return { as: 'mailer' };
-  return { as: 'alt' };
+  if (char === ledger) return asked === 'mailer' ? { refuse: 'isMain' } : { as: 'main' };
+  if (asked === 'alt' && char !== mailer) return { as: 'alt' };
+  // The sender: handed over as the sender, or come back on EVE's page while a character was being added.
+  const add = asked === 'alt' || (adding ?? reads);
+  if (reads) return { as: 'mailer', alt: onRoster || add };
+  if (onRoster) return { refuse: 'isAlt' };
+  return add ? { as: 'mailer', alt: false, notAdded: 'mailOnly' } : { as: 'mailer', alt: false };
 }
 
 /**
  * The purpose a login handed to the cloud is sent with. This browser's own mail sender, picked on EVE's page while
- * adding a character, goes as the sender: a sender that comes back is kept as the sender, never added as an alt (and
- * the cloud can't know this browser's sender unless it holds one itself). Unless that character is already one of your
- * characters (`chars`, which keeps removed ones too): then it's being added back, and the cloud would refuse it as a
- * sender and mark its alt login refused.
+ * adding a character, goes as the sender, and the caller says it was an add (`adding`): the cloud can't know this
+ * browser's sender unless it holds one itself, and it keeps the login as the sender and puts the character on the
+ * roster. It went as an alt while it was already one of your characters, because the cloud refused a sender on the
+ * roster; the cloud keeps such a sender now, so that exception went.
  */
-export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined, knownAlt = false): Asked {
-  return asked === 'alt' && !knownAlt && browserSender != null && char === browserSender ? 'mailer' : asked;
+export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined): Asked {
+  return asked === 'alt' && browserSender != null && char === browserSender ? 'mailer' : asked;
 }
+
+/**
+ * Whether handing the cloud's sender over again asks the full set of permissions (`loginAltForCloud`'s) rather than
+ * the sender's two: while the cloud reads the sender as one of your characters too (`alt` on its key in the cloud's
+ * status: on the roster). A login with only the mail permissions would stop the one its reads use (EVE: one set of
+ * permissions a character) and couldn't read for it. A Worker a version behind doesn't say: the sender's two, as before.
+ */
+export const senderAsksAll = (sender: { alt?: boolean } | null | undefined): boolean => sender?.alt === true;
 
 /**
  * Whether a login this browser holds was stopped by one that just came back: the same character, with a different set
@@ -80,6 +118,11 @@ export type RosterEntry = {
   rev: number;
   ship: number | null; shipAt: number | null;
   jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null }[];
+  /**
+   * The cloud sends your alert mail from this character and reads it with that login (one login does both: EVE allows
+   * a character one set of permissions), so its login state above is the sender's. Missing from a Worker a version behind.
+   */
+  sender?: boolean;
 };
 
 /**

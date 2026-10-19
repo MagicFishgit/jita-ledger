@@ -10,7 +10,7 @@ import INDUSTRY from '../../src/data/industryTypes.json' with { type: 'json' };
 import { foldStructurePage, structureSummary, type Agg, type RawOrder, type StructureRow } from '../../src/lib/bookFold';
 import { HOME_HUBS, type HomeBookAnswer, type HubLogin, type HubState } from '../../src/lib/homeMarket';
 import { onRoster } from './alts';
-import { altPurpose, altReader, EveError, esiGet, HEADERS, ledgerReader, readerLogin, type Reader } from './eve';
+import { altLogin, altReaderFor, EveError, esiGet, HEADERS, ledgerReader, readerLogin, type Reader } from './eve';
 import { BadRequest } from './sync';
 
 export const SCOPE_STRUCTURE_MARKETS = 'esi-markets.structure_markets.v1';
@@ -52,8 +52,11 @@ export async function hubsOf(db: D1Database, ledger: number): Promise<Hub[]> {
 /** Whether a reader's login can read a structure's market, from what the cloud keeps: one of yours, a login kept, not refused, the permission held. */
 async function loginOf(db: D1Database, ledger: number, reader: number): Promise<HubLogin> {
   if (reader !== ledger && !(await onRoster(db, ledger, reader))) return 'notYours';
+  // An alt's own login, or the sender's when it is the sender (eve.ts, altLogin).
+  const purpose = reader === ledger ? 'main' : await altLogin(db, ledger, reader);
+  if (!purpose) return 'none';
   const k = await db.prepare('SELECT scopes, refused_at AS refusedAt FROM keys WHERE char_id = ?1 AND purpose = ?2')
-    .bind(ledger, reader === ledger ? 'main' : altPurpose(reader)).first<{ scopes: string; refusedAt: number | null }>();
+    .bind(ledger, purpose).first<{ scopes: string; refusedAt: number | null }>();
   if (!k) return 'none';
   if (k.refusedAt != null) return 'refused';
   return k.scopes.split(' ').includes(SCOPE_STRUCTURE_MARKETS) ? 'ok' : 'permission';
@@ -85,7 +88,7 @@ export async function readHomeBook(env: Env, ledger: number, hub: { id: number; 
   const login = await loginOf(db, ledger, hub.reader);
   if (login !== 'ok') return { done: 'skipped', login };
   if (Date.now() > deadline) return { done: 'later' };
-  const who: Reader = hub.reader === ledger ? ledgerReader(ledger) : altReader(ledger, hub.reader);
+  const who: Reader = hub.reader === ledger ? ledgerReader(ledger) : await altReaderFor(db, ledger, hub.reader);
   let token: string;
   try {
     const l = await readerLogin(env, who);

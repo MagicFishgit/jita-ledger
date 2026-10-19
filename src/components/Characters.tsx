@@ -181,7 +181,7 @@ function Card(props: {
           <div className="avatar">{imgOk && <img src={`https://images.evetech.net/characters/${id}/portrait?size=64`} alt="" onError={() => setImgOk(false)} />}</div>
           <div style={{ lineHeight: 1.2, minWidth: 0 }}>
             <div className="pilot-name" style={{ whiteSpace: 'normal' }}>{name}</div>
-            <div className="pilot-sub" style={{ whiteSpace: 'normal' }}>{entry ? 'Read by the cloud' : 'Logged in here: this ledger’s character'}</div>
+            <div className="pilot-sub" style={{ whiteSpace: 'normal' }}>{entry ? (entry.sender ? 'Read by the cloud, and sends your alert mail' : 'Read by the cloud') : 'Logged in here: this ledger’s character'}</div>
           </div>
         </div>
         <div className="row tight">
@@ -189,7 +189,7 @@ function Card(props: {
             why={cloneWhy}>
             {unread ? 'Not read yet' : CLONE_SAID[clone]}{facts.clone === 'unknown' && props.byHand ? (entry ? ' (you said)' : ' (as set in Settings)') : ''}{facts.cloneSince ? ` since ${fmtDate(facts.cloneSince)}` : ''}
           </Flag>
-          {login?.state === 'refused' && <Flag color="var(--neg)" title="Login refused" why={`EVE has refused the cloud’s login for ${name} since ${fmtDateTime(entry!.refusedAt!)}${entry!.refused ? ` (${entry!.refused})` : ''}. Nothing is read for it until you hand it over again.`}>Login refused</Flag>}
+          {login?.state === 'refused' && <Flag color="var(--neg)" title="Login refused" why={`EVE has refused the cloud’s login for ${name} since ${fmtDateTime(entry!.refusedAt!)}${entry!.refused ? ` (${entry!.refused})` : ''}. Nothing is read for it until you hand it over again.${entry!.sender ? ' It is the login your alert mail is sent from, so no alert mail goes out either: handing it over again here, or under Settings → Your data, fixes both.' : ''}`}>Login refused</Flag>}
           {login?.state === 'none' && <Flag color="var(--neg)" title="No login" why="The cloud holds no login for this character, so nothing is read for it. Hand it over again.">No login</Flag>}
           {login?.state === 'working' && login.missing.length === 0 && (
             <Flag color="var(--pos)" title="Login working" why={entry!.at ? `The cloud last used this login ${ago(new Date(entry!.at).toISOString(), now)}.` : 'The cloud holds a login for this character.'}>Login working</Flag>
@@ -218,6 +218,7 @@ function Card(props: {
       )}
       {entry && (
         <p className="note small">
+          {entry.sender ? 'It also sends your alert mail: the cloud reads it with the login it sends from, since EVE allows a character one set of permissions. ' : ''}
           {login?.state === 'refused' || login?.state === 'none'
             ? `${read ? `The cloud last read it ${ago(new Date(read).toISOString(), now)}. Nothing more is read` : 'The cloud hasn’t read it, and nothing is read'} until its login is handed over again.`
             : read ? `The cloud read it ${ago(new Date(read).toISOString(), now)}.` : 'The cloud hasn’t read it yet: its first full read runs when it’s added, then hourly at 37 minutes past.'}
@@ -331,16 +332,17 @@ export function Characters() {
 
   async function remove(entry: RosterEntry) {
     const name = entry.name ?? `Character ${entry.charId}`;
+    // The sender is read with the login it sends from: removing it stops the reads and keeps that login, for the mail.
     const a = await chooseAsk({
       title: `Remove ${name}?`,
-      body: `The cloud stops reading ${name} and its login is revoked at EVE. What it has read so far can be kept in the cloud or deleted.\n\nKept data isn’t shown anywhere until you add ${name} again, and can only be deleted after that. ${name} stays on your list of characters either way.`,
+      body: `${entry.sender ? `The cloud stops reading ${name}, and keeps sending your alert mail from it: that login stays.` : `The cloud stops reading ${name} and its login is revoked at EVE.`} What it has read so far can be kept in the cloud or deleted.\n\nKept data isn’t shown anywhere until you add ${name} again, and can only be deleted after that. ${name} stays on your list of characters either way.`,
       confirm: 'Remove and delete its data', alt: 'Remove, keep its data', danger: true,
     });
     if (a === 'no') return;
     setBusy(true);
     try {
       await cloudRemoveAlt(entry.charId, a === 'yes' ? 'delete' : 'keep');
-      toast(`${name} is no longer read by the cloud.${a === 'yes' ? ' What it had read is deleted.' : ' What it had read is kept.'}`, 'info');
+      toast(`${name} is no longer read by the cloud.${a === 'yes' ? ' What it had read is deleted.' : ' What it had read is kept.'}${entry.sender ? ' It still sends your alert mail.' : ''}`, 'info');
       await refreshAlts();
     } catch (e) {
       toast(`Couldn’t remove ${name}: ${said(e)}`, 'err');

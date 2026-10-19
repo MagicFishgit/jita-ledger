@@ -402,16 +402,23 @@ export function setCloudEnabled(on: boolean) {
   if (on) { setStatus({ phase: state ? 'idle' : 'waiting' }); syncCloudNow(); } else setStatus({ phase: 'off', doing: null });
 }
 
-/** What the cloud kept a handed-over login as. `as` is missing from a Worker a version behind: then it is `purpose`. */
-export type KeptLogin = { purpose: string; as?: 'main' | 'mailer' | 'alt'; charId: number; name: string };
+/**
+ * What the cloud kept a handed-over login as. `as` is missing from a Worker a version behind: then it is `purpose`.
+ * For the sender, `alt`: whether the character is on the roster too (added, or there already), read with this login;
+ * `notAdded: 'mailOnly'` when adding it was asked and the login carries only the mail permissions. Both are missing from
+ * a Worker a version behind, whose answer the app words as before.
+ */
+export type KeptLogin = { purpose: string; as?: 'main' | 'mailer' | 'alt'; charId: number; name: string; alt?: boolean; notAdded?: 'mailOnly' };
 
 /**
  * Hands a login to the cloud for its background jobs. The Worker refreshes it once to prove it works and keeps it
  * encrypted; this browser keeps nothing. For an alt, EVE's page picks the character, so the answer says what it was
- * kept as: the main's login or the sender's when one of those came back, and nothing is added (Worker: keepHandedOver).
+ * kept as: the main's login, or the sender's when one of those came back (then also on the roster: Worker,
+ * keepHandedOver). `adding`: the hand-over came from adding a character, always sent, since a Worker reads its absence
+ * (an app version behind) from the login's permissions instead.
  */
-export async function keepCloudLogin(k: { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string }): Promise<KeptLogin> {
-  const res = await call<{ kept: KeptLogin }>('/v1/keys', { method: 'POST', body: JSON.stringify({ purpose: k.purpose, refreshToken: k.refreshToken }) });
+export async function keepCloudLogin(k: { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string; adding: boolean }): Promise<KeptLogin> {
+  const res = await call<{ kept: KeptLogin }>('/v1/keys', { method: 'POST', body: JSON.stringify({ purpose: k.purpose, refreshToken: k.refreshToken, adding: k.adding }) });
   return res.kept;
 }
 
@@ -429,7 +436,10 @@ export const cloudAltPull = (altId: number, since: number, after: string | null)
 /** Runs an alt's full read now instead of at :37: right after adding one, it proves the login end to end. */
 export const cloudAltRead = (altId: number) =>
   call<{ trades: number; journal: number; orders: number; clone: string | null }>(`/v1/alts/${altId}/read`, { method: 'POST' });
-/** Takes an alt off the roster; its login is revoked at EVE. `keep` leaves what was read, `delete` removes it. */
+/**
+ * Takes an alt off the roster; its login is revoked at EVE, except the sender's, which an alt that is the sender is read
+ * with: that one stays and keeps sending mail. `keep` leaves what was read, `delete` removes it.
+ */
 export const cloudRemoveAlt = (altId: number, data: 'keep' | 'delete') =>
   call<{ removed: number; data: string }>(`/v1/alts/${altId}?data=${data}`, { method: 'DELETE' });
 
@@ -441,7 +451,9 @@ export type CloudBackground = {
    * `at`: when the login last worked (handed over, or refreshed). `refusedAt`: since when EVE has refused it, and
    * `refused` what it said. `scopeNames`: its permissions. The last three are missing from a Worker a version behind.
    */
-  keys: { purpose: 'main' | 'mailer'; charId: number; name: string; scopes: number; at: number; refusedAt?: number | null; refused?: string | null; scopeNames?: string[] }[];
+  keys: { purpose: 'main' | 'mailer'; charId: number; name: string; scopes: number; at: number; refusedAt?: number | null; refused?: string | null; scopeNames?: string[];
+    /** The sender's: it is on the roster too, read with this login (missing from a Worker a version behind). */
+    alt?: boolean }[];
   jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: Record<string, unknown> | null }[];
 };
 

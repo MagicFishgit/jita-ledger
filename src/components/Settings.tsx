@@ -34,6 +34,7 @@ import { useSkillPayback } from './payback';
 import { Check, cssVars, Notice, NumChip, PageHead, Seg, Tip } from './ui';
 import { Points } from './Facts';
 import { nettedJournal } from '../lib/refunds';
+import { senderAsksAll } from '../lib/roster';
 
 type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data' | 'scan';
 const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data', 'scan'];
@@ -845,7 +846,7 @@ function MailAlerts() {
           {cloudSender ? (
             <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>
-                From <b>{cloudSender.name}</b> to <b>{auth.characterName}</b>, sent by the cloud whether or not any browser is open. Nothing to log in here, on this device or any other.
+                From <b>{cloudSender.name}</b> to <b>{auth.characterName}</b>, sent by the cloud whether or not any browser is open.{cloudSender.alt ? ` ${cloudSender.name} is also one of your characters, which the cloud reads with the same login.` : ''} Nothing to log in here, on this device or any other.
               </span>
               <button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Change it in Your data</button>
             </div>
@@ -1115,9 +1116,10 @@ function CloudPanel() {
             </>
           ) : (
             <>
-              <p className="note" style={{ margin: 0, color: sender.refusedAt || (alertsJob?.lastError && !alertsStale) ? 'var(--neg)' : !alerts.on || !alerts.mail ? 'var(--acc2)' : 'var(--pos)' }}>
+              <p className="note" style={{ margin: 0, color: sender.refusedAt || (alertsJob?.lastError && !alertsStale) ? 'var(--neg)' : !alerts.on || !alerts.mail ? 'var(--acc2)' : 'var(--pos)' }} data-settings="sender">
                 {`From ${sender.name} to ${watcher.name}. `}
-                {sender.refusedAt ? `EVE has refused ${sender.name}’s login since ${fmtDateTime(sender.refusedAt)}${sender.refused ? ` (${sender.refused})` : ''}, so no alert mail can be sent until you hand it over again.`
+                {sender.alt ? `${sender.name} is also one of your characters: the cloud reads it with this login, since EVE allows a character one set of permissions. ` : ''}
+                {sender.refusedAt ? `EVE has refused ${sender.name}’s login since ${fmtDateTime(sender.refusedAt)}${sender.refused ? ` (${sender.refused})` : ''}, so no alert mail can be sent${sender.alt ? `, and nothing is read for ${sender.name},` : ''} until you hand it over again.`
                   : !alerts.on || !alerts.mail ? 'Alerts or alert mail are switched off under Alerts, so nothing is sent.'
                   : !alertsJob ? 'The first check is due within five minutes.'
                     : alertsJob.lastError && alertsStale ? `The logins work again; the last check, at ${fmtDateTime(alertsJob.lastRun)}, was before that and failed. The next is within five minutes.`
@@ -1125,7 +1127,8 @@ function CloudPanel() {
                       : `Last check ${ago(new Date(alertsJob.lastRun).toISOString(), now)}: ${units(Number(alertsJob.detail?.judged ?? 0))} orders judged, ${Number(alertsJob.detail?.mailed ?? 0) ? `${units(Number(alertsJob.detail?.mailed))} alert${Number(alertsJob.detail?.mailed) === 1 ? '' : 's'} mailed` : 'nothing new to mail'}.`}
               </p>
               <div className="row" style={{ gap: 10 }}>
-                {sender.refusedAt && <button type="button" className="btn sm primary" onClick={() => loginMailerForCloud()}><Cloud aria-hidden="true" />Hand the cloud {sender.name}’s login again</button>}
+                {/* While the sender is one of your characters too, the hand-over asks every permission, so its reads keep working. */}
+                {sender.refusedAt && <button type="button" className="btn sm primary" onClick={() => loginMailerForCloud(senderAsksAll(sender))}><Cloud aria-hidden="true" />Hand the cloud {sender.name}’s login again</button>}
                 <button type="button" className="btn sm" disabled={!!busy} onClick={() => run('cloudmail', async () => {
                   const r = await cloudTestMail();
                   toast(`The cloud sent a test mail${r.about ? ` about ${r.about}` : ''}. It should arrive in game in a moment.`);
@@ -1133,7 +1136,7 @@ function CloudPanel() {
                   <Mail aria-hidden="true" />{busy === 'cloudmail' ? 'Sending…' : 'Send a test mail'}
                 </button>
                 <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('stopmail', async () => {
-                  if (!(await confirmAsk({ title: 'Stop cloud alert mail?', body: `The cloud forgets ${sender.name}’s login. Alert mail goes back to coming from an open app.`, confirm: 'Stop' }))) return;
+                  if (!(await confirmAsk({ title: 'Stop cloud alert mail?', body: `The cloud forgets ${sender.name}’s login. Alert mail goes back to coming from an open app.${sender.alt ? ` ${sender.name} stays one of your characters, but nothing is read for it until you hand it over again on the Characters page.` : ''}`, confirm: 'Stop' }))) return;
                   await dropCloudLogin('mailer'); await refreshBg();
                 })}>Stop</button>
               </div>

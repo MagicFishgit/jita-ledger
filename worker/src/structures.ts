@@ -6,7 +6,7 @@
  * build site or a home market. A structure the character can't read is left out, as the browser's `structureInfo` leaves it out.
  */
 import { onRoster } from './alts';
-import { altReader, EveError, esiGet, ledgerReader, readerLogin } from './eve';
+import { altReaderFor, EveError, esiGet, ledgerReader, readerLogin } from './eve';
 import { SCOPE_STRUCTURES } from './industryJobs';
 import { BadRequest } from './sync';
 
@@ -25,7 +25,7 @@ export async function searchStructures(env: Env, ledger: number, char: number, q
   const main = char === ledger;
   const where = main ? 'under Settings → Your data' : 'on Characters';
   const named = main ? 'you' : (await env.DB.prepare('SELECT name FROM alts WHERE char_id = ?1 AND ledger = ?2').bind(char, ledger).first<{ name: string | null }>())?.name ?? 'that character';
-  const login = await readerLogin(env, main ? ledgerReader(ledger) : altReader(ledger, char));
+  const login = await readerLogin(env, main ? ledgerReader(ledger) : await altReaderFor(env.DB, ledger, char));
   if (!login) throw new BadRequest(`The cloud holds no login for ${named}: hand it over ${where} first.`);
   const lacks = [SCOPE_SEARCH, SCOPE_STRUCTURES].find((s) => !login.scopes.includes(s));
   if (lacks) throw new BadRequest(`${main ? 'Your' : `${login.name}’s`} login was handed over without EVE’s permission to ${lacks === SCOPE_SEARCH ? 'search structures' : 'read structures'}: hand it over again ${where}.`);

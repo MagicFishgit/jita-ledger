@@ -18,6 +18,8 @@ const rejects = async (label, fn, re) => {
 };
 
 const MAIN = 95210486, ALT = 900001, SENDER = 900777;
+/** The two permissions Settings asks a sender for (auth.ts MAILER_SCOPES). */
+const MAIL_ONLY = ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1'];
 /** Every table a character's data lives in, as "table:charId" → rows: what a reader may and may not have touched. */
 const TABLES = ['records', 'docs', 'revs', 'jobs', 'mining_state', 'mining_ticks', 'safety_seen'];
 const counts = (db) => Object.fromEntries(TABLES.flatMap((t) => db.rows(`SELECT char_id AS c, COUNT(*) AS n FROM ${t} GROUP BY char_id`).map((r) => [`${t}:${r.c}`, r.n])));
@@ -494,10 +496,12 @@ console.log('\n--- handing a login over, and the alt routes ---');
     return { status: res.status, body: await res.json() };
   };
   /** EVE's login answering a refresh with a token for `char`; and its revoke. */
-  const eve = (char, name) => [
-    [/^POST \/v2\/oauth\/token$/, { access_token: fakeToken(char, name, SCOPES), refresh_token: `rotated-${char}` }],
+  const eve = (char, name, scopes = SCOPES) => [
+    [/^POST \/v2\/oauth\/token$/, { access_token: fakeToken(char, name, scopes), refresh_token: `rotated-${char}` }],
     [/^POST \/v2\/oauth\/revoke$/, {}],
   ];
+  /** The same, for a login with only the two permissions a sender is asked for in Settings. */
+  const eveMail = (char, name) => eve(char, name, MAIL_ONLY);
   const fresh = async () => {
     const db = d1();
     await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
@@ -524,28 +528,33 @@ console.log('\n--- handing a login over, and the alt routes ---');
     f = stubFetch(eve(SENDER, 'Postmaster'));
     r = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
     f.restore();
-    eq('  the mail sender came back: kept as the sender\'s login, nothing added', [r.body.kept.as, keysOf(db), db.rows('SELECT COUNT(*) AS n FROM alts')[0].n], ['mailer', [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`], 1]);
-    eq('    with the permissions it came back with, so mail carries on', db.rows(`SELECT scopes FROM keys WHERE purpose = 'mailer'`)[0].scopes.includes('esi-mail.send_mail.v1'), true);
+    // It used to be "nothing added": the user (19 October 2026) asked for their sender as a character too.
+    eq('  the mail sender came back: kept as the sender\'s login, and added to the roster', [r.body.kept.as, r.body.kept.alt, keysOf(db), db.rows('SELECT char_id AS c FROM alts ORDER BY c').map((x) => x.c)], ['mailer', true, [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`], [ALT, SENDER]]);
+    eq('    with the permissions it came back with, so mail carries on and it can be read', [db.rows(`SELECT scopes FROM keys WHERE purpose = 'mailer'`)[0].scopes.includes('esi-mail.send_mail.v1'), db.rows(`SELECT scopes FROM keys WHERE purpose = 'mailer'`)[0].scopes.split(' ').length], [true, SCOPES.length]);
   }
 
-  // The reverse slip: a sender login that turns out to be an alt.
+  // The reverse slip: a sender login that turns out to be an alt, with only the mail permissions (Settings asks those
+  // while the cloud's sender isn't on the roster): it can't read for the alt, so it's refused, as before.
   {
     const { db, env } = await fresh();
     let f = stubFetch(eve(ALT, 'Miner Two'));
     await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
-    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y' });
     f.restore();
-    eq('  a sender login that is an alt is refused, saying what happened', [r.status, /one of your characters, not your mail sender/.test(r.body.error), /Hand Miner Two over again/.test(r.body.error)], [400, true, true]);
+    f = stubFetch(eveMail(ALT, 'Miner Two'));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y', adding: false });
+    f.restore();
+    eq('  a sender login for an alt with only the mail permissions is refused, saying what happened', [r.status, /one of your characters, and the login carries only the permissions to send mail/.test(r.body.error), /Hand Miner Two over again/.test(r.body.error)], [400, true, true]);
     eq('    the real sender is left alone', keysOf(db).includes(`mailer=${SENDER}`), true);
     eq('    the alt\'s login is marked refused at once', db.rows('SELECT refused_at IS NOT NULL AS r FROM keys WHERE purpose = ?', `alt:${ALT}`)[0].r, 1);
+    eq('    the real sender isn\'t', db.rows(`SELECT refused_at AS r FROM keys WHERE purpose = 'mailer'`)[0].r, null);
     eq('    and the login that can\'t be kept is revoked at EVE', f.calls.some((c) => c.path === '/v2/oauth/revoke'), true);
 
     // Once removed from the roster, the same character may be the sender.
-    f = stubFetch(eve(ALT, 'Miner Two'));
+    f = stubFetch(eveMail(ALT, 'Miner Two'));
     await ask(env, 'DELETE', `/v1/alts/${ALT}?data=keep`);
-    const r2 = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y' });
+    const r2 = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y', adding: false });
     f.restore();
-    eq('  a character removed from the roster can be the sender', [r2.status, r2.body.kept.as, keysOf(db)], [200, 'mailer', [`mailer=${ALT}`, `main=${MAIN}`]]);
+    eq('  a character removed from the roster can be the sender', [r2.status, r2.body.kept.as, r2.body.kept.alt, keysOf(db)], [200, 'mailer', false, [`mailer=${ALT}`, `main=${MAIN}`]]);
   }
 
   // The main's and the sender's own hand-overs, as before.
@@ -810,6 +819,212 @@ console.log('\n--- the watchdog, by character ---');
     const r = await watchdog(env, MAIN, T0);
     f.restore();
     eq('  a removed alt\'s old job row is nobody\'s', [r.failing, mailBody(f)], [0, null]);
+  }
+}
+
+console.log('\n--- the mail sender as one of your characters (19 October 2026) ---');
+{
+  // The user added their mail sender on the Characters page, to start planetary industry on it, and the app refused it.
+  // Now it joins the roster and the cloud reads it with the sender's login: one login does both jobs, since EVE allows a
+  // character one set of permissions and refresh tokens rotate.
+  const worker = (await import('../worker/src/index.ts')).default;
+  const { altLogin, altReaderFor, readerLogin, senderReader, stillKept, keepHandedOver } = await import('../worker/src/eve.ts');
+  const { altReaders, altsHourly } = await import('../worker/src/alts.ts');
+  const { watchdog, watchdogFindings } = await import('../worker/src/watchdog.ts');
+  const { push } = await import('../worker/src/sync.ts');
+  const OTHER = 900888;
+  const ask = async (env, method, path, body) => {
+    const res = await worker.fetch(new Request(`http://localhost${path}`, {
+      method, headers: { Authorization: 'Bearer dev-token', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  const eve = (char, name, scopes = SCOPES) => [
+    [/^POST \/v2\/oauth\/token$/, { access_token: fakeToken(char, name, scopes), refresh_token: `rotated-${char}` }],
+    [/^POST \/v2\/oauth\/revoke$/, {}],
+  ];
+  /** The main, the sender (Postmaster) with only its two permissions, alert mail on, and Miner Two on the roster with its own login. */
+  const setUp = async () => {
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', MAIL_ONLY);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES);
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', ALT, MAIN, 'Miner Two', T0 - 86400_000);
+    await push(db, MAIN, { records: [{ k: 'txs', i: 'main-trade', d: {} }], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false } }] });
+    return { db, env: testEnv(db, { DEV_AUTH_CHAR: String(MAIN) }) };
+  };
+  const keysOf = (db) => db.rows('SELECT purpose, token_char_id AS c FROM keys WHERE char_id = ? ORDER BY purpose', MAIN).map((k) => `${k.purpose}=${k.c}`);
+  const rosterIds = (db) => db.rows('SELECT char_id AS c FROM alts WHERE removed_at IS NULL ORDER BY c').map((x) => x.c);
+  const revoked = (f) => f.calls.some((c) => c.path === '/v2/oauth/revoke');
+  /** Postmaster added from Characters: EVE's page handed back the cloud's own sender, with every permission. */
+  const senderAdded = async () => {
+    const x = await setUp();
+    const f = stubFetch(eve(SENDER, 'Postmaster'));
+    x.r = await ask(x.env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x', adding: true });
+    f.restore();
+    return x;
+  };
+
+  // Adding it from Characters: on the roster, read with the sender's login, which is kept, and no login of its own.
+  {
+    const { db, env, r } = await senderAdded();
+    eq('  the sender added from Characters: kept as the sender and on the roster', [r.status, r.body.kept.as, r.body.kept.alt, r.body.kept.notAdded ?? null], [200, 'mailer', true, null]);
+    eq('    no login of its own: the sender\'s does both', keysOf(db), [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]);
+    eq('    the sender\'s login now carries every permission it came back with', db.rows(`SELECT scopes FROM keys WHERE purpose = 'mailer'`)[0].scopes.split(' ').length, SCOPES.length);
+    eq('    on the roster', rosterIds(db), [ALT, SENDER]);
+    const list = (await ask(env, 'GET', '/v1/alts')).body;
+    const it = list.find((a) => a.charId === SENDER);
+    eq('    the roster lists its login as the sender\'s, working, and says it sends the mail', [it.sender, it.scopes.length, it.at != null, it.refusedAt], [true, SCOPES.length, true, null]);
+    eq('    the other alt isn\'t the sender', list.find((a) => a.charId === ALT).sender, false);
+    const status = (await ask(env, 'GET', '/v1/status')).body;
+    eq('    the cloud\'s status says the sender is one of your characters', status.background.keys.map((k) => [k.purpose, k.alt]).sort(), [['mailer', true], ['main', false]]);
+    eq('    the alts to read: Miner Two with its own login, Postmaster with the sender\'s', await altReaders(db), [{ ledger: MAIN, purpose: `alt:${ALT}`, char: ALT }, { ledger: MAIN, purpose: 'mailer', char: SENDER }]);
+    eq('    which login each is read with', [await altLogin(db, MAIN, SENDER), await altLogin(db, MAIN, ALT), await altLogin(db, MAIN, OTHER)], ['mailer', `alt:${ALT}`, null]);
+    eq('    as a reader', [await altReaderFor(db, MAIN, SENDER), await altReaderFor(db, MAIN, OTHER)], [{ ledger: MAIN, purpose: 'mailer', char: SENDER }, { ledger: MAIN, purpose: `alt:${OTHER}`, char: OTHER }]);
+  }
+
+  // The hourly read: with the sender's login, everything under its own ID, nothing of the main's touched; mail still goes.
+  {
+    const { db, env } = await senderAdded();
+    db.run('DELETE FROM alts WHERE char_id = ?', ALT); // only the sender on the roster: the hourly round reads just it
+    const before = under(db, MAIN);
+    let f = stubFetch(esiFor(SENDER));
+    const r = await altsHourly(env);
+    f.restore();
+    eq('  the hourly round reads the sender as an alt', r, { alts: 1, read: 1, failed: 0 });
+    eq('    its records are under its own ID', Object.fromEntries(db.rows('SELECT kind, COUNT(*) AS n FROM records WHERE char_id = ? GROUP BY kind', SENDER).map((x) => [x.kind, x.n])), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
+    eq('    its jobs are an alt\'s: the copy and the sheet', db.rows('SELECT job FROM jobs WHERE char_id = ? ORDER BY job', SENDER).map((x) => x.job), ['archive', 'sheet']);
+    eq('    nothing of it under the main', under(db, MAIN), before);
+    eq('    ESI was asked about the sender only', f.calls.filter((c) => /^\/characters\//.test(c.path)).every((c) => c.path.startsWith(`/characters/${SENDER}/`)), true);
+    eq('    and no mail was sent for its read', f.calls.filter((c) => c.method === 'POST' && /\/mail\//.test(c.path)).length, 0);
+    // Through the route the app calls right after adding it.
+    f = stubFetch(esiFor(SENDER));
+    const routed = await ask(env, 'POST', `/v1/alts/${SENDER}/read`);
+    f.restore();
+    eq('    a read asked for now uses the same login', [routed.status, f.calls.filter((c) => /^\/characters\//.test(c.path)).every((c) => c.path.startsWith(`/characters/${SENDER}/`))], [200, true]);
+    // The watchdog's mail about the main's failing job goes out from it, as ever.
+    db.run('INSERT INTO jobs (char_id, job, last_run, last_error, fails, failing_since) VALUES (?, ?, ?, ?, ?, ?)', MAIN, 'archive', T0, 'ESI 502', 3, T0 - 30 * MIN);
+    f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 901]]);
+    const w = await watchdog(env, MAIN, T0);
+    f.restore();
+    const sent = f.calls.find((c) => c.method === 'POST' && c.path === `/characters/${SENDER}/mail/`);
+    eq('    mail still goes out from it, to the main', [w.mailed, sent ? JSON.parse(sent.body).recipients[0].recipient_id : null], [1, MAIN]);
+  }
+
+  // The guard: a reader on the sender's login writes only for the character that login is.
+  {
+    const { db, env } = await senderAdded();
+    const before = counts(db);
+    await rejects('  a sender reader for a character the sender isn\'t', () => readerLogin(env, senderReader(MAIN, ALT)), new RegExp(`is character ${SENDER}, not ${ALT}`));
+    await rejects('    nor the main itself', () => readerLogin(env, senderReader(MAIN, MAIN)), /wrong purpose/);
+    eq('    nothing was written', counts(db), before);
+    eq('  still kept while it\'s the sender and on the roster', [await stillKept(db, senderReader(MAIN, SENDER)), await stillKept(db, senderReader(MAIN, ALT))], [true, false]);
+  }
+
+  // With only the two mail permissions, adding it does nothing, and says why.
+  {
+    const { db } = await setUp();
+    const env = testEnv(db, { DEV_AUTH_CHAR: String(MAIN) });
+    let f = stubFetch(eve(SENDER, 'Postmaster', MAIL_ONLY));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: true });
+    f.restore();
+    eq('  the sender added with only the mail permissions: still the sender, not added, and said', [r.status, r.body.kept.as, r.body.kept.alt, r.body.kept.notAdded], [200, 'mailer', false, 'mailOnly']);
+    eq('    the roster is as it was, and the sender kept', [rosterIds(db), keysOf(db)], [[ALT], [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]]);
+    // An app version behind says nothing of adding: the scopes do. Its Settings hand-over asks only the two.
+    f = stubFetch(eve(SENDER, 'Postmaster', MAIL_ONLY));
+    const old = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x' });
+    f.restore();
+    eq('  an app version behind, its plain sender hand-over: the sender, nothing added, nothing said', [old.body.kept.as, old.body.kept.alt, old.body.kept.notAdded ?? null, rosterIds(db)], ['mailer', false, null, [ALT]]);
+    // A new app's Settings asks every permission while the sender is on the roster: that says nothing of adding.
+    f = stubFetch(eve(SENDER, 'Postmaster'));
+    const plain = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: false });
+    f.restore();
+    eq('  "Let the cloud send alert mail" with every permission: the sender, never added', [plain.body.kept.alt, rosterIds(db)], [false, [ALT]]);
+    // Its alt hand-over sent as the sender (this browser's sender picked on EVE's page) asks every permission: added.
+    f = stubFetch(eve(SENDER, 'Postmaster'));
+    const oldAdd = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x' });
+    f.restore();
+    eq('  an app version behind, adding its sender as a character: added, as was asked', [oldAdd.body.kept.alt, rosterIds(db), keysOf(db)], [true, [ALT, SENDER], [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]]);
+  }
+
+  // A roster alt handed over as the sender with every permission: the sender now, still on the roster, its own login gone.
+  {
+    const { db, env } = await setUp();
+    const addedAt = db.rows('SELECT added_at AS t FROM alts WHERE char_id = ?', ALT)[0].t;
+    // Proof first: a hand-over EVE refuses changes nothing, and leaves the alt's own login in place.
+    let f = stubFetch([[/^POST \/v2\/oauth\/token$/, new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })]]);
+    const bad = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: false });
+    f.restore();
+    eq('  a sender hand-over EVE refuses: nothing changes', [bad.status, keysOf(db)], [400, [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]]);
+    // And one whose write fails leaves the alt's own login too: the two land together or not at all.
+    const real = db.batch;
+    db.batch = async () => { throw new Error('D1 down'); };
+    f = stubFetch(eve(ALT, 'Miner Two'));
+    await rejects('  a sender hand-over whose write fails', () => keepHandedOver(env, MAIN, 'mailer', 'x', false), /D1 down/);
+    f.restore();
+    db.batch = real;
+    eq('    leaves the alt\'s own login where it was', keysOf(db), [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]);
+    f = stubFetch(eve(ALT, 'Miner Two'));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: false });
+    f.restore();
+    eq('  a roster alt as the sender, with every permission: accepted, still on the roster', [r.status, r.body.kept.as, r.body.kept.alt, rosterIds(db)], [200, 'mailer', true, [ALT]]);
+    eq('    its own login is gone, the sender\'s reads it', [keysOf(db), await altReaders(db)], [[`mailer=${ALT}`, `main=${MAIN}`], [{ ledger: MAIN, purpose: 'mailer', char: ALT }]]);
+    eq('    nothing was revoked at EVE', revoked(f), false);
+    eq('    its stay on the roster is the same one', db.rows('SELECT added_at AS t FROM alts WHERE char_id = ?', ALT)[0].t, addedAt);
+  }
+
+  // Removing it from Characters: the reads stop, the mail goes on.
+  for (const data of ['keep', 'delete']) {
+    const { db, env } = await senderAdded();
+    const f = stubFetch(eve(SENDER, 'Postmaster'));
+    const r = await ask(env, 'DELETE', `/v1/alts/${SENDER}?data=${data}`);
+    f.restore();
+    eq(`  removing the sender from Characters (${data} its data): off the roster`, [r.status, rosterIds(db), (await ask(env, 'GET', '/v1/alts')).body.map((a) => a.charId)], [200, [ALT], [ALT]]);
+    eq('    the sender\'s login stays, and nothing was revoked', [keysOf(db), revoked(f)], [[`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`], false]);
+    eq('    and nothing reads it any more', [(await altReaders(db)).map((x) => x.char), await stillKept(db, senderReader(MAIN, SENDER))], [[ALT], false]);
+  }
+
+  // A different sender later: the old one stays a character, with no login; handed over on Characters it gets its own.
+  {
+    const { db, env } = await senderAdded();
+    let f = stubFetch(eve(OTHER, 'New Post'));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: false });
+    f.restore();
+    eq('  a new sender for another character: kept as the sender, not added', [r.body.kept.as, r.body.kept.alt, keysOf(db), rosterIds(db)], ['mailer', false, [`alt:${ALT}=${ALT}`, `mailer=${OTHER}`, `main=${MAIN}`], [ALT, SENDER]]);
+    const old = (await ask(env, 'GET', '/v1/alts')).body.find((a) => a.charId === SENDER);
+    eq('    the old sender stays on the roster with no login, and isn\'t the sender', [old.at, old.refusedAt, old.scopes, old.sender], [null, null, [], false]);
+    eq('    and isn\'t read', (await altReaders(db)).map((x) => x.char), [ALT]);
+    f = stubFetch(eve(SENDER, 'Postmaster'));
+    const back = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'y', adding: true });
+    f.restore();
+    eq('    handed over again on Characters: an ordinary login of its own', [back.body.kept.as, keysOf(db)], ['alt', [`alt:${ALT}=${ALT}`, `alt:${SENDER}=${SENDER}`, `mailer=${OTHER}`, `main=${MAIN}`]]);
+  }
+
+  // EVE refuses the sender's login: the alt reads as refused, and the watchdog has one refusal, not two.
+  {
+    const { db, env } = await senderAdded();
+    db.run(`UPDATE keys SET refused_at = ?, refused = ? WHERE purpose = 'mailer'`, T0 - 20 * MIN, 'invalid_grant');
+    db.run('INSERT INTO jobs (char_id, job, last_run, last_error, fails, failing_since) VALUES (?, ?, ?, ?, ?, ?)', SENDER, 'archive', T0, 'EVE refused the cloud’s login for Postmaster (invalid_grant); hand the cloud your login again', 3, T0 - 30 * MIN);
+    db.run('INSERT INTO jobs (char_id, job, last_run, last_error, fails, failing_since) VALUES (?, ?, ?, ?, ?, ?)', ALT, 'mining', T0, 'ESI 401 on /characters/900001/mining/', 3, T0 - 30 * MIN);
+    const it = (await ask(env, 'GET', '/v1/alts')).body.find((a) => a.charId === SENDER);
+    eq('  the sender\'s login refused: the roster shows that alt refused too', [it.refusedAt, it.refused, it.sender], [T0 - 20 * MIN, 'invalid_grant', true]);
+    const w = await watchdogFindings(db, MAIN, T0);
+    eq('    one refused login, the sender\'s', w.refused.map((k) => [k.purpose, k.char]), [['mailer', SENDER]]);
+    eq('    which can\'t be mailed, and no second finding for the alt', w.lost.length, 0);
+    eq('    its own failing read is quieted by it; another alt\'s isn\'t', w.due.map((x) => x.r.char_id), [ALT]);
+  }
+
+  // Everything else an alt's login does: a structure search as the sender, with the sender's login.
+  {
+    const { db, env } = await setUp();
+    const STRUCT = ['esi-search.search_structures.v1', 'esi-universe.read_structures.v1'];
+    let f = stubFetch(eve(SENDER, 'Postmaster', [...SCOPES, ...STRUCT]));
+    await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x', adding: true });
+    f.restore();
+    f = stubFetch([[`/characters/${SENDER}/search/`, { structure: [] }]]);
+    const r = await ask(env, 'POST', '/v1/structures/search', { char: SENDER, q: 'Keepstar' });
+    f.restore();
+    eq('  a structure search as the sender uses the sender\'s login', [r.status, r.body.found, f.calls.map((c) => c.path)], [200, [], [`/characters/${SENDER}/search/`]]);
   }
 }
 

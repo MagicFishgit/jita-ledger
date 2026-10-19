@@ -22,7 +22,7 @@ import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { mainColoniesHourly } from './planets';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
-import { altReader, dropLogin, EveError, keepHandedOver, ledgerReader } from './eve';
+import { altReaderFor, dropLogin, EveError, keepHandedOver, ledgerReader } from './eve';
 import { altsHourly, altsMining, altsStatus, altTicks, isAlt, onRoster, readAlt, removeAlt } from './alts';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
@@ -144,9 +144,13 @@ async function background(env: Env, charId: number) {
   // `at` is the last time the login worked (handed over, or refreshed); `refusedAt` when EVE started refusing it.
   // The main's and the sender's only. An alt's login is on /v1/alts: an app version behind turns every refused login
   // listed here, other than the main's, into "log in a sender", which for an alt is the login that stops its own.
-  const keys = (await env.DB.prepare(`SELECT purpose, token_char_id AS charId, token_char_name AS name, scopes, updated_at AS at, refused_at AS refusedAt, refused FROM keys WHERE char_id = ?1 AND purpose IN ('main', 'mailer')`)
-    .bind(charId).all<{ purpose: string; charId: number; name: string; scopes: string; at: number; refusedAt: number | null; refused: string | null }>()).results
-    .map((k) => ({ ...k, scopes: k.scopes.split(' ').filter(Boolean).length, scopeNames: k.scopes.split(' ').filter(Boolean) }));
+  // `alt`: the sender is on the roster too, read with this login, so handing it over again asks the full set.
+  const keys = (await env.DB.prepare(`SELECT k.purpose AS purpose, k.token_char_id AS charId, k.token_char_name AS name, k.scopes AS scopes, k.updated_at AS at, k.refused_at AS refusedAt, k.refused AS refused,
+        k.purpose = 'mailer' AND a.char_id IS NOT NULL AS alt
+      FROM keys k LEFT JOIN alts a ON a.char_id = k.token_char_id AND a.ledger = k.char_id AND a.removed_at IS NULL
+      WHERE k.char_id = ?1 AND k.purpose IN ('main', 'mailer')`)
+    .bind(charId).all<{ purpose: string; charId: number; name: string; scopes: string; at: number; refusedAt: number | null; refused: string | null; alt: number }>()).results
+    .map((k) => ({ ...k, scopes: k.scopes.split(' ').filter(Boolean).length, scopeNames: k.scopes.split(' ').filter(Boolean), alt: !!k.alt }));
   const jobs = (await env.DB.prepare('SELECT job, last_run AS lastRun, last_ok AS lastOk, last_error AS lastError, detail FROM jobs WHERE char_id = ?1')
     .bind(charId).all<{ job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: string | null }>()).results
     .map((j) => ({ ...j, detail: j.detail ? JSON.parse(j.detail) : null }));
@@ -292,13 +296,20 @@ export default {
         return json({ character: who, ...(await status(env.DB, who.charId)), background: await background(env, who.charId) }, 200, c);
       }
       if (url.pathname === '/v1/keys' && request.method === 'POST') {
-        const body = (await request.json()) as { purpose?: string; refreshToken?: string };
+        const body = (await request.json()) as { purpose?: string; refreshToken?: string; adding?: unknown };
         const asked = body.purpose === 'mailer' || body.purpose === 'main' || body.purpose === 'alt' ? body.purpose : null;
         if (!asked || !body.refreshToken) throw new BadRequest('Say which login this is and send its refresh token');
+        // `adding`: a sender hand-over that came from adding a character (true) or not (false). An app version behind
+        // sends neither, and sortLogin reads it from the login's scopes: undefined and false are different answers.
+        const adding = typeof body.adding === 'boolean' ? body.adding : undefined;
         // `as` is what it was kept as: EVE's page picks the character, so an alt hand-over can come back as the
-        // main or the sender (eve.ts, keepHandedOver). `purpose` repeats it for an app version behind.
-        const kept = await keepHandedOver(env, who.charId, asked, body.refreshToken);
-        return json({ kept: { purpose: kept.as, as: kept.as, charId: kept.login.charId, name: kept.login.name, scopes: kept.login.scopes.length } }, 200, c);
+        // main or the sender (eve.ts, keepHandedOver). `purpose` repeats it for an app version behind. `alt`, for the
+        // sender: whether it is on the roster too (added, or there already); `notAdded` when adding it couldn't be done.
+        const kept = await keepHandedOver(env, who.charId, asked, body.refreshToken, adding);
+        return json({ kept: {
+          purpose: kept.as, as: kept.as, charId: kept.login.charId, name: kept.login.name, scopes: kept.login.scopes.length,
+          ...(kept.alt != null ? { alt: kept.alt } : {}), ...(kept.notAdded ? { notAdded: kept.notAdded } : {}),
+        } }, 200, c);
       }
       if (url.pathname === '/v1/keys' && request.method === 'DELETE') {
         const asked = url.searchParams.get('purpose');
@@ -321,7 +332,7 @@ export default {
           const since = Number(url.searchParams.get('since') ?? 0) || 0;
           return json(await pull(env.DB, altId, since, url.searchParams.get('after')), 200, c);
         }
-        if (alt[2] === 'read' && request.method === 'POST') return json(await readAlt(env, altReader(who.charId, altId)), 200, c);
+        if (alt[2] === 'read' && request.method === 'POST') return json(await readAlt(env, await altReaderFor(env.DB, who.charId, altId)), 200, c);
         if (!alt[2] && request.method === 'DELETE') {
           const data = url.searchParams.get('data') === 'delete' ? 'delete' : 'keep';
           await removeAlt(env, who.charId, altId, data);

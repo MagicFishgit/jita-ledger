@@ -26,7 +26,7 @@ import { planListRow } from '../lib/positions';
 import { skipPlaceBid, useBuiltPrices, usePlacingCheck, usePlanListing } from './planListing';
 import { useHomeHubs, useHomeQuotes } from './hustles/industryMarket';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
-import { jobOk, loginState } from '../lib/roster';
+import { jobOk, loginState, senderAsksAll } from '../lib/roster';
 import { hubOf, type HubOrder } from '../lib/homeMarket';
 import { homeSaid } from './hustles/industryFinder';
 import { tickDown } from '../lib/tick';
@@ -468,16 +468,19 @@ export function Todo() {
       out.push({
         key: `cloudLogin:${k.purpose}`, ver: String(k.refusedAt), kind: 'cloudLogin', source: 'cloud', stake: 0,
         title: main ? 'Hand the cloud your login again' : `Hand the cloud ${k.name}’s login again`,
-        detail: `EVE has refused the cloud’s login for ${k.name} since ${fmtDateTime(k.refusedAt)}${k.refused ? ` (${k.refused})` : ''}. Until you do, ${LOGIN_STOPS[k.purpose]}.`,
+        detail: `EVE has refused the cloud’s login for ${k.name} since ${fmtDateTime(k.refusedAt)}${k.refused ? ` (${k.refused})` : ''}. Until you do, ${LOGIN_STOPS[k.purpose]}${k.alt ? `, and nothing is read for ${k.name}: it is one of your characters too, read with the same login` : ''}.`,
         action: { label: 'Log in for the cloud', cloudLogin: k.purpose },
       });
     }
     // An alt whose login EVE refused, or that has none: one item each, from the roster as last read (from disk, if this session hasn't
     // read it yet: it ticks off only on a live read, see judgeAltLogin). Its button opens the Characters page, where that alt's login is
     // handed over again; never the main's or the sender's. One with no login kept isn't told "again": it may never have had one.
+    // The sender read as one of your characters has one login: its refusal is the sender's item above, not a second one here.
+    const senderRefused = cloud.background?.keys.find((k) => k.purpose === 'mailer' && k.refusedAt)?.charId;
     for (const a of roster) {
       const st = loginState(a, []).state;
       if (st === 'working') continue;
+      if (a.sender && a.charId === senderRefused) continue;
       const who = a.name ?? `Character ${a.charId}`;
       const refused = st === 'refused';
       out.push({
@@ -683,7 +686,7 @@ export function Todo() {
 
   async function act(x: TodoItem, checking = false) {
     if (x.action.reload) { void reloadApp(); return; }
-    if (x.action.cloudLogin) { if (x.action.cloudLogin === 'main') loginForCloud(); else loginMailerForCloud(); return; }
+    if (x.action.cloudLogin) { if (x.action.cloudLogin === 'main') loginForCloud(); else loginMailerForCloud(senderAsksAll(cloud.background?.keys.find((k) => k.purpose === 'mailer'))); return; }
     if (x.action.exportBackup) {
       // Exporting moves the last-backup time, and that alone ticks this off.
       const text = await exportAll();

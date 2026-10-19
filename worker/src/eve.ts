@@ -5,7 +5,7 @@
  * is needed to refresh it). Refreshing may hand back a new refresh token, so the newest is always stored.
  */
 import { open, seal } from './crypto';
-import { sortLogin, type Asked } from '../../src/lib/roster';
+import { readsAsAlt, sortLogin, type Asked } from '../../src/lib/roster';
 
 const TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 const ESI = 'https://esi.evetech.net';
@@ -13,7 +13,8 @@ export const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'ji
 
 /**
  * What a kept login is for: the ledger's own character (`main`), the character its alert mail is sent from
- * (`mailer`), or one of its alts (`alt:<its character ID>`, migration 0016).
+ * (`mailer`), or one of its alts (`alt:<its character ID>`, migration 0016). The sender can be an alt too, read with
+ * the sender's login: such an alt has no `alt:` row (altLogin).
  */
 export type Purpose = 'main' | 'mailer' | `alt:${number}`;
 export const altPurpose = (altId: number): Purpose => `alt:${Math.trunc(altId)}`;
@@ -73,26 +74,33 @@ export async function revoke(env: Env, refreshToken: string): Promise<void> {
  * EVE for; which character it turned out to be decides what it's kept as (roster.ts, sortLogin): EVE's page picks the
  * character, and has already stopped that character's earlier logins, so a wrong pick while adding an alt is kept as
  * the main's or the sender's login. It is a working one, and may be the only one left.
+ *
+ * `adding`: the app says a sender hand-over came from adding a character (Characters) or not (Settings); an app version
+ * behind doesn't say, and sortLogin reads it from the scopes. A sender kept on the roster (`alt`) is read with the
+ * sender's login: one login does both, since EVE allows a character one set of permissions and refresh tokens rotate.
+ * Its own `alt:` login, if it had one, is dropped in the same write, after the refresh above proved the new one, and is
+ * not revoked at EVE: that isn't needed, and what a revoke does to the character's other logins isn't known.
  */
-export async function keepHandedOver(env: Env, ledger: number, asked: Asked, refreshToken: string): Promise<{ as: Asked; login: Login }> {
+export async function keepHandedOver(env: Env, ledger: number, asked: Asked, refreshToken: string, adding?: boolean): Promise<{ as: Asked; alt?: boolean; notAdded?: 'mailOnly'; login: Login }> {
   const t = await refresh(refreshToken, env.EVE_CLIENT_ID);
   const who = claims(t.access);
   const db = env.DB;
   const mailer = await db.prepare(`SELECT token_char_id AS id FROM keys WHERE char_id = ?1 AND purpose = 'mailer'`).bind(ledger).first<{ id: number }>();
   const onRoster = !!(await db.prepare('SELECT 1 AS y FROM alts WHERE char_id = ?1 AND ledger = ?2 AND removed_at IS NULL').bind(who.charId, ledger).first());
-  const sorted = sortLogin(asked, who.charId, ledger, mailer?.id ?? null, onRoster);
+  const sorted = sortLogin(asked, who.charId, ledger, mailer?.id ?? null, onRoster, readsAsAlt(who.scopes), adding);
   if ('refuse' in sorted) {
     if (sorted.refuse === 'notMain') throw new EveError(400, `That login is ${who.name}, not the character whose ledger this is`);
     if (sorted.refuse === 'isMain') throw new EveError(400, `${who.name} is the character alerts go to; the sender has to be your other character`);
-    // A sender login for one of your characters. EVE has already stopped the login the cloud reads it with, and this
-    // one (two permissions) can't read for it: say so now rather than let the next read find out, and don't leave a
-    // live login the cloud won't use.
-    await db.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2')
-      .bind(ledger, altPurpose(who.charId), Date.now(), 'stopped by a sender login for the same character').run();
+    // A sender login with only the mail permissions, for one of your characters. EVE has already stopped the login the
+    // cloud reads it with (its own, or the sender's when it is the sender), and this one can't read for it: say so now
+    // rather than let the next read find out, and don't leave a live login the cloud won't use.
+    await db.prepare(`UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND (purpose = ?2 OR (purpose = 'mailer' AND token_char_id = ?5))`)
+      .bind(ledger, altPurpose(who.charId), Date.now(), 'stopped by a sender login for the same character', who.charId).run();
     await revoke(env, t.refresh);
-    throw new EveError(400, `That was ${who.name}, one of your characters, not your mail sender. EVE allows a character one set of permissions, so that login has stopped the one the cloud reads ${who.name} with. Hand ${who.name} over again on the Characters page.`);
+    throw new EveError(400, `That was ${who.name}, one of your characters, and the login carries only the permissions to send mail. EVE allows a character one set of permissions, so that login has stopped the one the cloud reads ${who.name} with. Hand ${who.name} over again on the Characters page: EVE’s page asks for all the permissions there, and the cloud keeps it as your sender too when it is one.`);
   }
   const purpose: Purpose = sorted.as === 'alt' ? altPurpose(who.charId) : sorted.as;
+  const roster = sorted.as === 'alt' || (sorted.as === 'mailer' && sorted.alt);
   // The login and its roster row land together: a login with no row would be live, sealed and listed nowhere.
   const stmts = [db.prepare(`
     INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at, access_enc, access_exp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -100,13 +108,19 @@ export async function keepHandedOver(env: Env, ledger: number, asked: Asked, ref
       scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at,
       access_enc = excluded.access_enc, access_exp = excluded.access_exp, refused_at = NULL, refused = NULL, refused_warned = NULL`)
     .bind(ledger, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp)];
-  if (sorted.as === 'alt') {
+  if (roster) {
+    // On the roster: added, or put back after a removal (a re-add after "keep" keeps its added_at; after "delete" the
+    // row is gone and it's a new stay), or already there (its name kept up to date).
     stmts.push(db.prepare(`INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?1, ?2, ?3, ?4)
       ON CONFLICT(char_id) DO UPDATE SET ledger = excluded.ledger, name = excluded.name, removed_at = NULL`)
       .bind(who.charId, ledger, who.name, Date.now()));
   }
+  // The sender's login reads it from now: its own, which EVE has stopped if its set differed, goes. Not revoked.
+  if (sorted.as === 'mailer' && sorted.alt) stmts.push(db.prepare('DELETE FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(ledger, altPurpose(who.charId)));
   await db.batch(stmts);
-  return { as: sorted.as, login: asLogin(t.access) };
+  return sorted.as === 'mailer'
+    ? { as: 'mailer', alt: sorted.alt, ...(sorted.notAdded ? { notAdded: sorted.notAdded } : {}), login: asLogin(t.access) }
+    : { as: sorted.as, login: asLogin(t.access) };
 }
 
 export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose): Promise<void> {
@@ -161,18 +175,46 @@ export async function useLogin(env: Env, ledgerChar: number, purpose: Purpose): 
 export type Reader = { ledger: number; purpose: Purpose; char: number };
 export const ledgerReader = (charId: number): Reader => ({ ledger: charId, purpose: 'main', char: charId });
 export const altReader = (ledger: number, altId: number): Reader => ({ ledger, purpose: altPurpose(altId), char: altId });
+/** An alt that is also the sender, read with the sender's login. */
+export const senderReader = (ledger: number, altId: number): Reader => ({ ledger, purpose: 'mailer', char: altId });
 
-/** The reader's login, or null when none is kept. Throws when the login isn't the character the reader writes for. */
+/**
+ * Which kept login an alt is read with: its own (`alt:<id>`) when the cloud keeps one, else the sender's when the cloud
+ * sends mail from this character. Null when it keeps neither. Whether the character is on the roster is the caller's.
+ */
+export async function altLogin(db: D1Database, ledger: number, altId: number): Promise<Purpose | null> {
+  if (await db.prepare('SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(ledger, altPurpose(altId)).first()) return altPurpose(altId);
+  const sender = await db.prepare(`SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = 'mailer' AND token_char_id = ?2`).bind(ledger, altId).first();
+  return sender ? 'mailer' : null;
+}
+/** The reader for an alt, with the login altLogin picks; with none kept, its own purpose (whose login is then null). */
+export async function altReaderFor(db: D1Database, ledger: number, altId: number): Promise<Reader> {
+  return (await altLogin(db, ledger, altId)) === 'mailer' ? senderReader(ledger, altId) : altReader(ledger, altId);
+}
+
+/**
+ * The reader's login, or null when none is kept. Throws when the login isn't the character the reader writes for: the
+ * guard that keeps an alt's rows from being filed under anyone else, the sender's login included (it can be swapped
+ * for another character's between the round's start and its read).
+ */
 export async function readerLogin(env: Env, who: Reader): Promise<Login | null> {
   if ((who.purpose === 'main') !== (who.char === who.ledger)) throw new Error(`A reader for character ${who.char} under ledger ${who.ledger} has the wrong purpose (${who.purpose})`);
-  if (who.purpose !== 'main' && who.purpose !== altPurpose(who.char)) throw new Error(`A reader for character ${who.char} has the wrong purpose (${who.purpose})`);
+  if (who.purpose !== 'main' && who.purpose !== 'mailer' && who.purpose !== altPurpose(who.char)) throw new Error(`A reader for character ${who.char} has the wrong purpose (${who.purpose})`);
   const login = await useLogin(env, who.ledger, who.purpose);
   if (login && login.charId !== who.char) throw new Error(`The login kept as ${who.purpose} is character ${login.charId}, not ${who.char}`);
   return login;
 }
 
-/** Whether the reader's login is still kept: checked before writing, so an alt removed mid-read gets no rows back. */
+/**
+ * Whether the reader's login is still kept: checked before writing, so an alt removed mid-read gets no rows back. An
+ * alt read with the sender's login: while the sender is still that character and it is still on the roster, since
+ * removing it keeps the sender's login (it still sends mail).
+ */
 export async function stillKept(db: D1Database, who: Reader): Promise<boolean> {
+  if (who.purpose === 'mailer') {
+    return !!(await db.prepare(`SELECT 1 AS y FROM keys k JOIN alts a ON a.char_id = k.token_char_id AND a.ledger = k.char_id AND a.removed_at IS NULL
+      WHERE k.char_id = ?1 AND k.purpose = 'mailer' AND k.token_char_id = ?2`).bind(who.ledger, who.char).first());
+  }
   return !!(await db.prepare('SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(who.ledger, who.purpose).first());
 }
 

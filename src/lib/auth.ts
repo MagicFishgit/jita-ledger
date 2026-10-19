@@ -105,8 +105,12 @@ export const login = () => startLogin('main', [...SCOPES, ...askedScopes()]);
 export const loginMailer = () => startLogin('mailer', MAILER_SCOPES);
 /** A login for the cloud's background jobs, with the same permissions as the trading login. */
 export const loginForCloud = () => startLogin('cloud', [...SCOPES, ...askedScopes()]);
-/** A login for the cloud to send alert mail from the second character. */
-export const loginMailerForCloud = () => startLogin('cloud-mailer', MAILER_SCOPES);
+/**
+ * A login for the cloud to send alert mail from the second character: the two permissions sending needs, or, with
+ * `all`, the full set (`loginAltForCloud`'s). `all` while the cloud reads its sender as one of your characters too
+ * (roster.ts `senderAsksAll`): one login does both, and a login with only the two would stop the one its reads use.
+ */
+export const loginMailerForCloud = (all = false) => startLogin('cloud-mailer', all ? [...SCOPES, ...askedScopes()] : MAILER_SCOPES);
 /**
  * A login for the cloud to read another of your characters with (an alt: docs/notes/characters.md). The same
  * permissions as the trading login, so the cloud's readers work on it unchanged. EVE's page picks the character: it
@@ -270,4 +274,13 @@ export async function logoutMailer(): Promise<void> {
   const a = mailer.auth;
   write(mailer, null);
   if (a) await revoke(a);
+}
+
+/**
+ * Take this browser's sender login out without revoking it at EVE: for a character the cloud holds a login for itself
+ * (its sender, which it also reads as one of your characters). Revoking isn't needed, and what a revoke does to the
+ * character's other logins isn't known.
+ */
+export function forgetMailer(): void {
+  write(mailer, null);
 }

@@ -5618,22 +5618,40 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('  what it can use: the trained level, or the active one where they differ', usableSkills({ [MINING]: 5, [BARGE]: 3, [BROKER]: 2 }, { [MINING]: 4, [BARGE]: 0 }), { [MINING]: 4, [BARGE]: 0, [BROKER]: 2 });
   eq('    and the trained levels when nothing is capped', usableSkills({ [MINING]: 5 }), { [MINING]: 5 });
 
-  // EVE's page picks the character, so the cloud sorts out who came back. Main 1, mail sender 7, an alt 2.
-  eq('  adding an alt, and an alt came back', sortLogin('alt', 2, 1, 7, false), { as: 'alt' });
-  eq('    an alt handed over again', sortLogin('alt', 2, 1, 7, true), { as: 'alt' });
-  eq('    the main came back: kept as the main\'s login', sortLogin('alt', 1, 1, 7, false), { as: 'main' });
-  eq('    the mail sender came back: kept as the sender\'s', sortLogin('alt', 7, 1, 7, false), { as: 'mailer' });
-  eq('  a sender login that is an alt can\'t be kept', sortLogin('mailer', 2, 1, 7, true), { refuse: 'isAlt' });
-  eq('    one that was removed from the roster can', sortLogin('mailer', 2, 1, 7, false), { as: 'mailer' });
-  eq('    and the main can\'t mail itself, as before', sortLogin('mailer', 1, 1, null, false), { refuse: 'isMain' });
-  eq('  the main\'s login has to be the main, as before', [sortLogin('main', 1, 1, null, false), sortLogin('main', 2, 1, null, false)], [{ as: 'main' }, { refuse: 'notMain' }]);
+  // EVE's page picks the character, so the cloud sorts out who came back. Main 1, mail sender 7, an alt 2, someone else 9.
+  // `reads`: the login carries more than the mail permissions (readsAsAlt). `adding`: the app said the hand-over came from
+  // adding a character (true), or from Settings (false); an app version behind says neither.
+  const { readsAsAlt, MAIL_ONLY, senderAsksAll } = await import('../src/lib/roster.ts');
+  const FULL = ['esi-wallet.read_character_wallet.v1', 'esi-skills.read_skills.v1', ...MAIL_ONLY];
+  eq('  a login can be read as a character when it carries more than the mail permissions', [readsAsAlt(FULL), readsAsAlt(MAIL_ONLY), readsAsAlt([MAIL_ONLY[0]]), readsAsAlt([])], [true, false, false, false]);
+  eq('    the mail permissions are the two a sender is asked for', MAIL_ONLY, ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1']);
+  eq('  adding an alt, and an alt came back', sortLogin('alt', 2, 1, 7, false, true), { as: 'alt' });
+  eq('    an alt handed over again', sortLogin('alt', 2, 1, 7, true, true), { as: 'alt' });
+  eq('    the main came back: kept as the main\'s login', sortLogin('alt', 1, 1, 7, false, true), { as: 'main' });
+  eq('    the cloud\'s mail sender came back: kept as the sender, and added to the roster', sortLogin('alt', 7, 1, 7, false, true), { as: 'mailer', alt: true });
+  eq('    the sender already on the roster, handed over again on Characters: the sender, still on the roster', sortLogin('alt', 7, 1, 7, true, true), { as: 'mailer', alt: true });
+  eq('    the sender with only the mail permissions: kept as the sender, not added, and said', sortLogin('alt', 7, 1, 7, false, false), { as: 'mailer', alt: false, notAdded: 'mailOnly' });
+  eq('  this browser\'s sender, picked while adding a character (sent as the sender): kept as the sender and added', sortLogin('mailer', 7, 1, null, false, true, true), { as: 'mailer', alt: true });
+  eq('    with only the mail permissions: kept as the sender, not added, and said', sortLogin('mailer', 7, 1, null, false, false, true), { as: 'mailer', alt: false, notAdded: 'mailOnly' });
+  eq('  "Let the cloud send alert mail" never adds a character: with the mail permissions, or with all of them', [sortLogin('mailer', 9, 1, 7, false, false, false), sortLogin('mailer', 9, 1, 7, false, true, false)], [{ as: 'mailer', alt: false }, { as: 'mailer', alt: false }]);
+  eq('  an app version behind (no word): its plain sender hand-over has only the mail permissions, so nothing is added', sortLogin('mailer', 9, 1, 7, false, false), { as: 'mailer', alt: false });
+  eq('    its alt hand-over sent as the sender has all of them, so the character is added, as was asked', sortLogin('mailer', 9, 1, 7, false, true), { as: 'mailer', alt: true });
+  eq('  a sender login for an alt on the roster, with all the permissions: the sender, and it stays on the roster', [sortLogin('mailer', 2, 1, 7, true, true, false), sortLogin('mailer', 2, 1, 7, true, true)], [{ as: 'mailer', alt: true }, { as: 'mailer', alt: true }]);
+  eq('    with only the mail permissions: can\'t be kept, as before', [sortLogin('mailer', 2, 1, 7, true, false, false), sortLogin('mailer', 2, 1, 7, true, false), sortLogin('mailer', 2, 1, 7, true, false, true)], [{ refuse: 'isAlt' }, { refuse: 'isAlt' }, { refuse: 'isAlt' }]);
+  eq('    one that was removed from the roster can be the sender', sortLogin('mailer', 2, 1, 7, false, false, false), { as: 'mailer', alt: false });
+  eq('    and the main can\'t mail itself, as before', [sortLogin('mailer', 1, 1, null, false, false), sortLogin('mailer', 1, 1, null, false, true, true)], [{ refuse: 'isMain' }, { refuse: 'isMain' }]);
+  eq('  the main\'s login has to be the main, as before', [sortLogin('main', 1, 1, null, false, true), sortLogin('main', 2, 1, null, false, true), sortLogin('main', 7, 1, 7, true, true)], [{ as: 'main' }, { refuse: 'notMain' }, { refuse: 'notMain' }]);
 
-  // This browser's own sender, picked while adding a character, goes to the cloud as the sender, not as an alt.
+  // This browser's own sender, picked while adding a character, goes to the cloud as the sender (with `adding`), now
+  // whether or not it's already one of your characters: the cloud keeps it as the sender and puts it on the roster.
   const { handOverAs, stoppedBy } = await import('../src/lib/roster.ts');
   eq('  adding a character, and this browser\'s mail sender came back: sent as the sender', handOverAs('alt', 7, 7), 'mailer');
   eq('    anyone else, or no sender here: sent as an alt', [handOverAs('alt', 2, 7), handOverAs('alt', 2, null), handOverAs('alt', 2, undefined)], ['alt', 'alt', 'alt']);
-  eq('    the sender that is already one of your characters: added back as an alt, not refused as a sender', handOverAs('alt', 7, 7, true), 'alt');
-  eq('    the main\'s and the sender\'s own hand-overs are sent as asked', [handOverAs('main', 7, 7), handOverAs('mailer', 7, 7)], ['main', 'mailer']);
+  eq('    the main\'s and the sender\'s own hand-overs are sent as asked', [handOverAs('main', 7, 7), handOverAs('mailer', 7, 7), handOverAs('mailer', 2, 7)], ['main', 'mailer', 'mailer']);
+  // Handing the cloud's sender over again: the full set while the cloud reads it as one of your characters (`alt` on
+  // its key in the cloud's status), else the sender's two, as before; a Worker a version behind doesn't say.
+  eq('  the sender handed over again: all the permissions while it\'s on the roster', senderAsksAll({ alt: true }), true);
+  eq('    the sender\'s two otherwise, or when the cloud doesn\'t say, or holds no sender', [senderAsksAll({ alt: false }), senderAsksAll({}), senderAsksAll(null), senderAsksAll(undefined)], [false, false, false, false]);
   // EVE stops a character's earlier logins with a different set of permissions: which of this browser's it stopped.
   const heldLogin = { characterId: 1, scopes: ['a', 'b'] };
   eq('  a login here for the same character, with the same set in another order: not stopped', stoppedBy(heldLogin, { charId: 1, scopes: ['b', 'a'] }), false);

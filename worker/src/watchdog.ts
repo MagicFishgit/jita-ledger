@@ -13,8 +13,11 @@ import { rosterOf } from './alts';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
 
-export async function watchdog(env: Env, charId: number, now = Date.now()): Promise<{ failing: number; mailed: number }> {
-  const db = env.DB;
+/**
+ * What the watchdog finds for a ledger now, before anything is mailed: its failing jobs and its refused logins, each
+ * refused login once (the sender's row is one login, whether or not it also reads an alt), and the findings due.
+ */
+export async function watchdogFindings(db: D1Database, charId: number, now: number) {
   // This ledger's own jobs, the ones run for everyone (char 0), and its alts', each alt's worded with its name.
   const alts = await rosterOf(db, charId);
   const nameOf = new Map(alts.map((a) => [a.charId, a.name ?? `character ${a.charId}`]));
@@ -29,13 +32,21 @@ export async function watchdog(env: Env, charId: number, now = Date.now()): Prom
     .filter((x): x is { k: typeof refused[number]; f: NonNullable<typeof x.f> } => x.f != null);
   // A refused login explains the login-looking failures of the character whose jobs need it, and no one else's: the
   // main's (or the sender's, without which the main's alert round fails) for the ledger's own jobs, an alt's for that
-  // alt's. It used to be "any refused login quiets them all", so a refused alt would have silenced the main's.
-  const quiet = new Set(refused.map((k) => (kind(k.purpose) === 'alt' ? k.char : charId)));
+  // alt's. It used to be "any refused login quiets them all", so a refused alt would have silenced the main's. The
+  // sender on the roster is read with its own login, the sender's: refused, it quiets that alt's jobs too, and stays
+  // one finding (the sender's, which can't be mailed), never a second for the alt.
+  const quiet = new Set(refused.flatMap((k) => (kind(k.purpose) === 'alt' ? [k.char] : k.purpose === 'mailer' && nameOf.has(k.char) ? [charId, k.char] : [charId])));
   const due = rows.map((r) => ({
     r,
     f: watchdogFinding({ job: r.job, fails: r.fails, failingSince: r.failing_since, lastError: r.last_error, warned: r.warned }, now,
       nameOf.has(r.char_id) ? { charId: r.char_id, name: nameOf.get(r.char_id)! } : undefined),
   })).filter((x): x is { r: typeof rows[number]; f: NonNullable<typeof x.f> } => x.f != null && !(x.f.watch?.login && quiet.has(x.r.char_id)));
+  return { rows, refused, lost, due };
+}
+
+export async function watchdog(env: Env, charId: number, now = Date.now()): Promise<{ failing: number; mailed: number }> {
+  const db = env.DB;
+  const { rows, lost, due } = await watchdogFindings(db, charId, now);
   if (!due.length && !lost.length) return { failing: rows.length, mailed: 0 };
   const hasSender = await db.prepare(`SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = 'mailer'`).bind(charId).first();
   if (!hasSender) return { failing: rows.length, mailed: 0 };

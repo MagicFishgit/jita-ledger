@@ -4,10 +4,12 @@
  * An alt's login is kept under the main's ledger (keys: purpose `alt:<id>`), and everything read for it is filed
  * under its own character ID, in the same kinds and documents as a ledger, so the main's ledger never holds a row of
  * an alt's. The `alts` table (migration 0016) is the roster. Alts are found through it, never by matching a purpose.
+ * The mail sender can be an alt too: it is then read with the sender's login (`mailer`, whose `token_char_id` is the
+ * alt) and has no `alt:` row, since EVE allows a character one set of permissions (eve.ts, altLogin).
  */
 import type { CloneState } from '../../src/lib/roster';
 import { archive, noteJob, roughPrices, type ArchiveResult } from './archive';
-import { altPurpose, altReader, dropLogin, stillKept, type Reader } from './eve';
+import { altPurpose, altReader, dropLogin, senderReader, stillKept, type Reader } from './eve';
 import { readMiningRound } from './mining';
 import { readSheet } from './sheet';
 
@@ -30,12 +32,19 @@ export async function isAlt(db: D1Database, charId: number): Promise<boolean> {
   return !!(await db.prepare('SELECT 1 AS y FROM alts WHERE char_id = ?1').bind(charId).first());
 }
 
+/**
+ * The keys an alt is read with, as two LEFT JOINs on `alts a`: its own (`ka`), and the sender's when the sender is this
+ * character (`km`). Its own wins when both are there. Two joins, not one with an OR, so an alt is never listed twice.
+ */
+const ALT_KEYS = `LEFT JOIN keys ka ON ka.char_id = a.ledger AND ka.purpose = 'alt:' || a.char_id
+      LEFT JOIN keys km ON km.char_id = a.ledger AND km.purpose = 'mailer' AND km.token_char_id = a.char_id`;
+
 /** Every alt there is a login for, as a reader. They are read whether or not their main's own login is kept. */
 export async function altReaders(db: D1Database): Promise<Reader[]> {
-  const rows = (await db.prepare(`SELECT a.ledger AS ledger, a.char_id AS char FROM alts a
-      JOIN keys k ON k.char_id = a.ledger AND k.purpose = 'alt:' || a.char_id
-      WHERE a.removed_at IS NULL ORDER BY a.added_at, a.char_id`).all<{ ledger: number; char: number }>()).results;
-  return rows.map((r) => altReader(r.ledger, r.char));
+  const rows = (await db.prepare(`SELECT a.ledger AS ledger, a.char_id AS char, ka.purpose IS NOT NULL AS own FROM alts a
+      ${ALT_KEYS}
+      WHERE a.removed_at IS NULL AND (ka.purpose IS NOT NULL OR km.purpose IS NOT NULL) ORDER BY a.added_at, a.char_id`).all<{ ledger: number; char: number; own: number }>()).results;
+  return rows.map((r) => (r.own ? altReader(r.ledger, r.char) : senderReader(r.ledger, r.char)));
 }
 
 /** Notes an alt's job, unless the alt was removed meanwhile: a row left behind would greet a re-add with an old streak. */
@@ -99,19 +108,26 @@ export async function altsMining(env: Env, now = Date.now()): Promise<{ alts: nu
 }
 
 /** The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last read. */
+/**
+ * The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last
+ * read. The login is the one it is read with (`ALT_KEYS`): for the sender, the sender's, so a refused sender reads as
+ * that alt refused too. `sender`: the cloud sends your alert mail from this character.
+ */
 export async function altsStatus(db: D1Database, ledger: number) {
-  const rows = (await db.prepare(`SELECT a.char_id AS charId, a.name AS name, a.added_at AS addedAt, k.scopes AS scopes, k.updated_at AS at,
-        k.refused_at AS refusedAt, k.refused AS refused, (SELECT rev FROM revs WHERE char_id = a.char_id) AS rev, m.ship_type_id AS ship, m.at AS shipAt
+  const pick = (col: string) => `CASE WHEN ka.purpose IS NOT NULL THEN ka.${col} ELSE km.${col} END`;
+  const rows = (await db.prepare(`SELECT a.char_id AS charId, a.name AS name, a.added_at AS addedAt, ${pick('scopes')} AS scopes, ${pick('updated_at')} AS at,
+        ${pick('refused_at')} AS refusedAt, ${pick('refused')} AS refused, (SELECT rev FROM revs WHERE char_id = a.char_id) AS rev, m.ship_type_id AS ship, m.at AS shipAt,
+        km.purpose IS NOT NULL AS sender
       FROM alts a
-      LEFT JOIN keys k ON k.char_id = a.ledger AND k.purpose = 'alt:' || a.char_id
+      ${ALT_KEYS}
       LEFT JOIN mining_state m ON m.char_id = a.char_id
       WHERE a.ledger = ?1 AND a.removed_at IS NULL ORDER BY a.added_at, a.char_id`).bind(ledger)
-    .all<{ charId: number; name: string | null; addedAt: number; scopes: string | null; at: number | null; refusedAt: number | null; refused: string | null; rev: number | null; ship: number | null; shipAt: number | null }>()).results;
+    .all<{ charId: number; name: string | null; addedAt: number; scopes: string | null; at: number | null; refusedAt: number | null; refused: string | null; rev: number | null; ship: number | null; shipAt: number | null; sender: number }>()).results;
   const out = [];
   for (const r of rows) {
     const jobs = (await db.prepare('SELECT job, last_run AS lastRun, last_ok AS lastOk, last_error AS lastError FROM jobs WHERE char_id = ?1 ORDER BY job').bind(r.charId)
       .all<{ job: string; lastRun: number; lastOk: number | null; lastError: string | null }>()).results;
-    out.push({ ...r, scopes: (r.scopes ?? '').split(' ').filter(Boolean), rev: r.rev ?? 0, jobs });
+    out.push({ ...r, scopes: (r.scopes ?? '').split(' ').filter(Boolean), rev: r.rev ?? 0, jobs, sender: !!r.sender });
   }
   return out;
 }
@@ -126,8 +142,9 @@ export async function altTicks(db: D1Database, ledger: number, days: number, now
 }
 
 /**
- * Take an alt off the roster: its login is revoked at EVE and dropped. Either way its mining snapshot and its job
- * rows go, so a later re-add starts from a fresh baseline and no old failing streak. `keep` leaves what was read,
+ * Take an alt off the roster: its login is revoked at EVE and dropped. The sender's login, which an alt that is the
+ * sender is read with, is never touched: it still sends mail, and with the alt off the roster nothing reads with it
+ * (altReaders, stillKept). Either way its mining snapshot and its job rows go, so a later re-add starts from a fresh baseline and no old failing streak. `keep` leaves what was read,
  * unreachable until the character is added again, and the alt stays known as one (it is never a ledger of its own).
  * `delete` removes it all. Its revision row stays in both: a revision that restarted would let a device holding the
  * old one miss everything after a re-add.
