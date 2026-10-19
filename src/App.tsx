@@ -122,14 +122,15 @@ export function App() {
     if (!sender || !entry) return;
     if (entry.sender) {
       // The cloud reads it with the sender's login, which has every permission: this browser's own login for it, with the
-      // sender's two, was stopped by EVE (a different set) or would stop the cloud's. Taken out here without revoking it at
-      // EVE, which isn't needed, and could touch the cloud's login for the same character. The words say the cloud sends the
-      // mail only when it does: with no login of the main's (watch stopped), it holds the sender but sends nothing.
+      // sender's two, was stopped by the cloud's or, if it was the later, has stopped it (a different set: EVE keeps the later
+      // of the two). Taken out here without revoking it at EVE, which isn't needed, and could touch the cloud's login for the
+      // same character. The words say the cloud sends the mail only when it does: with no login of the main's (watch
+      // stopped), it holds the sender but sends nothing.
       forgetMailer();
       const n = sender.characterName;
       toast(cloudSendsMail()
         ? `The cloud sends your alert mail from ${n} and reads it as one of your characters, so this browser needs no login of its own for it. Its login here has been taken out.`
-        : `The cloud reads ${n} as one of your characters with its own login. This browser’s login for ${n} was stopped by it, or would stop it (EVE allows a character one set of permissions), so it has been taken out here. If ${n}’s card on the Characters page says its login was refused, hand it over again there.`, 'info');
+        : `The cloud reads ${n} as one of your characters with its own login. This browser’s login for ${n} was stopped by it, or, if it was the later, has stopped it (EVE allows a character one set of permissions), so it has been taken out here. If To do lists ${n}’s login as refused (its card on the Characters page says so after the cloud’s next refresh), hand it over again on the Characters page.`, 'info');
       return;
     }
     logoutMailer().catch(() => undefined);
@@ -208,8 +209,8 @@ export function App() {
                 forgetMailer();
                 dropped = ' Its own login in this browser was stopped by EVE, so it’s been taken out here; the cloud sends your alert mail from it.';
               }
-              // The cloud's sender before (its status is read again only below), replaced by another character while on the
-              // roster: it stays one of your characters, with no login.
+              // The cloud's sender before this hand-over (`decide` may have read it fresh; `cloudSummary` below reads it after),
+              // replaced by another character while on the roster: it stays one of your characters, with no login.
               const before = getCloudStatus().background?.keys.find((x) => x.purpose === 'mailer');
               const left = before && before.charId !== k.charId && before.alt ? ` ${before.name} stays one of your characters, with no login now: hand it over again on the Characters page.` : '';
               if (k.alt) {
@@ -233,7 +234,16 @@ export function App() {
               return;
             }
             if (as === 'alt') {
-              toast(`${k.name} is now one of your characters. The cloud is reading it for the first time…`);
+              // This browser's stale sender login for the character just added (the cloud sends from another, so it went as
+              // an alt): EVE stopped it, the set being different. Taken out here, never revoked: the cloud now holds this
+              // character's login, and otherwise the sender check would revoke it once the roster lists it.
+              let dropped = '';
+              if (senderStopped) {
+                forgetMailer();
+                const y = getCloudStatus().background?.keys.find((x) => x.purpose === 'mailer' && x.charId !== k.charId);
+                dropped = ` Its own sender login in this browser was stopped by EVE, so it’s been taken out here${y && cloudSendsMail() ? `; the cloud still sends your alert mail from ${y.name}` : ''}.`;
+              }
+              toast(`${k.name} is now one of your characters.${dropped} The cloud is reading it for the first time…`);
               await firstRead(k);
               await refreshAlts().catch(() => undefined);
               return;

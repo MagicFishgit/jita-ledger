@@ -39,7 +39,8 @@ logs in to the app) and the browser's side.
 - **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`), with
   `adding: true`. With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer). Only while the cloud
   has no sender or it is this character (read fresh at the callback): with another, it goes as an alt, keeping the cloud's
-  sender (the review, 19 October 2026: a stale browser sender replaced it). It went as an alt when already in `chars`,
+  sender (the review, 19 October 2026: a stale browser sender replaced it); its browser login, which EVE stopped, is taken
+  out here (`forgetMailer`), or the sender check would revoke it once the roster lists the character. It went as an alt when already in `chars`,
   because the Worker refused a sender on the roster; it keeps one now, so that exception went, and the rule above takes
   out the stopped browser sender.
 - **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in

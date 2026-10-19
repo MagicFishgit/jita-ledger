@@ -4542,7 +4542,7 @@ try {
     await page.reload();
     await page.waitForSelector('.page', { timeout: 20_000 });
     toasts.length = 0;
-    await readToasts([`The cloud reads ${NAME} as one of your characters with its own login. This browser’s login for ${NAME} was stopped by it, or would stop it`]);
+    await readToasts([`The cloud reads ${NAME} as one of your characters with its own login. This browser’s login for ${NAME} was stopped by it, or, if it was the later, has stopped it`]);
     if (toasts.some((t) => t.includes('sends your alert mail'))) problems.push(`with no main's login in the cloud, the sender check says the cloud sends the mail: ${JSON.stringify(toasts)}`);
     if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('with no main’s cloud login, the sender check left this browser’s sender login in place');
     if (revokes.length) problems.push('with no main’s cloud login, the sender check revoked the login at EVE');
@@ -4561,6 +4561,85 @@ try {
     if (unique.length) failures.push({ ledger: 'sender', page: 'characters', problems: unique });
     process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toasts, its card, Remove, Settings, a refusal seen by the roster first, the sender check, To do’s one item by key, the cloud holding the sender with no main)\n');
     await page.close();
+    // The cloud sends from another character (Y), and this browser still holds a stale sender login for X: adding X goes as an
+    // alt, which keeps Y (handOverAs with the cloud's sender). EVE stopped the browser's login for X (a different set): it is
+    // taken out here, never revoked, and said calmly; the sender check, once the roster lists X, finds nothing to revoke.
+    {
+      const X = 2120000888, XNAME = 'Stale Sender', Y = 2120000999, YNAME = 'Courier Y';
+      let added = false;
+      const bodies = [], revoked = [];
+      const p2 = await browser.newPage(VIEW);
+      await p2.route('**/*', (route) => {
+        const req = route.request(), url = new URL(req.url());
+        if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+        const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+        if (url.hostname === 'login.eveonline.com') {
+          if (url.pathname === '/v2/oauth/token') return json({ access_token: jwt(X, XNAME, FULL), refresh_token: 'cloud-refresh-x', expires_in: 1199 });
+          if (url.pathname === '/v2/oauth/revoke') { revoked.push(req.postData() ?? ''); return json({}); }
+        }
+        if (url.host === '127.0.0.1:9') {
+          if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS' } });
+          if (url.pathname === '/v1/keys' && req.method() === 'POST') {
+            const b = JSON.parse(req.postData() ?? '{}');
+            bodies.push(b); added = true;
+            return json({ kept: { purpose: b.purpose, as: b.purpose === 'alt' ? 'alt' : 'mailer', charId: X, name: XNAME, scopes: FULL.length, ...(b.purpose === 'mailer' ? { alt: true } : {}) } });
+          }
+          if (url.pathname === `/v1/alts/${X}/read`) return json({ trades: 1, journal: 2, orders: 0, clone: 'omega' });
+          if (url.pathname === `/v1/alts/${X}/pull`) return json({ rev: 1, next: null, records: [], docs: [] });
+          if (url.pathname === '/v1/alts') return json(added ? [{ charId: X, name: XNAME, addedAt: now, scopes: FULL, at: now, refusedAt: null, refused: null, rev: 1, ship: null, shipAt: null, jobs: [], sender: false }] : []);
+          if (url.pathname === '/v1/status') return json({ character: { charId: MAIN, name: 'Owner', scopes: [] }, rev: 1, kinds: [], docs: [], background: { jobs: [], keys: [
+            { purpose: 'main', charId: MAIN, name: 'Owner', scopes: 20, scopeNames: [], at: now - 60_000, refusedAt: null, refused: null, alt: false },
+            { purpose: 'mailer', charId: Y, name: YNAME, scopes: MAIL.length, scopeNames: MAIL, at: now - 60_000, refusedAt: null, refused: null, alt: false },
+          ] } });
+          if (url.pathname === '/v1/pull') return json({ rev: 1, next: null, records: [], docs: [] });
+          if (url.pathname === '/v1/push') return json({ rev: 2 });
+        }
+        return route.abort();
+      });
+      const probs = [];
+      p2.on('pageerror', (e) => probs.push(`threw: ${e.message.split('\n')[0]}`));
+      await p2.goto(SEED_PAGE);
+      await p2.evaluate(async ([auth, sender, cloudState]) => {
+        localStorage.clear(); sessionStorage.clear();
+        localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+        localStorage.setItem('jita-ledger:mailer', JSON.stringify(sender));
+        sessionStorage.setItem('jita-ledger:pkce', JSON.stringify({ verifier: 'v', state: 'st', returnHash: '#characters', purpose: 'cloud-alt' }));
+        for (const [db, put] of [['jita-ledger', { cloud: cloudState }], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+          const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+          if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+          await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+          h.close();
+        }
+      }, [ownerAuth(), { accessToken: 'mail', refreshToken: 'stale-mail', expiresAt: now + 86400_000, characterId: X, characterName: XNAME, scopes: MAIL },
+        { charId: MAIN, rev: 1, started: true, dirty: { r: [], d: [] } }]);
+      await p2.goto(`${BASE}?code=c0de&state=st`);
+      await p2.waitForSelector('.page', { timeout: 20_000 });
+      const seen = [];
+      const want = `${XNAME} is now one of your characters. Its own sender login in this browser was stopped by EVE, so it’s been taken out here; the cloud still sends your alert mail from ${YNAME}.`;
+      for (const end = Date.now() + 15_000; Date.now() < end && !seen.some((t) => t.includes(want));) {
+        const t = (await p2.locator('.toast.front .tmsg').first().textContent({ timeout: 300 }).catch(() => null))?.replace(/\s+/g, ' ');
+        if (t && !seen.includes(t)) { seen.push(t); await p2.locator('.toast.front .tclose').first().click({ timeout: 1000 }).catch(() => undefined); }
+        await p2.waitForTimeout(150);
+      }
+      if (!seen.some((t) => t.includes(want))) probs.push(`no toast saying “${want}”: ${JSON.stringify(seen).slice(0, 500)}`);
+      // The roster lists X now (as an alt, not the sender): give the sender check its read.
+      await p2.evaluate(() => { location.hash = '#settings/account'; });
+      await p2.waitForTimeout(400);
+      await p2.evaluate(() => { location.hash = '#characters'; });
+      await p2.waitForFunction((n) => (document.querySelector('.page')?.textContent ?? '').includes(n), XNAME, { timeout: 15_000 }).catch(() => probs.push('the stale sender never drew on Characters'));
+      await p2.waitForTimeout(1500);
+      if (bodies[0]?.purpose !== 'alt' || bodies[0]?.adding !== true) probs.push(`the stale sender went to the cloud as ${JSON.stringify(bodies[0] ? { purpose: bodies[0].purpose, adding: bodies[0].adding } : null)}, not as an alt`);
+      if (await p2.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) probs.push('the stale sender login stopped by EVE was kept in this browser');
+      if (revoked.length) probs.push(`a login was revoked at EVE (${revoked.length}) for a character the cloud now reads`);
+      // Any red notice but the development server's own: React's StrictMode runs the callback's effect twice there, and the
+      // second finds the login already taken ("didn't match this browser session"); a production build runs it once.
+      const errs = (await p2.locator('.notice.err').allInnerTexts()).filter((t) => !t.includes('didn’t match this browser session'));
+      if (errs.length) probs.push(`an error showed: “${errs[0].slice(0, 200)}”`);
+      checked++;
+      if (probs.length) failures.push({ ledger: 'sender', page: 'characters (stale sender)', problems: probs });
+      process.stdout.write(probs.length ? `  FAIL sender #characters (stale sender)\n${probs.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (a stale browser sender added while the cloud sends from another: an alt, taken out here, nothing revoked)\n');
+      await p2.close();
+    }
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
