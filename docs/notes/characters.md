@@ -6,7 +6,8 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
 
 - **An alt feeds the one ledger and never logs in to the app** (decided with the user, 30 September 2026; the design
   is `docs/superpowers/specs/2026-09-30-multi-character-design.md`). Their accounts: the main account holds the trading
-  character and a second one used only to send alert mail; each alt account has one character for now and may grow
+  character and a second one that sends alert mail (since 19 October 2026 it can be one of your characters too, read
+  with the same login: characters-cloud.md); each alt account has one character for now and may grow
   into industry and planets. Their one fear was information getting jumbled, so the separation is structural: an alt's
   login is handed to the cloud once, everything read for it is filed under its own character ID, and the main's ledger
   holds no row of an alt's.

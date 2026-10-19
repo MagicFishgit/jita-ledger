@@ -4368,6 +4368,155 @@ try {
     process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, listings and held bids, the switch, Copy for Multibuy, a relist capped at the NPC price)\n');
     await page.close();
   }
+  // The mail sender as one of your characters (19 October 2026): the user added their sender on Characters and the app
+  // refused it. Now EVE's login comes back (the sender, with every permission), the cloud keeps it as the sender and puts it
+  // on the roster ({ as: 'mailer', alt: true }), and the app says both. Its card, its Remove, Settings' sender section and To
+  // do say it too; handed over again from Settings it asks every permission. Both widths.
+  if (SHOWN.includes('characters') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('sender'))) {
+    const now = Date.now();
+    const SENDER = 2120000777, NAME = 'Messenger from God', MAIN = ownerAuth().characterId;
+    const MAIL = ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1'];
+    const FULL = ['esi-wallet.read_character_wallet.v1', 'esi-skills.read_skills.v1', 'esi-planets.manage_planets.v1', ...MAIL];
+    const jwt = (char, name, scopes) => `h.${Buffer.from(JSON.stringify({ sub: `CHARACTER:EVE:${char}`, name, scp: scopes, exp: Math.floor((now + 1200_000) / 1000) })).toString('base64url')}.s`;
+    let refused = false, kept = false;
+    const keysBodies = [], revokes = [], authorizes = [];
+    const entry = () => ({ charId: SENDER, name: NAME, addedAt: now - 60_000, scopes: FULL, at: now - 60_000, refusedAt: refused ? now - 3600_000 : null, refused: refused ? 'invalid_grant' : null,
+      rev: 1, ship: null, shipAt: null, jobs: [], sender: true });
+    const status = () => ({ character: { charId: MAIN, name: 'Owner', scopes: [] }, rev: 1, kinds: [], docs: [], background: { jobs: [], keys: [
+      { purpose: 'main', charId: MAIN, name: 'Owner', scopes: 20, scopeNames: [], at: now - 60_000, refusedAt: null, refused: null, alt: false },
+      { purpose: 'mailer', charId: SENDER, name: NAME, scopes: FULL.length, scopeNames: FULL, at: now - 60_000, refusedAt: refused ? now - 3600_000 : null, refused: refused ? 'invalid_grant' : null, alt: true },
+    ] } });
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => {
+      const req = route.request(), url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      const json = (body, st = 200) => route.fulfill({ status: st, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+      if (url.hostname === 'login.eveonline.com') {
+        if (url.pathname === '/v2/oauth/token') return json({ access_token: jwt(SENDER, NAME, FULL), refresh_token: 'cloud-refresh', expires_in: 1199 });
+        if (url.pathname === '/v2/oauth/revoke') { revokes.push(req.postData() ?? ''); return json({}); }
+        if (url.pathname === '/v2/oauth/authorize') { authorizes.push(url.searchParams.get('scope') ?? ''); return route.abort(); }
+      }
+      if (url.host === '127.0.0.1:9') {
+        if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS' } });
+        if (url.pathname === '/v1/keys' && req.method() === 'POST') { keysBodies.push(JSON.parse(req.postData() ?? '{}')); kept = true; return json({ kept: { purpose: 'mailer', as: 'mailer', charId: SENDER, name: NAME, scopes: FULL.length, alt: true } }); }
+        if (url.pathname === `/v1/alts/${SENDER}/read`) return json({ trades: 3, journal: 4, orders: 1, clone: 'omega' });
+        if (url.pathname === `/v1/alts/${SENDER}/pull`) return json({ rev: 1, next: null, records: [], docs: [] });
+        if (url.pathname === '/v1/alts') return json(kept ? [entry()] : []);
+        if (url.pathname === '/v1/status') return json(status());
+        if (url.pathname === '/v1/pull') return json({ rev: 1, next: null, records: [], docs: [] });
+        if (url.pathname === '/v1/push') return json({ rev: 2 });
+      }
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    const text = async (sel = '.page') => (await page.locator(sel).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    // Every toast as it comes to the front, dismissed once read so the next comes forward.
+    const toasts = [];
+    const readToasts = async (want, ms = 15_000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end && !want.every((w) => toasts.some((t) => t.includes(w)))) {
+        const t = (await page.locator('.toast.front .tmsg').first().textContent({ timeout: 300 }).catch(() => null))?.replace(/\s+/g, ' ');
+        if (t && !toasts.includes(t)) { toasts.push(t); await page.locator('.toast.front .tclose').first().click({ timeout: 1000 }).catch(() => undefined); }
+        await page.waitForTimeout(150);
+      }
+      for (const w of want) if (!toasts.some((t) => t.includes(w))) problems.push(`no toast saying “${w}”: ${JSON.stringify(toasts).slice(0, 600)}`);
+    };
+    const shot = async (n) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}-sender-${n}.png` }); };
+    // This browser holds its own login for the sender (its two permissions), as the user's did, and adds a character:
+    // EVE's page hands back the sender. The callback is the app's own (auth.ts handleCallback), with EVE stubbed.
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([auth, sender, cloudState]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      localStorage.setItem('jita-ledger:mailer', JSON.stringify(sender));
+      sessionStorage.setItem('jita-ledger:pkce', JSON.stringify({ verifier: 'v', state: 'st', returnHash: '#characters', purpose: 'cloud-alt' }));
+      for (const [db, put] of [['jita-ledger', { cloud: cloudState }], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ownerAuth(), { accessToken: 'mail', refreshToken: 'mail-refresh', expiresAt: now + 86400_000, characterId: SENDER, characterName: NAME, scopes: MAIL },
+      { charId: MAIN, rev: 1, started: true, dirty: { r: [], d: [] } }]);
+    await page.goto(`${BASE}?code=c0de&state=st`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await readToasts([`${NAME} is now one of your characters, and it still sends your alert mail: the cloud reads it with the login it sends from.`,
+      'Its own login in this browser was stopped by EVE, so it’s been taken out here', `The cloud has read ${NAME}: 3 trades, 4 journal entries, 1 orders, Omega.`]);
+    if (toasts.some((t) => /Nothing was added|not another character/.test(t))) problems.push(`a toast still says nothing was added: ${JSON.stringify(toasts)}`);
+    const sent = keysBodies[0];
+    if (!sent || sent.purpose !== 'mailer' || sent.adding !== true) problems.push(`the login went to the cloud as ${JSON.stringify(sent ? { purpose: sent.purpose, adding: sent.adding } : null)}, not as the sender with adding`);
+    if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('this browser’s stopped sender login was kept');
+    if (revokes.length) problems.push(`a login was revoked at EVE (${revokes.length}): the stopped sender is only taken out here`);
+    // Its card: read by the cloud, and it sends the mail.
+    await page.evaluate(() => { location.hash = '#characters'; });
+    await page.waitForFunction((n) => (document.querySelector('.page')?.textContent ?? '').includes(n), NAME, { timeout: 15_000 }).catch(() => problems.push('the sender’s card never drew on Characters'));
+    await page.waitForTimeout(600);
+    const card = page.locator('section.panel', { hasText: NAME }).filter({ hasText: 'Read by the cloud' }).first();
+    const cardText = (await card.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const w of ['Read by the cloud, and sends your alert mail', 'It also sends your alert mail: the cloud reads it with the login it sends from'])
+      if (!cardText.includes(w)) problems.push(`the sender’s card doesn’t say “${w}”: “${cardText.slice(0, 300)}”`);
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Characters: ${o}`);
+    await shot('card');
+    // Its Remove keeps the sender, and says so before anything is done.
+    await card.getByRole('button', { name: 'Remove' }).click().catch((e) => problems.push(`couldn’t press Remove: ${e.message.split('\n')[0]}`));
+    const dlg = (await page.locator('dialog[open]').innerText({ timeout: 5000 }).catch(() => '')).replace(/\s+/g, ' ');
+    if (!dlg.includes(`The cloud stops reading ${NAME}, and keeps sending your alert mail from it: that login stays.`) || dlg.includes('revoked at EVE')) problems.push(`Remove’s question for the sender: “${dlg.slice(0, 300)}”`);
+    await shot('remove');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    // Settings: the alert mail's sender, and the cloud's sender section, say it's one of your characters.
+    await page.evaluate(() => { location.hash = '#settings/alerts'; });
+    await page.waitForTimeout(1200);
+    if (!(await text()).includes(`${NAME} is also one of your characters, which the cloud reads with the same login.`)) problems.push(`Settings → Alerts doesn’t say the sender is one of your characters: “${(await text()).slice(0, 200)}”`);
+    await page.evaluate(() => { location.hash = '#settings/data'; });
+    await page.waitForSelector('[data-settings="sender"]', { timeout: 15_000 }).catch(() => problems.push('Settings → Your data never drew the sender section'));
+    const senderSaid = await text('[data-settings="sender"]');
+    if (!senderSaid.includes(`${NAME} is also one of your characters: the cloud reads it with this login`)) problems.push(`the sender section doesn’t say it’s one of your characters: “${senderSaid}”`);
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Settings → Your data: ${o}`);
+    await shot('settings');
+    // EVE refuses that login: mail and its reads stop together. This browser holds the sender's login again (a stale tab, say):
+    // the cloud reads it and sends from it, so it's taken out here without asking EVE, and said.
+    refused = true;
+    await page.evaluate(([s]) => { localStorage.setItem('jita-ledger:mailer', JSON.stringify(s)); location.hash = '#settings/data'; },
+      [{ accessToken: 'mail', refreshToken: 'mail-refresh-2', expiresAt: now + 86400_000, characterId: SENDER, characterName: NAME, scopes: MAIL }]);
+    await page.reload();
+    await page.waitForSelector('[data-settings="sender"]', { timeout: 20_000 }).catch(() => problems.push('Settings → Your data never drew the sender section after the reload'));
+    toasts.length = 0;
+    await readToasts([`The cloud sends your alert mail from ${NAME} and reads it as one of your characters, so this browser needs no login of its own for it.`]);
+    if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('the sender check left this browser’s sender login in place');
+    if (revokes.length) problems.push('the sender check revoked the login at EVE');
+    if (await page.locator('.notice.err', { hasText: 'can’t also be logged in here as the mail sender' }).count()) problems.push('the sender check said the old words for a sender the cloud sends mail from');
+    await page.waitForFunction(() => /EVE has refused/.test(document.querySelector('[data-settings="sender"]')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => undefined);
+    const refusedSaid = await text('[data-settings="sender"]');
+    if (!refusedSaid.includes(`so no alert mail can be sent, and nothing is read for ${NAME}, until you hand it over again.`)) problems.push(`a refused sender that is one of your characters: “${refusedSaid}”`);
+    await shot('refused');
+    // To do: one item for the one login, saying both.
+    await page.evaluate(() => { location.hash = '#todo'; });
+    await page.waitForTimeout(1500);
+    const items = await page.locator('.page li, .page [data-todo], .page .todo-item').filter({ hasText: `Hand the cloud ${NAME}’s login again` }).count();
+    const todo = await text();
+    if (!todo.includes(`Hand the cloud ${NAME}’s login again`)) problems.push('To do has no item for the refused sender');
+    if ((todo.match(new RegExp(`Hand the cloud ${NAME}’s login again`, 'g')) ?? []).length !== 1) problems.push(`To do lists the refused sender ${(todo.match(new RegExp(`Hand the cloud ${NAME}’s login again`, 'g')) ?? []).length} times (items ${items}), not once`);
+    if (!todo.includes(`nothing is read for ${NAME}: it is one of your characters too`)) problems.push(`To do’s item doesn’t say its reads stop too: “${todo.slice(0, 400)}”`);
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
+    await shot('todo');
+    // Handed over again from Settings: every permission, since it's on the roster (rule 5). EVE's page is where it stops.
+    await page.evaluate(() => { location.hash = '#settings/data'; });
+    await page.waitForSelector('[data-settings="sender"]', { timeout: 15_000 }).catch(() => undefined);
+    await page.getByRole('button', { name: `Hand the cloud ${NAME}’s login again` }).click({ timeout: 5000 }).catch((e) => problems.push(`no hand-over button for the refused sender: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(1500);
+    const asked = (authorizes[0] ?? '').split(' ');
+    if (!asked.includes('esi-wallet.read_character_wallet.v1') || asked.length <= 2) problems.push(`the sender handed over again from Settings asked for ${JSON.stringify(asked)}, not every permission`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'sender', page: 'characters', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toast, its card, Remove, Settings, a refusal, To do, every permission asked)\n');
+    await page.close();
+  }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
   if (!only(process.env.LEDGER) && !only(process.env.PAGE)) {

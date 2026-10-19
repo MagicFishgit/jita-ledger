@@ -55,7 +55,8 @@ words in orders-alerts-orders.md, and List loot in orders-alerts-loot.md.
   `useLogin` marks a login refused on a 400/401 from EVE's token endpoint (a refresh that works, or the login handed
   over, clears it), and its error names whose login it is. The watchdog sends one "Cloud lost your login" mail once
   the refusal has lasted 10 minutes outside downtime, then daily, and drops the per-job mails a refusal explains. The
-  sender's login refused can't be mailed (it would send the mail), so that one shows only in the app. Settings shows a
+  sender's login refused can't be mailed (it would send the mail), so that one shows only in the app; a sender that is
+  also one of your characters is one refusal, which quiets that alt's job mails too (characters-cloud.md). Settings shows a
   refused login in red with **Hand the cloud your login again** (the sender's too); an error from before the login last
   worked is said as old ("the last run was before that"); and when this browser's login has permissions the cloud's
   lacks, it says the cloud's is about to stop, since the cloud only finds out when its cached access token runs out.

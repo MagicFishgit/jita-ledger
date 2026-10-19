@@ -4,7 +4,8 @@ Decisions worth not undoing. How the cloud reads alts and keeps them apart, and 
 sorted out. Split from characters.md on 1 October 2026, which keeps the principle (an alt feeds the one ledger and never
 logs in to the app) and the browser's side.
 
-- **The roster is the `alts` table, the login a `keys` row `(the main, 'alt:<id>')`** (migration 0016, `worker/src/alts.ts`).
+- **The roster is the `alts` table, the login a `keys` row `(the main, 'alt:<id>')`**, or the sender's for an alt that is the
+  sender (below) (migration 0016, `worker/src/alts.ts`).
   Alts are found through the table, never by matching a purpose's text, and a removed alt whose data was kept stays in
   it (`removed_at`), so it is still known not to be a ledger: the market watch reads every ledger's open orders.
 - **A reader is told whose login it uses and whose data it writes** (`Reader` in `worker/src/eve.ts`). Only `useLogin`
@@ -22,9 +23,9 @@ logs in to the app) and the browser's side.
   only writer.
 - **EVE's page picks the character, so the cloud sorts out who came back** (`sortLogin` in `lib/roster.ts`,
   `keepHandedOver`). Adding an alt while still signed in to the main account at EVE offers the main and the mail
-  character; either, picked by mistake, is kept as its own login and nothing is added. A sender login that turns out
-  to be an alt is refused, its alt's login marked refused at once. The main's and the sender's own flows are unchanged:
-  the user asked for care with logins.
+  character: the main, picked by mistake, is kept as the main's login and nothing is added; the sender is kept as the
+  sender and added (below). A sender login with only the mail permissions that turns out to be an alt is refused, its
+  alt's login marked refused at once. The main's own flow is unchanged: the user asked for care with logins.
 - **The app says when EVE has just stopped this browser's own login** (`stoppedBy` in `lib/roster.ts`, App.tsx; the
   final review, 30 September 2026). EVE stops a character's earlier logins that carry a different set of permissions,
   at its own page (eve-facts), so a cloud login that comes back as a character this browser also holds a login for,
@@ -33,20 +34,45 @@ logs in to the app) and the browser's side.
   also stopped this browser's own login for X … log in again here", and the login is left for the next refresh to find,
   as before. Without it the owner was logged out minutes after adding an alt, with no reason given, when an app release
   or an optional permission had changed the set since they last logged in. Kept as the sender, with this browser's
-  sender on another set: that login is dead, so it is taken out here (`logoutMailer`) and the toast says so.
-- **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`).
-  With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer) and added it as an alt: read hourly,
-  counted in the wallets, and then logged out of this browser by the sender check. The toast still says what was
-  asked for, and the rule above takes out the stopped browser sender. **Except a character already in `chars`**, on the
-  roster or taken off it: then it's being added (back) as an alt, which is what "Add a character" asked. Sent as the
-  sender, one still on the roster would be refused by the Worker, which marks that alt's working login refused. This
-  is the one place `chars` rather than the live roster decides, on purpose: here a removed alt coming back is an alt.
+  sender on another set: that login is dead, so it is taken out here and the toast says so (`forgetMailer` since 19
+  October 2026, not revoked: the cloud now holds that character's login).
+- **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`), with
+  `adding: true`. With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer). It went as an alt
+  when already in `chars`, because the Worker refused a sender on the roster; it keeps one now, so that exception went
+  (19 October 2026), and the rule above takes out the stopped browser sender.
 - **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in
   the alt store). A sender logged in to this browser that the cloud reads as an alt is logged out, which revokes it at
   EVE, with a message. It reads the roster as the cloud has it, never `chars`, which keeps characters taken off the
   roster: after removing X (the remedy the app suggests) and logging X in as the sender, a check on `chars` revoked the
   new login and said X was one of the characters the cloud reads, which was false. And it waits until the roster has
-  been read from the cloud since the app opened: the copy on disk may be from before X was taken off.
+  been read from the cloud since the app opened: the copy on disk may be from before X was taken off. When the cloud's
+  sender is X (the roster entry's `sender`), X is taken out here without a revoke (`forgetMailer`) and the toast says the
+  cloud sends the mail from it and reads it, so this browser needs no login of its own for it.
+- **The mail sender can be one of your characters** (19 October 2026; the user added Messenger from God on Characters to
+  start planetary industry on it, and the app refused it). EVE allows a character one set of permissions and refresh tokens
+  rotate, so **one login does both**: the cloud reads it with the sender's row (`altLogin`: its own `alt:` row when kept,
+  else `'mailer'` when that row's `token_char_id` is the alt; `senderReader`). `readerLogin` admits `'mailer'` for an alt
+  and still refuses a login that isn't the character written for; `stillKept` for it needs it still the sender and on the
+  roster. `altReaders`, `altsStatus` (its login state is the sender's, and `sender: true`), the structure search, the home
+  markets and `/v1/alts/<id>/read` all take the same rule. `check-worker` pins each, the main's rows untouched.
+  - **It joins only when added** (`sortLogin`'s `reads`, `adding`): a sender login carrying more than the two mail
+    permissions (`readsAsAlt`) from Characters (`adding`, or asked as an alt) goes on the roster, or stays on it;
+    "Let the cloud send alert mail" never adds one. The app always sends `adding`; an app version behind sends none and the
+    scopes say it, since its plain sender hand-overs ask only the mail permissions and only its alt-add asks more.
+  - **Only the mail permissions**: added from Characters, kept as the sender, not added, and said (`notAdded:
+    'mailOnly'`); for a roster alt, refused as before, marking its own login and, if it is the sender, the sender's.
+  - **A roster alt handed over as the sender with the full set** is accepted and stays on the roster: its `alt:` row is
+    deleted in the same batch as the sender's, after the refresh proved the new login, and **never revoked** (not needed,
+    and what a revoke does to the character's other logins isn't known).
+  - **Removing it** stops the reads and never touches the sender's login. **A new sender later** leaves the old one on the
+    roster with no login; handed over on Characters, it gets an `alt:` row. Settings' Stop drops the sender's login, so
+    its reads stop too (the confirm says so).
+  - **A refused sender row** reads as that alt refused; the watchdog has one refusal (the sender's, which can't be mailed)
+    and quiets that alt's login-looking job mails; To do lists one item, saying its reads stop too.
+  - **Handed over again from Settings or To do** it asks the full set while `/v1/status` marks the sender's key `alt` (on
+    the roster: `senderAsksAll`), else the two mail permissions. No new permission anywhere.
+  - On 19 October 2026 the cloud's sender row was Messenger from God with the full set (handed over when the add was
+    refused), so adding it again on Characters needs no new login permission.
 - **Only the trading login reaches the trading login's slot** (`handleCallback`): the purposes `main` and none (a login
   started before purposes were kept). Any other is revoked with an error, and a `never` check fails the build when a new
   purpose isn't handled, since a purpose that fell through there would take the owner's place.

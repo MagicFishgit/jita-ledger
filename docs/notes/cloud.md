@@ -35,7 +35,8 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
 - **The cloud keeps watch with logins handed to it** (`POST /v1/keys`; `loginForCloud` / `loginMailerForCloud` bring
   back a refresh token that goes straight to the Worker and is never stored in the browser). They are sealed with the
   `TOKEN_KEY` secret (AES-GCM); the Worker refreshes one once to prove it, and checks the main login is the ledger's
-  character and the sender isn't. Access tokens are kept sealed too (`access_enc`, `access_exp`) and reused until two
+  character and the sender isn't (the sender's login also reads it as an alt when it's on the roster: characters-cloud.md).
+  Access tokens are kept sealed too (`access_enc`, `access_exp`) and reused until two
   minutes before expiry, so the five-minute round doesn't rotate the refresh token ~300 times a day. The hourly
   archive (`archive.ts`) turns ESI into the same records the app makes (`esiRecords.ts`) and pushes only what's new
   or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
