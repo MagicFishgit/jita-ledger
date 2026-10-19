@@ -3813,19 +3813,25 @@ try {
     });
     if (kept?.systems?.[SYS]?.rates?.Gas?.['2310']?.heads !== 8) problems.push(`the typed Gas rate wasn’t kept in the planets doc: ${JSON.stringify(kept?.systems?.[SYS]?.rates ?? null).slice(0, 200)}`);
 
-    // --- the open row follows a re-rank (m3): selling at UALX-3 alone moves another setup to first; it opens, and the old best folds.
+    // --- the open row follows a re-rank (m3): with no freight route picked (the Industry tab's, written through the app's own store),
+    // nothing is bought or sold at Jita, so bought loses what the hub doesn't sell and another setup leads; it opens, and the old best
+    // folds. (Selling at UALX-3 alone did it until Ruling F11b: bought now buys at Jita, with the freight in, what UALX-3 doesn't
+    // sell, and stays first under Jita, UALX-3 and Either alike.) Then the route back.
     const openRows = () => page.evaluate(() => [...document.querySelectorAll('[data-planets^="setup:"]')].map((r) => [r.getAttribute('data-planets'), !!r.querySelector('button[aria-expanded="true"]')]));
     const firstBefore = (await openRows())[0]?.[0];
-    await page.locator('[data-planets="market"] button', { hasText: /^UALX-3$/ }).click().catch((e) => problems.push(`no Sell at UALX-3: ${e.message.split('\n')[0]}`));
+    const appStore = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/src\/lib\/store\.ts/.test(n)));
+    const setFreight = (f) => page.evaluate(async ([u, fr]) => { const m = await import(u); m.update((x) => ({ industry: { ...x.industry, freight: fr } })); }, [appStore, f]);
+    if (!appStore) problems.push('couldn’t find the app’s store module to take the freight route away');
+    else await setFreight([]);
     await page.waitForTimeout(400);
     await settled();
     const rerank = await openRows();
-    if (rerank[0]?.[0] === firstBefore) problems.push(`selling at UALX-3 alone didn't move another setup to first (${firstBefore}): the re-rank isn't tested`);
+    if (rerank[0]?.[0] === firstBefore) problems.push(`with no freight route, another setup didn't move to first (${firstBefore}): the re-rank isn't tested`);
     else {
       if (!rerank[0]?.[1]) problems.push(`after a re-rank, the new best (${rerank[0]?.[0]}) isn't open`);
       if (firstBefore !== 'setup:p2' && rerank.find((r) => r[0] === firstBefore)?.[1]) problems.push(`after a re-rank, the old best (${firstBefore}) stays open`);
     }
-    await page.locator('[data-planets="market"] button', { hasText: /^Either$/ }).click().catch(() => undefined);
+    if (appStore) await setFreight(BRAVE);
     await page.waitForTimeout(400);
     await settled();
 
@@ -4041,6 +4047,14 @@ try {
       if (!fell.some((t) => /^Valued at Jita’s where UALX-3 has no price: .+\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, no setup names the goods valued at Jita's: ${JSON.stringify(fell)}`);
       const lines = (await page.locator('[data-planets="fallback"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!lines.some((t) => /No price at UALX-3: valued at Jita’s: [\d,.]+ (K |M )?ISK after freight \(Jita lists it at [\d,.]+ (K |M )?ISK\)/.test(t))) problems.push(`with Sell at UALX-3, no output says it's valued at Jita's: ${JSON.stringify(lines.slice(0, 3))}`);
+      // Ruling F11b: the inputs UALX-3 doesn't sell are bought at Jita with the freight in, named on the setup and said on each line.
+      const fellIn = await page.locator('[data-planets="setup:bought"] [data-planets="fallback-inputs"]').allInnerTexts();
+      if (!fellIn.some((t) => /^Bought at Jita, with the freight in, because UALX-3 doesn’t sell (it|them): .+\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, bought doesn't name the inputs it buys at Jita: ${JSON.stringify(fellIn)}`);
+      const boughtOpen = page.locator('[data-planets="setup:bought"] button[aria-expanded="false"]', { hasText: 'What it makes' });
+      if (await boughtOpen.count()) await boughtOpen.click().catch(() => undefined);
+      await page.waitForTimeout(300);
+      const inLines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+      if (!inLines.some((t) => /a day at Jita with the freight in \(UALX-3 doesn’t sell it\)/.test(t))) problems.push(`with Sell at UALX-3, no bought input says it's bought at Jita for want of UALX-3: ${JSON.stringify(inLines.slice(0, 3))}`);
       if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with Sell at UALX-3');
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (Sell at UALX-3): ${o}`);
       if (SHOTS) { await page.locator('[data-planets="fallback-goods"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-fallback.png` }); }

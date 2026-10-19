@@ -78,8 +78,10 @@ planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/202
     once in `usePlanetMarket`'s `buy`): wholly at Jita's asks with the freight in on the route, as Either buys at Jita, so a good
     is bought at one place and `Buy`'s contract holds (tested); marked `fallback`, the input's line saying "with the freight in
     (UALX-3 doesn't sell it)" and the setup naming them once ("Bought at Jita, with the freight in, because UALX-3 doesn't sell
-    them: …"). With no route, unpriced with both reasons: buying needs the freight in. Before, such an input was unpriced, so with
-    Sell at UALX-3 the page case's bought setup lost its products and fell from first; FIGURES_F11B
+    them: …"). With no route, unpriced with both reasons: buying needs the freight in. Before, such an input was unpriced: with Sell at
+    UALX-3 the page case's bought read 2.78 M ISK a day and fell from first, now 25.14 M and first (the others don't buy, and under
+    Either it stays 71.86 M), so the page check's re-rank now takes the freight route away instead. Task 11's planner-vs-brute on
+    bought, buying so: 400 of 400 equal, both paths taken.
 - **Upkeep**, beside the ISK (Ruling T11-4): resets a week (colonies × 168 ÷ the programme hours); restocks counting what comes in
   and what's made, since the launchpad (10,000 m³) holds both (the reviewer's count was about 102 a week where inputs alone read
   57.5); the m³ out and the m³ in, how much from Jita; freight contracts each way, "at least 1" once a week's m³ is over what a
