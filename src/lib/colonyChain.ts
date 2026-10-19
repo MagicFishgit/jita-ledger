@@ -11,7 +11,7 @@ import type { KeptColony, KeptPin } from './colonies';
 import { ENDING_SOON_HOURS } from './colony';
 import { lowerReading, readings } from './piExtraction';
 import { PI_READING } from './piLearn';
-import { anHour, listSaid, taxRows, type Output, type Role, type Sell, type Setup, type Sold } from './piPlan';
+import { anHour, keptSold, keptWhy, listSaid, taxRows, valuedOutput, type Output, type Role, type Sell, type Setup, type Sold } from './piPlan';
 import type { Tax } from './planetsDoc';
 import { iskBig, units as unitsSaid } from './format';
 import { dayCount } from './split';
@@ -264,8 +264,10 @@ const NOT_SHIPPED: Sold = { isk: 0, units: 0, where: [], why: 'not routed to sto
 type Valued = { outputs: Output[]; taxes: Chain['taxes']; taxDay: number | null; perPctBase: number; value: number; unvalued: number; unshipped: number };
 /**
  * What's left of each good after the factories take theirs, sold once: what's in storage or a launchpad is taken as exported, what
- * has nowhere to go builds up. Customs on what sells of the goods that are priced (`taxRows`, as the planner taxes); a good nobody
- * prices adds no ISK and pays no tax (the planner's I1), and one that can't leave sells none.
+ * has nowhere to go builds up. What reaches storage is shipped only while a unit nets above nothing after the planet's export tax,
+ * else it stays, building up, untaxed (Ruling T15-5: the planner's own rule, `keptWhy`), and a P0 with no price stays the same way.
+ * Customs on what sells of the goods that are priced (`taxRows`, as the planner taxes); a good nobody prices adds no ISK and pays no
+ * tax (the planner's I1), and one that can't leave sells none.
  */
 function valuedOf(ix: PiIndex, flow: Flow, sell: Sell, tax: Tax): Valued {
   const tierAt = (id: number) => TIERS.indexOf(ix.byId.get(id)?.tier ?? 'P0');
@@ -277,8 +279,12 @@ function valuedOf(ix: PiIndex, flow: Flow, sell: Sell, tax: Tax): Valued {
     if (out + held <= MIN_FLOW) continue;
     const shipped = out > MIN_FLOW;
     if (!shipped) unshipped++;
-    const sold = shipped ? sell(id, out * 24) : NOT_SHIPPED;
-    outputs.push({ id, perDay: (out + held) * 24, sold, buildingUp: held * 24 + (shipped && sold.isk != null ? Math.max(0, out * 24 - sold.units) : 0) });
+    const kept = shipped ? keptWhy(ix, sell, id, tax.rate) : null;
+    const sold = !shipped ? NOT_SHIPPED : kept ? keptSold(kept.why) : sell(id, out * 24);
+    outputs.push({
+      id, perDay: (out + held) * 24, sold, buildingUp: held * 24 + (shipped && sold.isk != null ? Math.max(0, out * 24 - sold.units) : 0),
+      ...(kept ? { stays: { perDay: out * 24, why: kept.why, noPrice: kept.noPrice } } : {}),
+    });
   }
   const priced = outputs.filter((o) => o.sold.isk != null);
   const rows = taxRows(ix, priced.map((o) => ({ id: o.id, perDay: o.sold.units })), tax.rate, 1);
@@ -302,7 +308,10 @@ function valuedOf(ix: PiIndex, flow: Flow, sell: Sell, tax: Tax): Valued {
  * from storage or a launchpad such a pin routes it into), it's imported (nothing on the planet makes it, and it's routed in from
  * storage or a launchpad: kept stocked, never starving, and the planet's ISK a day isn't known, Ruling T15-2), or it doesn't
  * reach: `starving` at that factory, which makes nothing (drawn from storage, a launchpad or the command centre that nothing on the
- * planet routes it into, it runs only on what you bring in, and is said so). The command centre is storage here (Ruling T15-6).
+ * planet routes it into, it runs only on what you bring in, which isn't counted here, and is said so). A P0 is never brought in (the
+ * planner never buys one): drawn from a holder nothing fills, it's an extractor's with no programme on the planet when there is one
+ * (its `idle` flag names the factories it leaves making nothing), else that factory's own flag, which makes none. The command centre
+ * is storage here (Ruling T15-6).
  *
  * The flags, only at the root of what's wrong (Ruling T15-3): an input reaching its factories at under `STARVING_BELOW` of what they
  * take (`starving`, judged on the lower reading and saying when the higher one gives enough, its words naming the factories after it
@@ -385,34 +394,51 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   const stored = new Set<number>();
   for (const b of buffer) for (const [g, srcs] of from.get(b) ?? []) if (srcs.some((s) => makes(s, g))) stored.add(g);
 
+  // An extractor with no programme on a P0 (or none set) on the planet, which explains a factory drawing that P0 from a holder nothing
+  // fills: a P0 is never brought in (the planner never buys one), so such a factory is the idle extractor's to say, not its own.
+  const idleFor = (g: number) => idle.find((x) => x.fac == null && extPins.has(x.pin.id) && (x.p0 == null || x.p0 === g)) ?? null;
+  // Each idle extractor's pin → the goods of the factories it leaves making nothing that way.
+  const heldBack = new Map<number, number[]>();
+
   // Each factory input, from the routes: reaches it, imported, or doesn't reach (a root: that factory makes nothing).
   const runs = new Set<number>(), imported = new Map<number, Set<number>>();
   const routeFlags: ChainFlagRow[] = [];
   for (const f of facs) {
-    // The inputs that don't reach it, by why: one flag a factory for each why, naming its inputs together.
-    const misses = new Map<'none' | 'notMaker' | Holder, number[]>();
+    // The inputs that don't reach it, by why: one flag a factory for each why, naming its inputs together. A P0 drawn from a holder
+    // has words of its own (`${holder}:p0`): it can't be brought in.
+    const misses = new Map<'none' | 'notMaker' | Holder | `${Holder}:p0`, number[]>();
+    let idleHeld = false;
     for (const i of f.s.inputs) {
       const srcs = from.get(f.pin.id)?.get(i.id) ?? [];
       const stores = srcs.filter((s) => buffer.has(s));
       if (srcs.some((s) => makes(s, i.id) || (buffer.has(s) && (from.get(s)?.get(i.id) ?? []).some((q) => makes(q, i.id))))) continue;
-      if (stores.length && !madeHere(i.id)) {
+      const p0 = tierAt(i.id) === 0;
+      if (stores.length && !madeHere(i.id) && !p0) {
         if (!imported.has(f.pin.id)) imported.set(f.pin.id, new Set());
         imported.get(f.pin.id)!.add(i.id);
         continue;
       }
       const kd = stores.length ? kindOf(stores[0]) : null;
+      if (p0 && isHolder(kd)) {
+        const x = idleFor(i.id);
+        if (x) { push(heldBack, x.pin.id, f.s.out.id); idleHeld = true; continue; }
+        push(misses, `${kd}:p0`, i.id);
+        continue;
+      }
       push(misses, isHolder(kd) ? kd : srcs.length ? 'notMaker' : 'none', i.id);
     }
-    if (!misses.size) { runs.add(f.pin.id); continue; }
+    if (!misses.size) { if (!idleHeld) runs.add(f.pin.id); continue; }
     const where = `${FACTORY[f.s.facility]} factory making ${name(f.s.out.id)}`;
     for (const [why, ids] of misses) {
       const goods = listSaid(ids.map(name)), them = ids.length > 1 ? 'them' : 'it';
+      const p0 = why.endsWith(':p0'), hold = why === 'none' || why === 'notMaker' ? null : (p0 ? why.slice(0, -3) : why) as Holder;
       routeFlags.push({
         flag: 'starving', id: ids[0], pinId: f.pin.id,
-        said: why !== 'none' && why !== 'notMaker'
-          ? `${cap(where)} draws ${goods} from ${A_HOLD[why]}, which nothing on the planet routes ${them} into: it runs only on what you bring in`
-          : why === 'notMaker' ? `Nothing that makes ${goods} routes ${them} into ${where}, so it makes none`
-            : `Nothing routes ${goods} into ${where}, so it makes none`,
+        said: hold && p0
+          ? `${cap(where)} draws ${goods} from ${A_HOLD[hold]}, which nothing on the planet routes ${them} into, so it makes none`
+          : hold ? `${cap(where)} draws ${goods} from ${A_HOLD[hold]}, which nothing on the planet routes ${them} into: it runs only on what you bring in, and isn’t counted here`
+            : why === 'notMaker' ? `Nothing that makes ${goods} routes ${them} into ${where}, so it makes none`
+              : `Nothing routes ${goods} into ${where}, so it makes none`,
       });
     }
   }
@@ -499,11 +525,19 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
       if (left > MIN_FLOW) goodFlags.push({ flag: 'buildingUp', id: g, pinId: null, said: `${dayCount(left * 24)} ${name(g)} a day is more than the factories it’s routed to take, and none of it is routed to storage or a launchpad` });
     }
     for (const x of idle) {
-      const down = [...new Set(idleGoods(x).filter((g) => need.has(g)).flatMap((g) => downstream(g, true)))];
+      // What it holds back: the factories taking its P0 (and those after them), and those drawing its P0 from a holder nothing fills.
+      const held = [...new Set(heldBack.get(x.pin.id) ?? [])].sort((a, b) => a - b);
+      const down = [...new Set([
+        ...idleGoods(x).filter((g) => need.has(g)).flatMap((g) => downstream(g, true)),
+        ...held.flatMap((g) => [`the ${name(g)} factories make nothing`, ...downstream(g, true)]),
+      ])];
       idleFlags.push({ flag: 'idle', id: null, pinId: x.pin.id, said: x.said + (down.length ? `; with it, ${listSaid(down)}` : '') });
     }
   } else {
-    for (const x of idle) idleFlags.push({ flag: 'idle', id: null, pinId: x.pin.id, said: x.said });
+    for (const x of idle) {
+      const held = [...new Set(heldBack.get(x.pin.id) ?? [])].sort((a, b) => a - b).map((g) => `the ${name(g)} factories make nothing`);
+      idleFlags.push({ flag: 'idle', id: null, pinId: x.pin.id, said: x.said + (held.length ? `; with it, ${listSaid(held)}` : '') });
+    }
   }
   idleFlags.sort((a, b) => a.pinId! - b.pinId!);
 
@@ -557,15 +591,16 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     const one = brought.length === 1;
     return {
       ...base, ...blank, outputs: v.outputs, unvalued: v.unvalued, unshipped: v.unshipped,
-      why: `Its ${listSaid(brought.map(name))} come${one ? 's' : ''} from off the planet, and ${one ? 'its' : 'their'} cost isn’t known here`,
+      why: `Its ${listSaid(brought.map(name))} come from off the planet, and ${one ? 'its' : 'their'} cost isn’t known here`,
     };
   }
   const before: Chain['before'] = [];
   if (v.taxDay == null) before.push('tax');
   if (v.unvalued) before.push('price');
-  // Nothing it ships is valued: no figure, never one made of customs alone; the outputs' own reasons say why.
+  // Nothing it ships is valued (a P0 kept for want of a price is no figure either): no figure, never one made of customs alone; the
+  // outputs' own reasons say why.
   const shipped = v.outputs.filter((o) => o.sold !== NOT_SHIPPED);
-  const none = shipped.length > 0 && shipped.every((o) => o.sold.isk == null);
+  const none = shipped.length > 0 && !shipped.some(valuedOutput);
   return {
     ...base, outputs: v.outputs,
     iskDay: none ? null : v.value,
@@ -593,7 +628,8 @@ function fitsHere(ix: PiIndex, chain: Chain, role: Role | undefined): boolean {
  * `char.ccLevel` the chain's `level`). `gain` is what the best makes a day more; within a cent of it, or above, the colony is
  * already the best and nothing is said (gain 0). A best that doesn't fit at the colony's own level, or whose fit isn't checked, is
  * no better: nothing said, never a suggestion to train (Ruling T15-1). With no valued ISK on either side, or an output unpriced on either side, gain is
- * null and the words say why: never a gain against 0. A best resting on a rate the planner assumes (a P0 no colony has shown)
+ * null and the words say why: never a gain against 0. A P0 left over with no price isn't such an output: it stays on the planet, a known
+ * nothing on both sides (Ruling T15-5), and the words say so when they speak. A best resting on a rate the planner assumes (a P0 no colony has shown)
  * says so, and so does one before the customs tax. The planet's name isn't in the chain: the page puts it in front.
  */
 export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex): { gain: number | null; said: string } {
@@ -631,5 +667,8 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex): { gai
   const names = [...new Set(assumed.map((x) => name(x.p0)))];
   const guess = names.length ? `, if it gets ${unitsSaid(assumed[0].perHour)} ${listSaid(names)} an hour${names.length > 1 ? ' each' : ''}, a rate no colony of yours has shown` : '';
   const beforeTax = chain.before.includes('tax') || best.before.includes('tax') ? ', before the customs tax' : '';
-  return { gain, said: `${what}; ${rest}${guess}${beforeTax}` };
+  // A P0 left over with no price counts as nothing on both sides (Ruling T15-5), and is said.
+  const left = [...new Set([...chain.outputs, ...best.outputs].filter((o) => o.stays?.noPrice).map((o) => name(o.id)))];
+  const unpricedP0 = left.length ? `; the ${listSaid(left)} left over ${left.length > 1 ? 'have' : 'has'} no price here, so neither counts ${left.length > 1 ? 'them' : 'it'}` : '';
+  return { gain, said: `${what}; ${rest}${guess}${beforeTax}${unpricedP0}` };
 }
