@@ -7782,7 +7782,7 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
     const SAID = 'No rate for Base Metals: ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, ';
     eq('  T15b-8: at the median where it fits, said so', at({ heads: 5 }).slice(0, 3).concat([at({ heads: 5 })[3].startsWith(`${SAID}at 5 heads, the median of your extractors’ learned rates`)]), [[5, 5], [3, 2, 2], true, true]);
     eq('  T15b-8: beside storage, capped where the rates’ layout still fits, said so', at({ heads: 5, ...STORE }).slice(0, 3).concat([at({ heads: 5, ...STORE })[3].startsWith(`${SAID}at 3 heads: your extractors’ median is 5, and no more fit beside its factories`)]), [[5, 3], [3, 2, 2], true, true]);
-    eq('  T15b-8: with nothing learned, the most that fit (T8-1), as before', at(STORE).slice(0, 3), [[5, 3], [3, 2, 2], true]);
+    eq('  T15b-8: with nothing learned, the most that fit (T8-1), as before, and said', at(STORE).slice(0, 3).concat([at(STORE)[3].startsWith(`${SAID}at the most heads that fit beside its factories`)]), [[5, 3], [3, 2, 2], true, true]);
   }
   const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
   eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
@@ -7958,17 +7958,20 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     // lost its "no level fits". Since Ruling F9 a layout that fits only at a higher level gives way to the most that fit at the
     // character's own, so II's only shape left that fits only at V is one already at its least (6,000 an hour: 1 + 1 Basics and 1
     // Advanced) whose 9 heads an extractor leave no room for it at IV (its typed 6 heads at 12,000, the shape before F9, now fit as
-    // 2 Basics and 1 Advanced at IV).
+    // 2 Basics and 1 Advanced at IV). Those 9 heads are a rate learned for that P0 (its colony had them): since Ruling T15b-12 a typed
+    // or borrowed rate whose heads leave no room is set aside instead, and fits at IV, as the third test here pins.
     const I = 40307990, II = 40307991;
     const mixedOf = (lava) => planSingle({ ix, planets: [{ planetId: I, name: '5-NZNW I', type: 'Barren', radiusKm: 1950, tax: brave(0.02) }, { planetId: II, name: '5-NZNW II', type: 'Lava', radiusKm: 3020, tax: brave(0.05) }],
       char: { charId: 1, name: 'Owner', planets: 2, ccLevel: 4, alpha: false }, others: [],
       rateOf: (t) => (t === 'Barren' ? rate({ perHour: 13_930, heads: 10 }) : t === 'Lava' ? lava : null),
       sell: sellBy(() => 10_000), buy: noBuy, programHours: 72 }, 'p2');
-    const mixed = mixedOf(rate({ perHour: 6000, heads: 9, from: 'typed' }));
+    const mixed = mixedOf(rate({ perHour: 6000, heads: 9 }));
     eq('  a planet no level fits says so; the one V fixes names V; the character lacks V', [[role(mixed, I).fit.fits, role(mixed, I).lacks], [role(mixed, II).fit.fits, role(mixed, II).lacks], mixed.perChar[0].lacks],
       [[false, null], [false, 'Command Center Upgrades V'], ['Command Center Upgrades V']]);
     const was = mixedOf(rate({ heads: 6, from: 'typed' }));
     eq('  F9: the shape that fit only at V before now fits at IV with fewer factories, and nothing is lacking for it', [[role(was, II).fit.fits, role(was, II).lacks], was.perChar[0].lacks], [[true, null], []]);
+    const typed9 = mixedOf(rate({ perHour: 6000, heads: 9, from: 'typed' })), t9 = role(typed9, II);
+    eq('  T15b-12: the same 9 heads typed are set aside: it fits at IV, said', [t9.fit.fits, t9.lacks, t9.extracts.map((e) => [e.rate, e.setAside?.heads ?? null]), /your typed rate is at 9 heads, more than fit here/.test(t9.why ?? '')], [true, null, [[null, 9], [null, 9]], true]);
   }
   eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
   eq('  big’s chain is searched to the end: not cut', chain.cut, undefined);
@@ -8516,7 +8519,7 @@ console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---
 
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
 {
-  const { soldOf } = await import('../src/lib/piPlan.ts');
+  const { soldOf, soldAtHome, fallbackSaid } = await import('../src/lib/piPlan.ts');
   const { sellAt, slotDay } = await import('../src/lib/industryRank.ts');
   const sale = (place, listNet, listPace, why = null) => ({ place, list: listNet, listNet, bid: null, bidNet: null, pace: listPace, listPace, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why });
   const jita = sale('jita', 9000, 1000), home = sale('home', 10000, 50);
@@ -8529,6 +8532,23 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   const none = soldOf(300, { jita: null, home: sale('home', null, null, 'Not read at UALX-3 yet') }, 'best', 10);
   eq('  neither prices: unvalued, with the sale\'s reason, never 0', [none.isk, none.units, none.why], [null, 0, 'Not read at UALX-3 yet']);
   eq('  a second place that loses is not sold into', soldOf(300, { jita: sale('jita', -5, 1000), home }, 'best', 10).where, ['home']);
+
+  // Ruling F11 (the user's own): with Sell set to the hub, a good it doesn't price is valued at Jita's, wholly, and says so. On a
+  // route, at what it nets shipped (the route's Sale, freight in); with none, Jita's own before freight; a good the hub prices stays
+  // the hub's; neither, unvalued with both reasons (I1).
+  const noHub = sale('home', null, null, 'No price at UALX-3');
+  const routed = { ...sale('jita', 1100, 1000), list: 1234 }, bare = { ...sale('jita', 1180, 1000), list: 1234 };
+  const fell = soldAtHome(300, { home: noHub, jita: routed }, 10, 'UALX-3', true);
+  eq('  F11: no price at the hub: valued at Jita’s after freight, wholly, marked', [fell.isk, fell.units, fell.where, fell.jitaUnits, fell.fallback], [100 * 1100, 100, ['jita'], 100, { hub: 'UALX-3', list: 1234, route: true }]);
+  eq('  F11: and said, with Jita’s listing price', fallbackSaid(fell), 'No price at UALX-3: valued at Jita’s: 1,100 ISK after freight (Jita lists it at 1,234 ISK)');
+  const fellBare = soldAtHome(300, { home: noHub, jita: bare }, 10, 'UALX-3', false);
+  eq('  F11: with no route, Jita’s before freight, said', [fellBare.isk, fellBare.fallback.route, fallbackSaid(fellBare)], [100 * 1180, false, 'No price at UALX-3: valued at Jita’s 1,180 ISK, before freight: no freight route picked (Jita lists it at 1,234 ISK)']);
+  eq('  F11: a good the hub prices stays the hub’s, unmarked', (({ isk, where, fallback }) => [isk, where, fallback ?? null])(soldAtHome(300, { home, jita: routed }, 10, 'UALX-3', true)), [5 * 10000, ['home'], null]);
+  const neither = soldAtHome(300, { home: noHub, jita: sale('jita', null, null, 'No Jita book this morning') }, 10, 'UALX-3', true);
+  eq('  F11: neither prices: unvalued, both reasons, unmarked', [neither.isk, neither.why, neither.fallback ?? null], [null, 'No price at UALX-3; Jita: No Jita book this morning', null]);
+  // The contract on Sell: a good wholly at one place, a unit's net never rising as the amount grows.
+  const fellNets = [1, 50, 100, 300].map((n) => { const x = soldAtHome(n, { home: noHub, jita: routed }, 10, 'UALX-3', true); return x.isk / x.units; });
+  eq('  F11: a fallback keeps Sell’s contract', fellNets.every((x, i, a) => i === 0 || x <= a[i - 1] + 1e-9), true);
 
   // The contract the planner's searches rely on: a unit's net never rises with the amount, and no fixed charge a call. The hook
   // works a Sale once a good (a week at your share, the freight minimum spread over it); a Sale worked out for each call's amount,
@@ -8596,6 +8616,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const { planSingle } = await import('../src/lib/piPlan.ts');
   const { readings } = await import('../src/lib/piExtraction.ts');
   const { colonyChain, versusBest, bestsFor, pinKindOf, reserveFor, holdFor, STARVING_BELOW, OTHER_PRODUCT_MIN } = await import('../src/lib/colonyChain.ts');
+  const { soldAtHome } = await import('../src/lib/piPlan.ts');
   const { learnedRates, rateFor } = await import('../src/lib/piLearn.ts');
   const { fitOf } = await import('../src/lib/piFit.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
@@ -8933,6 +8954,18 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  T15b-11: III’s fault said in counts when its surplus P1 has no price',
     versusBest(UL3h, h3.best, ix, h3.own), { gain: null, said: 'Makes Nanites; your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why); no ISK figure while Bacteria and Reactive Metals have no price: no price read' });
   eq('  T15b-11: and with no fault, why nothing is compared', versusBest(ULh, hU.best, ix, hU.own).gain, 0);
+  // Ruling F11 at III's UALX-3 shape: Sell set to UALX-3, which prices Nanites (6,500) and the P0 but neither P1. The surplus P1 is
+  // valued at Jita's (400 listed, 350 after freight), so the fault gets its ISK figure, and the words name what's valued at Jita's.
+  const hubSale = (place, u, why) => ({ place, list: u, listNet: u, bid: null, bidNet: null, pace: 1e9, listPace: 1e9, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why: u == null ? why : null });
+  const atUalx = (id, perDay) => soldAtHome(perDay, {
+    home: hubSale('home', id === BACTERIA || id === REACTIVE ? null : unitOf({ [NANITES]: 6_500 })(id), 'No price at UALX-3'),
+    jita: { ...hubSale('jita', unitOf()(id) == null ? null : unitOf()(id) - 50, 'No Jita book this morning'), list: unitOf()(id) },
+  }, 10, 'UALX-3', true);
+  const UL3u = chainOf(UL3, { sell: atUalx }), u3 = bestsFor(UL3, UL3u, ix, inputOf(UL3u, atUalx));
+  eq('  F11: III’s fault at UALX-3 gets its ISK figure, and names what’s valued at Jita’s', [UL3u.outputs.filter((o) => o.sold.fallback).map((o) => o.id), versusBest(UL3u, u3.best, ix, u3.own)],
+    // 120 Nanites more at 6,500 (780,000) for the 1,920 P1 no longer sold at Jita's 350 (672,000), less 17,280 more P2 tax and plus
+    // 15,360 less P1 tax: 106,080. Without the fallback the surplus P1 had no price and the fault was said in counts alone (T15b-11).
+    [[BACTERIA, REACTIVE], { gain: 106_080, said: 'Makes Nanites; the planner’s own layout for it here pays 106,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why); valued at Jita’s where UALX-3 has no price: Bacteria and Reactive Metals' }]);
   // Only the layouts the words speak of add their clauses: a best whose figure is before the customs tax says so only when it speaks.
   const ul3 = bestsFor(UL3, UL3c, ix, inputOf(UL3c, cheapNan));
   eq('  a best that isn’t said lends the words no clause of its own', versusBest(UL3c, { ...ul3.best, before: ['tax'] }, ix, ul3.own).said.includes('before the customs tax'), false);

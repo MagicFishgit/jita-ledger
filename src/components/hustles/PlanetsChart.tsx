@@ -6,7 +6,7 @@ import { dayCount } from '../../lib/split';
 import type { PlanetType } from '../../lib/pi';
 import type { Commodity, PiIndex, Schematic, Tier } from '../../lib/piBundle';
 import { canMake, goodsByTier, makingIn, missingFor, recipeOf, TIERS, typesWith, type CanMake } from '../../lib/piChart';
-import { charWhy, NO_SKILLS, shippedOutput, type Setup, type SetupKind } from '../../lib/piPlan';
+import { charWhy, fallbackSaid, NO_SKILLS, shippedOutput, type Setup, type SetupKind } from '../../lib/piPlan';
 import { Points } from '../Facts';
 import { ItemIcon } from '../ui';
 import type { IndustryChar } from './industryChars';
@@ -51,7 +51,9 @@ const whereSaid = (w: UnitNet['where'], hub: string | null) => (w === 'home' ? h
 const BOOK_SAID: Record<UnitBook, string> = {
   now: 'on its Jita book now', morning: 'on this morning’s Jita book', hub: 'on the hub’s own market’s read', goonmetrics: 'on Goonmetrics’ prices',
 };
-const valueSaid = (u: UnitNet, hub: string | null) => `at ${whereSaid(u.where, hub)}${u.book ? `, ${BOOK_SAID[u.book]}` : ''}`;
+const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jita’s' : whereSaid(u.where, hub)}${u.book ? `, ${BOOK_SAID[u.book]}` : ''}`;
+/** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
+const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
 export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
@@ -140,16 +142,17 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
   }
   if (ready && u.isk == null) lines.push(...(lines.length ? [''] : []), `No value: ${u.why ?? 'no price read'}.`);
   else if (ready && u.isk != null) {
-    lines.push(...(lines.length ? [''] : []), `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}, after your fees${u.where === 'jita' ? ` and the freight from ${hub ?? 'your hub'}` : ''}; ${g.volume} m³ a unit.`);
+    lines.push(...(lines.length ? [''] : []), `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}, after your fees${u.where === 'jita' && (!u.fallback || u.fallback.route) ? ` and the freight from ${hub ?? 'your hub'}` : ''}; ${g.volume} m³ a unit.`);
+    if (u.fallback) lines.push('', `${fallbackUnit(u)}.`);
     if (u.isk < 0) lines.push('', 'Under nothing: its fees and freight cost more than it sells for.');
   }
   return (
     <button type="button" className={'pl-good' + (picked ? ' sel' : '') + (off ? ' off' : '')} aria-pressed={picked} aria-disabled={off ? true : undefined}
-      data-planets={`good:${g.id}`} data-book={u.isk != null ? u.book ?? undefined : undefined} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
+      data-planets={`good:${g.id}`} data-book={u.isk != null ? u.book ?? undefined : undefined} data-fallback={u.isk != null && u.fallback ? 'jita' : undefined} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
       <ItemIcon id={g.id} size="sm" />
       <span className="pl-good-text">
         <span className="pl-good-name">{g.name}</span>
-        <span className={'pl-good-v' + (u.isk != null && u.isk < 0 ? ' neg' : '')}>{u.isk != null ? <>{iskSaid(u.isk)}<span className="sub">{iskSaid(u.isk / g.volume)} a m³</span></> : '–'}</span>
+        <span className={'pl-good-v' + (u.isk != null && u.isk < 0 ? ' neg' : '')}>{u.isk != null ? <>{iskSaid(u.isk)}<span className="sub">{iskSaid(u.isk / g.volume)} a m³{u.fallback ? ' · Jita’s' : ''}</span></> : '–'}</span>
       </span>
     </button>
   );
@@ -193,6 +196,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan 
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <b>{g.name}</b>
           <span className="sub">{g.tier} · {g.volume} m³ a unit · {u.isk != null ? `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}; ${iskSaid(u.isk / g.volume)} a m³` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
+          {u.isk != null && u.fallback && <span className="sub pl-up" data-planets="tree-fallback">{fallbackUnit(u)}.</span>}
         </div>
         <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
       </div>

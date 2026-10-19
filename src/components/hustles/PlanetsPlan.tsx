@@ -11,6 +11,7 @@ import { PI_LINKS, setupSteps, type PlanetType } from '../../lib/pi';
 import type { Facility, PiIndex } from '../../lib/piBundle';
 import { PI_UNCHECKED, rateFor, type Learned } from '../../lib/piLearn';
 import {
+  fallbackGoods, fallbackSaid,
   ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
   type Bought, type PlanChar, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
@@ -471,6 +472,9 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   if (s.cut && s.why == null) notes.push('The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.');
   if (priced && s.before.includes('tax')) notes.push(`Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.`);
   if (priced && s.before.includes('extraction')) notes.push('Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.');
+  // Ruling F11: goods the hub doesn't price, valued at Jita's, named once on the setup; each output's line says its figure.
+  const fell = fallbackGoods(s.outputs);
+  if (priced && fell.length) notes.push(<span data-planets="fallback-goods">{`Valued at Jita’s where ${s.outputs.find((o) => o.sold.fallback)!.sold.fallback!.hub} has no price: ${listSaid(fell.map(name))}.`}</span>);
   if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted, and ${s.unvalued === 1 ? 'its' : 'their'} customs not counted either: never as 0.`);
   // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
   const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
@@ -584,7 +588,9 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
             <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
             {all ? <span className="pl-up">, none shipped: it stays on the planet, building up, untaxed: {clause(kept!.why)}</span>
               : o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
-                : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
+                : o.sold.fallback ? `, ${aDay(o.sold.units)} for ${iskBig(o.sold.isk)} a day`
+                  : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
+            {!all && o.sold.isk != null && o.sold.fallback && <span className="pl-up" data-planets="fallback">. {fallbackSaid(o.sold)}</span>}
             {!all && kept && <span className="pl-up">; {aDay(kept.perDay)} a day stay on the planet, untaxed: {clause(kept.why)}</span>}
             {!all && o.sold.isk != null && over > 1e-6 && <span className="pl-up">; {aDay(over)} a day build up: the market takes no more at your share</span>}
           </span>

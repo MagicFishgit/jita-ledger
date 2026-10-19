@@ -3713,8 +3713,10 @@ try {
       for (const k of ['p1', 'p2', 'feed']) {
         const roles = (await page.locator(`[data-planets="setup:${k}"] [data-planets^="role:"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
         if (!roles.length) problems.push(`${k}’s planets didn’t open to be checked for a fit`);
-        // An unrated planet's line says "No rate for …" (a planet on another P0's learned rate keeps that rate's heads: F9).
-        for (const t of roles.filter((x) => x.includes('No rate for') && x.includes('No Command Center Upgrades level fits it'))) problems.push(`at a median of 10 heads, an unrated planet in ${k} fits at no level: “${t.slice(0, 400)}”`);
+        // An unrated planet's line says "No rate for …"; one borrowing another P0's learned rate says it (Ruling T15b-12: its line is
+        // set aside when its heads leave no room, never ranked unbuildable for them).
+        for (const t of roles.filter((x) => (x.includes('No rate for') || x.includes('another P0')) && x.includes('No Command Center Upgrades level fits it'))) problems.push(`at a median of 10 heads, an unrated or borrowing planet in ${k} fits at no level: “${t.slice(0, 400)}”`);
+        if (k === 'p2' && !roles.some((x) => /another P0’s rate is at 10 heads, more than fit here/.test(x))) problems.push(`no planet in ${k} sets a borrowed 10-head rate aside: ${JSON.stringify(roles.map((x) => x.slice(0, 200)))}`);
         if (k !== 'feed' && !roles.some((x) => x.includes('No rate for') && /your extractors’ median is 10, and no more fit beside its factories/.test(x))) problems.push(`no unrated planet in ${k} says its heads are capped under the median of 10: ${JSON.stringify(roles.map((x) => x.slice(0, 160)))}`);
       }
       for (const k of opened) await page.locator(`[data-planets="setup:${k}"] button[aria-expanded="true"]`, { hasText: 'What it makes' }).click().catch(() => undefined);
@@ -3903,12 +3905,13 @@ try {
       const p2Line = await text('[data-planets="makes"] [data-planets="makes:p2"]');
       if (!/Mechanical Parts/.test(p2Line)) problems.push(`P0 → P2's line doesn't say what the ranking makes instead: “${p2Line}”`);
       if (!/: can make it alone on its Barren planets/.test(p2Line) || !/As ranked on Plan/.test(p2Line)) problems.push(`P0 → P2's line doesn't keep "can" apart from the ranking: “${p2Line}”`);
-      // A price that isn't known is "–" with its reason: selling at UALX-3 alone, Oxides has no price there.
+      // Ruling F11: selling at UALX-3 alone, Oxides has no price there: valued at Jita's after Brave Freight's freight, never "–",
+      // said, with the price Jita lists it at (so it can be listed at home at that).
       await page.locator('[data-planets="market"] button', { hasText: /^UALX-3$/ }).click().catch((e) => problems.push(`no Sell at UALX-3 on the chart: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(500);
-      const oxides = await text(good(OXIDES)), oxTip = await page.locator(good(OXIDES)).getAttribute('data-tip').catch(() => '');
-      if (!/–/.test(oxides) || /\d ISK/.test(oxides)) problems.push(`Oxides, with no price at UALX-3, reads “${oxides}”`);
-      if (!/UALX-3/.test(oxTip ?? '')) problems.push(`Oxides' “–” doesn't say why: “${oxTip}”`);
+      const oxides = await text(good(OXIDES)), oxTip = await page.locator(good(OXIDES)).getAttribute('data-tip').catch(() => ''), oxFell = await page.locator(good(OXIDES)).getAttribute('data-fallback').catch(() => null);
+      if (oxFell !== 'jita' || !/\d ISK/.test(oxides) || !/Jita’s/.test(oxides)) problems.push(`Oxides, with no price at UALX-3, isn't valued at Jita's: “${oxides}” (${oxFell})`);
+      if (!/No price at UALX-3: valued at Jita’s: [\d,.]+ (K |M )?ISK after freight \(Jita lists it at [\d,.]+ (K |M )?ISK\)/.test(oxTip ?? '') || !/at Jita’s, on (its Jita book now|this morning’s Jita book)/.test(oxTip ?? '')) problems.push(`Oxides' Jita value doesn't say so: “${oxTip}”`);
       await page.locator('[data-planets="market"] button', { hasText: /^Either$/ }).click().catch(() => undefined);
       await page.waitForTimeout(400);
       if (PHONE) {
@@ -4023,6 +4026,24 @@ try {
         for (const [cut, w] of [[first, firstRail], [second, secondRail]]) if (cut.length) problems.push(`at 800 px with the rail at ${w} px the opened colony runs ${cut.join(', ')} px past the table's visible edge`);
       }
       if (SHOTS) { await page.locator('[data-planets="colonies"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies.png` }); }
+    }
+
+    // --- Ruling F11 (Task 15c): Sell set to UALX-3 alone. A good it doesn't price is valued at Jita's after the freight, said on its
+    // output's line with Jita's listing price, and the setup names the goods once.
+    {
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: { ...DOC, sell: 'home' }, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew with Sell at UALX-3'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (Sell at UALX-3): ${e.message.split('\n')[0]}`));
+      await settled();
+      const fell = await page.locator('[data-planets="fallback-goods"]').allInnerTexts();
+      if (!fell.some((t) => /^Valued at Jita’s where UALX-3 has no price: .+\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, no setup names the goods valued at Jita's: ${JSON.stringify(fell)}`);
+      const lines = (await page.locator('[data-planets="fallback"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+      if (!lines.some((t) => /No price at UALX-3: valued at Jita’s: [\d,.]+ (K |M )?ISK after freight \(Jita lists it at [\d,.]+ (K |M )?ISK\)/.test(t))) problems.push(`with Sell at UALX-3, no output says it's valued at Jita's: ${JSON.stringify(lines.slice(0, 3))}`);
+      if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with Sell at UALX-3');
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (Sell at UALX-3): ${o}`);
+      if (SHOTS) { await page.locator('[data-planets="fallback-goods"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-fallback.png` }); }
     }
 
     // --- Ruling F9 and T15-5 (Task 15b): the same colony with 5 heads an extractor, as the user's real ones run. Its rate (16,617 an

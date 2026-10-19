@@ -11,7 +11,7 @@ import type { KeptColony, KeptPin } from './colonies';
 import { ENDING_SOON_HOURS } from './colony';
 import { lowerReading, readings } from './piExtraction';
 import { PI_READING, type Rate } from './piLearn';
-import { anHour, keptSold, keptWhy, listSaid, planSingle, taxRows, valuedOutput, type Hold, type Output, type PlanInput, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
+import { anHour, fallbackGoods, keptSold, keptWhy, listSaid, planSingle, taxRows, valuedOutput, type Hold, type Output, type PlanInput, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
 import type { Tax } from './planetsDoc';
 import { iskBig, units as unitsSaid } from './format';
 import { dayCount } from './split';
@@ -835,5 +835,10 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   // A P0 left over with no price counts as nothing on both sides (Ruling T15-5), and is said.
   const left = [...new Set([...chain.outputs, ...used.flatMap((s) => s.outputs)].filter((o) => o.stays?.noPrice).map((o) => name(o.id)))];
   const unpricedP0 = left.length ? `; the ${listSaid(left)} left over ${left.length > 1 ? 'have' : 'has'} no price here, so neither counts ${left.length > 1 ? 'them' : 'it'}` : '';
-  return { gain, said: `${what}; ${[ownSaid, otherSaid].filter(Boolean).join('; and ')}${beforeTax}${unpricedP0}` };
+  // Ruling F11: goods the hub doesn't price, valued at Jita's on either side, named (their own lines say each figure).
+  const fellFrom = [chain.outputs, ...used.map((x) => x.outputs)];
+  const fell = [...new Set(fellFrom.flatMap((os) => fallbackGoods(os)))];
+  const hubOf = fellFrom.flat().find((o) => o.sold.fallback)?.sold.fallback?.hub;
+  const atJita = fell.length ? `; valued at Jita’s where ${hubOf} has no price: ${listSaid(fell.map(name))}` : '';
+  return { gain, said: `${what}; ${[ownSaid, otherSaid].filter(Boolean).join('; and ')}${beforeTax}${unpricedP0}${atJita}` };
 }

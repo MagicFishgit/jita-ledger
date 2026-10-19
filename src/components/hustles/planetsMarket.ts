@@ -5,8 +5,8 @@ import { useNow, useStable } from '../../lib/hooks';
 import { HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
-import type { Buy, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
-import { boughtOf, jitaSteps, soldOf, type BuyPlace } from '../../lib/piPlan';
+import type { Buy, Fallback, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
+import { boughtOf, jitaSteps, soldAtHome, soldOf, type BuyPlace } from '../../lib/piPlan';
 import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
 import { customsRate, type Tax } from '../../lib/planetsDoc';
 import { reloadApp } from '../../lib/reload';
@@ -23,7 +23,7 @@ import { useHomeHistory, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveBook
  * scan; the hub's own market's read, or Goonmetrics'. Null with no value.
  */
 export type UnitBook = 'now' | 'morning' | 'hub' | 'goonmetrics';
-export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; book?: UnitBook | null };
+export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; book?: UnitBook | null; fallback?: Fallback | null };
 export type PlanetMarket = {
   sell: Sell; buy: Buy; unit: (typeId: number) => UnitNet; ready: boolean; said: string;
   /** Whether any of the goods named in `live` has its Jita book read live yet: the planner ranks again on them only then. */
@@ -101,7 +101,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       };
     };
     const volume = (t: number) => ix?.byId.get(t)?.volume ?? 0;
-    const sales = new Map<number, { jita: Sale; home: Sale; m: Market }>();
+    const sales = new Map<number, { jita: Sale; home: Sale; m: Market; bare?: Sale }>();
     const salesOf = (t: number) => {
       let s = sales.get(t);
       if (s) return s;
@@ -117,8 +117,17 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       return s;
     };
     const where = hub ? doc.sell : 'jita';
+    // Ruling F11: with Sell set to the hub, a good it doesn't price is valued at Jita's: on the freight route, after freight, as
+    // Either values Jita; with no route, Jita's own before freight (`bare`), said. Worked out here once, so every reader gets it.
+    const route = jitaLeg.kind !== 'none';
+    const jitaFor = (t: number): Sale => {
+      const s = salesOf(t);
+      if (route) return s.jita;
+      return (s.bare ??= sellAt('jita', s.m, { broker, tax, leg: HERE, volume: volume(t), makes: ANY_MAKES, share, now }));
+    };
     const sell: Sell = (t, perDay): Sold => {
       const s = salesOf(t);
+      if (hub && where === 'home') return soldAtHome(perDay, { home: s.home, jita: jitaFor(t) }, share, hub.short, route);
       return soldOf(perDay, { jita: s.jita, home: s.home }, where, share);
     };
     const unit = (t: number): UnitNet => {
@@ -129,6 +138,12 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       // The book `marketOf` priced it on: Jita's live one when read, else this morning's scan; at the hub, its quote's source.
       const book: UnitBook | null = !best ? null : best.p === 'jita' ? (liveBooks[t] ? 'now' : 'morning') : s.m.home?.source === 'structure' ? 'hub' : 'goonmetrics';
       if (best) return { isk: best.v, where: best.p, why: null, book };
+      // Ruling F11: the hub doesn't price it: Jita's, said.
+      if (hub && where === 'home') {
+        const j = jitaFor(t), v = Math.max(j.listNet ?? -Infinity, j.bidNet ?? -Infinity);
+        if (v > -Infinity) return { isk: v, where: 'jita', why: null, book: liveBooks[t] ? 'now' : 'morning', fallback: { hub: hub.short, list: j.list, route } };
+        nets.push({ p: 'jita', v, why: j.why ? `Jita: ${j.why}` : null });
+      }
       return { isk: null, where: null, why: [...new Set(nets.map((x) => x.why).filter((w): w is string => !!w))].join('; ') || 'no price read' };
     };
     // Each place's offer for a good, as steps cheapest first up to its max (Ruling T11-7), never depending on the amount. Jita
@@ -215,6 +230,9 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
           : jitaLeg.kind === 'none' ? `No freight route between ${hub.short} and Jita is picked on the Industry tab, so nothing is priced at Jita.`
             : `Jita: ${jitaSource}.`,
       usesHome && doc.hubFees[hub.id] == null ? `${hub.short}’s broker fee isn’t typed, so home sales are ranked before it.` : null,
+      // Ruling F11: what the hub doesn't price is valued at Jita's, and each figure built on it says so.
+      !usesJita ? (jitaLeg.kind !== 'none' ? `What ${hub.short} doesn’t price is valued at Jita’s, after ${jitaLeg.kind === 'route' ? jitaLeg.name : 'the carry'}, and says so.`
+        : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so.`) : null,
     ].filter(Boolean).join(' '));
   return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
     liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region` };
