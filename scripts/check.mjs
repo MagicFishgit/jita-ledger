@@ -7736,8 +7736,12 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
 
   // Rates unchecked: the higher reading beside.
   const unchecked = planSingle({ ...input, rateOf: (t) => (t === 'Barren' || t === 'Gas' ? rate({ higher: 14000, checked: false }) : null) }, 'p2');
-  // At 14,000 each line makes 93.3 P1 an hour, so 11.67 P2 an hour, 280 a day: 2.8 M + 840,000 − 280 × 7,200 × 7%.
-  eq('  rates unchecked: the higher figure beside, on the same products', [unchecked.iskDay, Math.round(unchecked.iskDayHigh)], [2_999_040, 2_800_000 + 840_000 - 141_120]);
+  // At 14,000 each line wants 3 Basics and 3 Advanced, which don't fit at CCU IV beside 10 heads (Ruling F9: sized to the higher
+  // reading within what fits, the way that pays most). Barren: 3 + 2 Basics and 2 Advanced, 240 Nanites (2.4 M), 320 Bacteria
+  // over (128,000) and 48,000 Base Metals left over (96,000), less 34,560 + 2,560 + 4,800 of tax: 2,582,080. Gas, where 5 Basics
+  // and 1 Advanced fit: 120 of its 3,000 P2 (360,000), 2,240 P1 over (896,000) and 48,000 P0 (96,000), less 43,200 + 44,800 +
+  // 12,000: 1,252,000. Sized past the fit, as before Task 15b, it read 3,498,880.
+  eq('  rates unchecked: the higher figure beside, on the same products, within what fits', [unchecked.iskDay, Math.round(unchecked.iskDayHigh)], [2_999_040, 2_582_080 + 1_252_000]);
   // P0 → P1 at 14,000: 2,240 P1 a line, four lines at 400, less 4,480 × 400 at 2% and at 5%.
   const unchecked1 = planSingle({ ...input, rateOf: (t) => (t === 'Barren' || t === 'Gas' ? rate({ higher: 14000, checked: false }) : null) }, 'p1');
   eq('  P0 → P1 has the higher figure too', [unchecked1.iskDay, Math.round(unchecked1.iskDayHigh)], [3_072_000 - 107_520, 4 * 2240 * 400 - 35_840 - 89_600]);
@@ -7753,6 +7757,45 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
   eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
   has('  a rate learned on another P0 of the type: said', role(planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ otherP0: true }) : rateOf(t)) }, 'p2'), A).why ?? '', 'at the rate learned for another P0 of Barren planets');
+
+  // Ruling F9 (Task 15b): a layout is ranked only at what fits at the character's own level. On the Barren planet alone, every P0
+  // at 24,000 an hour (its rate's 10 heads): P0 → P1 wants 4 + 4 Basics, where 6 fit at CCU IV (all 8 at V).
+  {
+    const fast = { ...input, planets: [planets[0]], char: { ...char, planets: 1 }, rateOf: (t) => (t === 'Barren' ? rate({ perHour: 24000 }) : null) };
+    const basicsOf = (s) => role(s, A).makes.filter((m) => m.facility === 'basic').map((m) => m.count);
+    const p0sOf = (s) => s.outputs.filter((o) => ix.byId.get(o.id).tier === 'P0');
+    const at4 = planSingle(fast, 'p1'), r4 = role(at4, A);
+    eq('  F9: a rate wanting more factories than fit at IV gets the most that fit, its heads kept', [basicsOf(at4), r4.fit.fits, r4.lacks, r4.extracts.map((e) => e.heads), at4.perChar[0].lacks], [[2, 4], true, null, [5, 5], []]);
+    has('  F9: its line says what fits and what becomes of the P0 left over', r4.why ?? '', '6 Basics fit at Command Center Upgrades IV: they take 36,000 of the 48,000 P0 an hour; the rest sells as P0');
+    // 5,760 P1 at 400 (2,304,000) and the 288,000 P0 left over at 2 (576,000), less 46,080 and 28,800 of tax (5 × 2% a P0).
+    eq('  F9: the P0 left over is an output, sold and taxed', [p0sOf(at4).map((o) => [o.perDay, o.sold.isk, o.buildingUp]), at4.taxes.map((t) => [t.tier, t.perDay]), at4.iskDay],
+      [[[288_000, 576_000, 0]], [['P1', 46_080], ['P0', 28_800]], 2_304_000 + 576_000 - 46_080 - 28_800]);
+    const at5 = planSingle({ ...fast, char: { ...fast.char, ccLevel: 5 } }, 'p1');
+    eq('  F9: the layout that fits only at V (4 + 4) is ranked at V, never at IV in its place', [basicsOf(at4), basicsOf(at5), role(at5, A).fit.fits, /fit at Command Center/.test(role(at5, A).why ?? ''), p0sOf(at5).length], [[2, 4], [4, 4], true, false, 0]);
+    // P0 → P2 (Nanites from Microorganisms and Base Metals) at 18,000 an hour wants 3 + 3 Basics and 3 Advanced; 2 + 3 and 2 fit.
+    const nan4 = planSingle({ ...fast, rateOf: (t) => (t === 'Barren' ? rate({ perHour: 18000 }) : null) }, 'p2'), n4 = role(nan4, A);
+    eq('  F9: P0 → P2 gets the most that fit, Advanced only as many as its Basics feed', [basicsOf(nan4), adv(n4).count, adv(n4).perDay, n4.fit.fits], [[2, 3], 2, 240, true]);
+    has('  F9: its line names the Basics and Advanced that fit', n4.why ?? '', '5 Basics and 2 Advanced fit at Command Center Upgrades IV: the Basics take 30,000 of the 36,000 P0 an hour; the rest sells as P0');
+    // A rate that fits is planned as it always was: 2 + 2 Basics, nothing left over, no word of what fits.
+    const fits = planSingle({ ...fast, rateOf: (t) => (t === 'Barren' ? rate() : null) }, 'p1');
+    eq('  F9: a planet whose rate fits is unchanged', [basicsOf(fits), p0sOf(fits).length, role(fits, A).why, fits.iskDay], [[2, 2], 0, null, 3840 * 400 - 3840 * 400 * 0.02]);
+
+    // Ruling T15-5: a P0 left over that nets nothing after its freight and fees stays on the planet, untaxed, and the ISK a day
+    // doesn't fall for it; one that nets above nothing but under its export tax (5 × 2% = 0.10 a unit) stays too.
+    const loss = planSingle({ ...fast, sell: sellBy((id) => (ix.byId.get(id).tier === 'P0' ? -1 : unitOf(id))) }, 'p1');
+    const lp0 = p0sOf(loss);
+    eq('  T15-5: a P0 that nets under nothing isn’t shipped: none sold or taxed, all of it building up, ISK a day not lowered by it',
+      [lp0.map((o) => [o.perDay, o.sold.isk, o.sold.units, o.buildingUp, o.stays?.perDay, o.stays?.noPrice]), loss.taxes.map((t) => t.tier), loss.iskDay, Math.round(loss.upkeep.haulM3PerWeek * 100) / 100],
+      [[[288_000, 0, 0, 288_000, 288_000, false]], ['P1'], 2_304_000 - 46_080, 7660.8]);
+    has('  T15-5: and the planet says why', role(loss, A).why ?? '', '288,000 Microorganisms a day stay on the planet: a unit nets −1 ISK after freight and fees, so it doesn’t pay to ship');
+    const thin = planSingle({ ...fast, sell: sellBy((id) => (ix.byId.get(id).tier === 'P0' ? 0.05 : unitOf(id))) }, 'p1');
+    eq('  T15-5: a P0 that nets under its export tax isn’t shipped either', [p0sOf(thin).map((o) => [o.sold.units, o.buildingUp]), thin.iskDay], [[[0, 288_000]], 2_304_000 - 46_080]);
+    has('  T15-5: said with the tax it would pay', role(thin, A).why ?? '', 'a unit nets 0.05 ISK after freight and fees and pays 0.10 ISK export tax, so it doesn’t pay to ship');
+    // A P0 with no price stays too (Ruling F9: sold as P0 where priced, or it builds up): a known nothing, never an output unvalued.
+    const unpricedP0 = planSingle({ ...fast, sell: sellBy((id) => (ix.byId.get(id).tier === 'P0' ? null : unitOf(id))) }, 'p1');
+    eq('  T15-5: a P0 with no price builds up, counted as nothing, never as unvalued', [p0sOf(unpricedP0).map((o) => [o.sold.isk, o.buildingUp, o.stays?.noPrice]), unpricedP0.unvalued, unpricedP0.before, unpricedP0.iskDay],
+      [[[0, 288_000, true]], 0, [], 2_304_000 - 46_080]);
+  }
 
   // A third planet: two allowed go to the ones that pay more; one market cap per good, shared.
   const three = { ...input, planets: [...planets, { planetId: D, name: 'Test IV', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }] };
@@ -7866,15 +7909,21 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  chain: a planet that fits lacks nothing', chain.roles.filter((r) => r.fit?.fits && r.lacks).length, 0);
   {
     // The review's shape (I1): two planets at CCU IV, 5-NZNW I (Barren, 1,950 km) at a learned 10 heads an extractor, which fits at
-    // no level, beside 5-NZNW II (Lava, 3,020 km) at a typed 6, which fits at V. Judged from the whole character, V was offered
-    // for both and I lost its "no level fits".
+    // no level, beside 5-NZNW II (Lava, 3,020 km), which fits at V. Judged from the whole character, V was offered for both and I
+    // lost its "no level fits". Since Ruling F9 a layout that fits only at a higher level gives way to the most that fit at the
+    // character's own, so II's only shape left that fits only at V is one already at its least (6,000 an hour: 1 + 1 Basics and 1
+    // Advanced) whose 9 heads an extractor leave no room for it at IV (its typed 6 heads at 12,000, the shape before F9, now fit as
+    // 2 Basics and 1 Advanced at IV).
     const I = 40307990, II = 40307991;
-    const mixed = planSingle({ ix, planets: [{ planetId: I, name: '5-NZNW I', type: 'Barren', radiusKm: 1950, tax: brave(0.02) }, { planetId: II, name: '5-NZNW II', type: 'Lava', radiusKm: 3020, tax: brave(0.05) }],
+    const mixedOf = (lava) => planSingle({ ix, planets: [{ planetId: I, name: '5-NZNW I', type: 'Barren', radiusKm: 1950, tax: brave(0.02) }, { planetId: II, name: '5-NZNW II', type: 'Lava', radiusKm: 3020, tax: brave(0.05) }],
       char: { charId: 1, name: 'Owner', planets: 2, ccLevel: 4, alpha: false }, others: [],
-      rateOf: (t) => (t === 'Barren' ? rate({ perHour: 13_930, heads: 10 }) : t === 'Lava' ? rate({ heads: 6, from: 'typed' }) : null),
+      rateOf: (t) => (t === 'Barren' ? rate({ perHour: 13_930, heads: 10 }) : t === 'Lava' ? lava : null),
       sell: sellBy(() => 10_000), buy: noBuy, programHours: 72 }, 'p2');
+    const mixed = mixedOf(rate({ perHour: 6000, heads: 9, from: 'typed' }));
     eq('  a planet no level fits says so; the one V fixes names V; the character lacks V', [[role(mixed, I).fit.fits, role(mixed, I).lacks], [role(mixed, II).fit.fits, role(mixed, II).lacks], mixed.perChar[0].lacks],
       [[false, null], [false, 'Command Center Upgrades V'], ['Command Center Upgrades V']]);
+    const was = mixedOf(rate({ heads: 6, from: 'typed' }));
+    eq('  F9: the shape that fit only at V before now fits at IV with fewer factories, and nothing is lacking for it', [[role(was, II).fit.fits, role(was, II).lacks], was.perChar[0].lacks], [[true, null], []]);
   }
   eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
   eq('  big’s chain is searched to the end: not cut', chain.cut, undefined);
@@ -8217,13 +8266,26 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       [72 * 100_000, [['Robotics', 72]], ['Consumer Electronics', 'Mechanical Parts']]);
   }
   eq('  feed with one planet allowed: said', planFeed({ ...input, char: { ...char, planets: 1 } }).why, 'A factory planet and one to feed it take 2 planets: you have 1');
-  // Extractors at 400,000 an hour: one Barren planet feeding the Gas one would need 67 Advanced, where 24 fit even at V.
-  eq('  feed: no factory fits even at CCU V: said', planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 } }).why,
+  // Extractors at 400,000 an hour: one Barren planet feeding the Gas one would need 67 Advanced, where 24 fit even at V. Since Ruling
+  // F9 a feeder runs the most Basics that fit, so it's sized past the fit only when its heads (12 an extractor here) leave no room
+  // for any: then, as before, every factory it could feed is too big.
+  eq('  feed: no factory fits even at CCU V: said', planFeed({ ...input, rateOf: () => rate({ perHour: 400_000, heads: 12 }), char: { ...char, ccLevel: 5 } }).why,
     'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V');
+  // At 5 heads its feeders fit as the most Basics that fit (F9), and a factory is planned on what they ship.
+  const fed400 = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 } });
+  eq('  F9: at 400,000 an hour the feeders run the most that fit, and the factory fits', [fed400.why, fed400.roles.filter((r) => r.does !== 'unused').every((r) => r.fit?.fits), fed400.roles.some((r) => /fit at Command Center Upgrades V/.test(r.why ?? ''))], [null, true, true]);
+  // Ruling T15-5 in the feed: at 24,000 an hour a feeder's Basics can't take all its P0, and P0 here nets under nothing after its
+  // freight: the feeder keeps it, untaxed, said, and the setup's ISK a day is what it would be with the P0 not counted at all.
+  const feedLoss = planFeed({ ...input, rateOf: () => rate({ perHour: 24000 }), sell: sellBy((id) => (ix.byId.get(id).tier === 'P0' ? -1 : unitOf(id))) });
+  const feedNone = planFeed({ ...input, rateOf: () => rate({ perHour: 24000 }), sell: sellBy((id) => (ix.byId.get(id).tier === 'P0' ? 0 : unitOf(id))) });
+  const keptP0 = feedLoss.outputs.filter((o) => ix.byId.get(o.id).tier === 'P0');
+  eq('  T15-5 (feed): a feeder’s P0 that doesn’t pay to ship stays, none sold or taxed, the ISK a day not lowered by it',
+    [keptP0.length > 0, keptP0.every((o) => o.sold.units === 0 && Math.abs(o.buildingUp - o.perDay) < 1e-6 && o.stays && !o.stays.noPrice), feedLoss.taxes.some((t) => t.tier === 'P0'), Math.round(feedLoss.iskDay), feedLoss.roles.some((r) => /stay on the planet: a unit nets −1 ISK after freight and fees/.test(r.why ?? ''))],
+    [true, true, false, Math.round(feedNone.iskDay - feedNone.taxes.filter((t) => t.tier === 'P0').reduce((n, t) => n + t.perDay, 0)), true]);
   // A budget that runs out before any arrangement is found says so and is cut; it never blames the planets, the characters or
   // the factory's size (not every arrangement was tried).
   const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
-  const outFeed = planFeed({ ...big, budget: 1 }), outChain = planChain({ ...big, budget: 1 }), outFit = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 }, budget: 1 });
+  const outFeed = planFeed({ ...big, budget: 1 }), outChain = planChain({ ...big, budget: 1 }), outFit = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000, heads: 12 }), char: { ...char, ccLevel: 5 }, budget: 1 });
   eq('  a budget that runs out with nothing found: said, cut', [outFeed.why, outFeed.cut, outChain.why, outChain.cut, outFit.why, outFit.cut], [RAN_OUT, true, RAN_OUT, true, RAN_OUT, true]);
   // Bought counts assignments valued, and with none allowed it values none.
   const outBought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }), budget: 0 });
@@ -8281,11 +8343,14 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  chain: a colony goes to a character it fits at before one with more room', two.roles.map((r) => [r.planetId, r.charId, r.does]), [[1, OWNER, 'factory'], [1, SECOND, 'extract'], [2, OWNER, 'extract']]);
   }
 
-  // Task 8's lacks: the level a layout needs, at least one head an extractor. A 5-head rate at CCU III on Barren with 2 + 4:
-  // 10 heads where 7 fit, so IV (11). No rate on Gas at CCU I: the layout doesn't fit without heads; with one head each it needs
-  // III (II fits one), where counting no heads said II.
+  // Task 8's lacks: the level a layout needs, at least one head an extractor. A 5-head rate at 6,000 an hour at CCU II on Barren:
+  // 1 + 1 Basics and 1 Advanced, the least a P0 → P2 can be (so Ruling F9 has nothing smaller to fit), and its 10 heads leave no
+  // room for them at II, so III. (At 12,000 an hour it was 2 + 2 at CCU III, which F9 now fits at III as fewer factories.) No rate
+  // on Gas at CCU I: the layout doesn't fit without heads; with one head each it needs III (II fits one), where counting no heads
+  // said II.
   const one = (type, radiusKm, ccLevel, rateOf) => planSingle({ ...input, planets: [{ planetId: 9, name: 'One', type, radiusKm, tax: brave(0.02) }], char: { ...char, planets: 1, ccLevel }, rateOf }, 'p2');
-  eq('  a 5-head rate at CCU III on Barren lacks Command Center Upgrades IV', one('Barren', 3750, 3, () => rate()).perChar[0].lacks, ['Command Center Upgrades IV']);
+  eq('  a 5-head rate at its least layout at CCU II on Barren lacks Command Center Upgrades III', one('Barren', 3750, 2, () => rate({ perHour: 6000 })).perChar[0].lacks, ['Command Center Upgrades III']);
+  eq('  F9: at 12,000 an hour at CCU III it fits as fewer factories, lacking nothing', [one('Barren', 3750, 3, () => rate()).perChar[0].lacks, one('Barren', 3750, 3, () => rate()).roles[0].fit.fits], [[], true]);
   eq('  no rate at CCU I on Gas: at least a head an extractor, so III', one('Gas', 26370, 1, () => null).perChar[0].lacks, ['Command Center Upgrades III']);
 }
 
@@ -8584,6 +8649,16 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const p0 = chainOf(nanites({ base: 20000 }));
   eq('  a P0 surplus in storage is an output too', p0.outputs.map((o) => [o.id, near(o.perDay)]), [[NANITES, 240], [REACTIVE, 960], [BASE, 48_000]]);
   eq('  valued and taxed as P0', near(p0.iskDay), 2_741_760 + 96_000 - 4800);
+  // Ruling T15-5, the planner's own rule (keptWhy): a P0 in storage that nets nothing after its freight and fees, or under its export
+  // tax, isn't shipped. It stays, building up, untaxed, and the colony's ISK a day doesn't fall for it.
+  const p0Loss = chainOf(nanites({ base: 20000 }), { sell: sellBy(unitOf({ [BASE]: -1.5 })) });
+  const bl = p0Loss.outputs.find((o) => o.id === BASE);
+  eq('  a P0 that doesn’t pay to ship stays: none sold or taxed, ISK a day as without it', [[near(bl.perDay), bl.sold.units, near(bl.buildingUp), near(bl.stays.perDay), bl.stays.noPrice], p0Loss.taxes.map((t) => t.tier), near(p0Loss.iskDay)],
+    [[48_000, 0, 48_000, 48_000, false], ['P2', 'P1'], 2_741_760]);
+  has('  and says why', bl.stays.why, 'a unit nets −1.50 ISK after freight and fees, so it doesn’t pay to ship');
+  // A P0 with no price stays too, a known nothing: never an unvalued output, nor a reason for no figure.
+  const p0None = chainOf(nanites({ base: 20000 }), { sell: sellBy(unitOf({ [BASE]: null })) });
+  eq('  a P0 with no price stays, counted as nothing, the colony still valued', [p0None.unvalued, p0None.before, near(p0None.iskDay), p0None.outputs.find((o) => o.id === BASE).stays.noPrice], [0, [], 2_741_760, true]);
 
   // An output not routed onward and not to storage or a launchpad: the first Advanced's Nanites go nowhere.
   const stuck = chainOf(nanites({ drop: [[51, 30, NANITES, 5]] }));
@@ -8627,6 +8702,20 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const P = chainOf(padFed);
   eq('  fed from its launchpad: no flag, what it makes while kept stocked, and what that takes', [P.flags, P.makes.map((m) => [m.id, near(m.perDay)]), P.imports?.map((i) => [i.id, near(i.perDay)])], [[], [[NANITES, 240]], [[BACTERIA, 1920], [REACTIVE, 1920]]]);
   eq('  its ISK a day isn’t known, though every output is priced: the imports’ cost isn’t, never 0', [P.iskDay, P.iskDayHigh, P.taxDay, P.why, P.outputs.map((o) => [o.id, near(o.sold.isk)])], [null, null, null, 'Its Bacteria and Reactive Metals come from off the planet, and their cost isn’t known here', [[NANITES, 2_400_000]]]);
+  // One good brought in reads "come", as many goods' names are plural (Ruling T15-7: "Its Bacteria come", never "comes").
+  const oneIn = chainOf(colony([pin(1, CC), ecu(11, BASE, 6000), pin(20, STORE), pin(30, PAD), fac(43, BASIC, S_REACT), fac(51, ADV, S_NAN)],
+    [[11, 20, BASE, 6000], [20, 43, BASE, 3000], [43, 51, REACTIVE, 40], [30, 51, BACTERIA, 40], [51, 30, NANITES, 5]]));
+  eq('  one good brought in: "Its Bacteria come …"', oneIn.why, 'Its Bacteria come from off the planet, and its cost isn’t known here');
+  // A P0 is never brought in (Ruling T15-7): a freshly placed extractor with no product and no routes beside two Basics drawing
+  // Microorganisms from storage read 288,000 Microorganisms a day imported and the planet's ISK a day not known. Now the idle
+  // extractor explains them, its flag naming what it holds back, nothing is imported, and the figure is known.
+  const fresh = chainOf(colony([pin(1, CC), pin(10, ECU), pin(20, STORE), pin(30, PAD), fac(41, BASIC, S_BACT), fac(42, BASIC, S_BACT)],
+    [[20, 41, MICRO, 3000], [20, 42, MICRO, 3000], [41, 30, BACTERIA, 20], [42, 30, BACTERIA, 20]]));
+  eq('  a P0 is never an import: no imports, the idle extractor the one flag, the ISK a day known', [fresh.imports, flagsOf(fresh), fresh.iskDay, fresh.why], [[], [['idle', null, 10]], 0, null]);
+  eq('  and the idle extractor names the factories it leaves making nothing', saidOf(fresh), 'An extractor has no programme: it extracts nothing; with it, the Bacteria factories make nothing');
+  // With no idle extractor to explain it, the factory's own flag says it makes none.
+  const noFeed = chainOf(colony([pin(1, CC), ecu(11, BASE, 6000), pin(20, STORE), pin(30, PAD), fac(41, BASIC, S_BACT)], [[11, 20, BASE, 6000], [20, 41, MICRO, 3000], [41, 30, BACTERIA, 20]]));
+  eq('  no extractor to explain it: the factory’s flag, making none, nothing imported', [flagsOf(noFeed), saidOf(noFeed), noFeed.imports], [[['starving', MICRO, 41]], 'A Basic factory making Bacteria draws Microorganisms from a storage facility, which nothing on the planet routes it into, so it makes none', []]);
   // One factory fed from the launchpad but missing its other input: it draws nothing, so nothing is brought in for it.
   const halfFed = chainOf(colony([pin(1, CC), pin(30, PAD, { contents: [[BACTERIA, 4000]] }), fac(51, ADV, S_NAN)], [[30, 51, BACTERIA, 40], [51, 30, NANITES, 5]]));
   eq('  a launchpad-fed factory missing its other input: its flag, no imports, ISK a day 0 (nothing leaves), no import why', [flagsOf(halfFed), halfFed.imports, halfFed.iskDay, halfFed.why], [[['starving', REACTIVE, 51]], [], 0, null]);
@@ -8666,14 +8755,23 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   one.pins = one.pins.filter((p) => p.id !== 52);
   const oneC = chainOf(one);
   eq('  the same product on a thinner layout: the planner’s own pays more', versusBest(oneC, bestOf(oneC, sell), ix), { gain: 430_080, said: 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day' });
-  // A best that doesn't fit at the colony's own level is no better: nothing said, never a suggestion to train (Ruling T15-1).
+  // A best that doesn't fit at the colony's own level is no better: nothing said, never a suggestion to train (Ruling T15-1). Since
+  // Ruling F9 the planner plans at a level only what fits there, so such a best is one planned at a higher level than the colony's:
+  // planned at V, 3 + 3 Basics and 3 Advanced; planned at IV, the most that fit there, 2 + 3 and 2, as the colony is laid out.
   const C15 = chainOf(nanites({ micro: 15000 }));
   const at4 = bestOf(C15, sell), at5 = bestOf(C15, sell, undefined, 5);
-  eq('  the planner’s best here is 3 + 3 Basics and 3 Advanced, which fits only at Command Center Upgrades V', [at4.roles[0].fit.fits, at4.roles[0].lacks, at5.roles[0].fit.fits, at5.iskDay > C15.iskDay + 1], [false, 'Command Center Upgrades V', true, true]);
+  const countsOf = (b) => b.roles[0].makes.map((m) => m.count);
+  eq('  planned at V the planner’s best is 3 + 3 Basics and 3 Advanced, which fits only at V; planned at IV, the most that fit there (F9)', [at4.roles[0].fit.fits, at4.roles[0].lacks, countsOf(at4), at5.roles[0].fit.fits, countsOf(at5), at5.iskDay > C15.iskDay + 1], [true, null, [2, 3, 2], true, [3, 3, 3], true]);
   eq('  a best that fits only at V against a colony at IV says nothing, planned at IV or at V', [versusBest(C15, at4, ix), versusBest(C15, at5, ix)], [{ gain: 0, said: '' }, { gain: 0, said: '' }]);
   const C15v = chainOf(nanites({ micro: 15000, level: 5 }));
   const vsV = versusBest(C15v, at5, ix);
   eq('  the same best against a colony at V does speak', [near(vsV.gain), vsV.said.length > 0], [near(at5.iskDay - C15v.iskDay), true]);
+  // A P0 left over with no price, on either side, counts as nothing on both and no longer withholds the comparison (Ruling T15-5),
+  // said when the words speak. The colony keeps 3,000 Microorganisms an hour; the planner's best keeps the P0 its layout can't take.
+  const noP0 = sellBy(unitOf({ [MICRO]: null, [BASE]: null, [NOBLE]: null, [MECH]: 12_000 }));
+  const C15n = chainOf(nanites({ micro: 15000 }), { sell: noP0 }), bestN = bestOf(C15n, noP0, { [NOBLE]: { perHour: 15000, higher: null } });
+  const vsN0 = versusBest(C15n, bestN, ix);
+  eq('  an unpriced P0 left over lets versusBest compare, and is said', [C15n.iskDay != null, bestN.outputs.some((o) => o.stays?.noPrice), vsN0.gain != null && vsN0.gain > 0, vsN0.said.includes('left over'), vsN0.said.includes('no price here')], [true, true, true, true, true]);
   // An output with no price on either side: no comparison against 0 (Review, Important 4).
   const vsNoPrice = versusBest(noReactive, best, ix), vsBestNoPrice = versusBest(A, bestOf(A, sellBy(unitOf({ [REACTIVE]: null }))), ix);
   eq('  an unpriced output on either side: gain null, and why', [vsNoPrice.gain, vsNoPrice.said.includes('Reactive Metals'), vsBestNoPrice.gain, vsBestNoPrice.said.includes('Reactive Metals')], [null, true, null, true]);
@@ -8689,11 +8787,15 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const viaCC = chainOf(nanites({ drop: [[10, 20, MICRO, 25000], [20, 41, MICRO, 3000], [20, 42, MICRO, 3000]], add: [[10, 1, MICRO, 25000], [1, 41, MICRO, 3000], [1, 42, MICRO, 3000]] }));
   eq('  Microorganisms through the command centre: no flag, the same as through storage', [viaCC.flags, viaCC.makes.map((m) => near(m.perDay)), near(viaCC.iskDay)], [[], [1920, 2880, 240], 2_741_760]);
   const ccEmpty = chainOf(nanites({ drop: [[20, 41, MICRO, 3000], [20, 42, MICRO, 3000]], add: [[1, 41, MICRO, 3000], [1, 42, MICRO, 3000]] }));
-  eq('  Basics drawing from a command centre nothing fills: each flagged, naming it', [flagsOf(ccEmpty), saidOf(ccEmpty)], [[['starving', MICRO, 41], ['starving', MICRO, 42]], 'A Basic factory making Bacteria draws Microorganisms from the command centre, which nothing on the planet routes it into: it runs only on what you bring in']);
+  // A P0 is never brought in (Ruling T15-7: the planner never buys one), so the words don't suggest a top-up.
+  eq('  Basics drawing a P0 from a command centre nothing fills: each flagged, naming it, and making none', [flagsOf(ccEmpty), saidOf(ccEmpty), ccEmpty.imports], [[['starving', MICRO, 41], ['starving', MICRO, 42]], 'A Basic factory making Bacteria draws Microorganisms from the command centre, which nothing on the planet routes it into, so it makes none', []]);
   // A factory drawing from a launchpad a good also made here, but routed elsewhere: it runs on what's brought in, said so (R3).
   const topUp = chainOf(nanites({ drop: [[20, 52, BACTERIA, 40]], add: [[30, 52, BACTERIA, 40]] }));
-  eq('  an Advanced drawing Bacteria from a launchpad, Bacteria made here and stored: one flag, saying what’s true', [flagsOf(topUp), saidOf(topUp)], [[['starving', BACTERIA, 52]], 'An Advanced factory making Nanites draws Bacteria from a launchpad, which nothing on the planet routes it into: it runs only on what you bring in']);
-  eq('  never "so it makes none" for a factory drawing from a holder', built.flatMap((c) => c.flags).filter((f) => / from (a storage facility|a launchpad|the command centre)/.test(f.said) && f.said.includes('makes none')).map((f) => f.said), []);
+  // The chain counts that factory as making none, so its words say so (Ruling T15-7, the re-review 2's R3 residual).
+  eq('  an Advanced drawing Bacteria from a launchpad, Bacteria made here and stored: one flag, saying what’s true and that it isn’t counted', [flagsOf(topUp), saidOf(topUp)], [[['starving', BACTERIA, 52]], 'An Advanced factory making Nanites draws Bacteria from a launchpad, which nothing on the planet routes it into: it runs only on what you bring in, and isn’t counted here']);
+  const fromHolder = built.flatMap((c) => c.flags).filter((f) => / from (a storage facility|a launchpad|the command centre)/.test(f.said));
+  eq('  never "so it makes none" for a factory drawing a P1 or higher from a holder, never "what you bring in" for a P0',
+    [fromHolder.filter((f) => ix.byId.get(f.id).tier !== 'P0' && f.said.includes('makes none')).map((f) => f.said), fromHolder.filter((f) => ix.byId.get(f.id).tier === 'P0' && f.said.includes('bring in')).map((f) => f.said)], [[], []]);
   // A factory with neither its input nor its output routed runs nothing: one flag, no building up (R4).
   const loose = chainOf(nanites({ pins: [fac(46, BASIC, S_BACT)] }));
   eq('  a factory with nothing routed in or out: one flag, nothing building up, the rest as before', [flagsOf(loose), saidOf(loose), near(loose.iskDay)], [[['starving', MICRO, 46]], 'Nothing routes Microorganisms into a Basic factory making Bacteria, so it makes none', 2_741_760]);
