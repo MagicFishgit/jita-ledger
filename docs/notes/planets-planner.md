@@ -24,7 +24,11 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   (Ruling T15b-5, `assumedHeads`, `PlanInput.heads`: "at 5 heads, the median of your extractors' learned rates"), **capped at the
   most heads that leave room for its rates' layout** where the plan must fit (Ruling T15b-8, `capHeads`: "at 7 heads: your
   extractors' median is 10, and no more fit beside its factories"); when even one head a line leaves none, and with nothing
-  learned, the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
+  learned, the most that fit, said ("at the most heads that fit beside its factories", Ruling T8-1). **A line on another P0's
+  learned rate or a typed one whose known heads leave no room for the least layout** (a Basic a line, an Advanced for P0 → P2) is
+  set aside as unknown (Ruling T15b-12, `setAsideBorrowed`): the assumed 12,000 an hour on the capped median, said ("another P0's
+  rate is at 10 heads, more than fit here, so …"), never scaled and never ranked unbuildable for it; a line on its own learned
+  rate keeps its heads (its colony had them). A rate from programmes of another length says "rates from N-day
   programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
 - **An unvalued good is neither credited nor taxed** (the final review's I1; `assess`, `valueFed`). It is still shipped (nothing says
   how much would build up), but its export tax goes with its sale: with no hub picked, P0 → P1 and P0 → P2 ranked first on a loss
@@ -143,6 +147,11 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   Jita is priced through the `industry` doc's freight route from the home hub (`legFor`); a Jita pace of 0 or null is unpriced
   with its reason, never a freight minimum spread over nothing (Ruling T10-2). With no hub picked nothing is priced (Ruling
   T10-3). A character whose fees aren't read is waited on, in Industry's words.
+  - **Sell at the hub: a good it doesn't price is valued at Jita's, warned** (Ruling F11, the user's own: "just pull the jita figure
+    instead and warn, that way i can put it up for that price locally or store it for shipping to jita"; `soldAtHome`, once in
+    `usePlanetMarket`'s `sell` and `unit`): on the route, what it nets shipped; with none, Jita's own before freight. Per good and
+    wholly (`Sell`'s contract holds); neither prices, unvalued with both reasons (I1). Marked `fallback`: each output says "No price
+    at UALX-3: valued at Jita's: … after freight (Jita lists it at …)", the setup and versusBest name the goods. Before, all unvalued.
 - **Buying** (Rulings T11-3, T11-7). Jita: others' listings walked up the book for a week's need (the morning scan's seven levels,
   the live book's for the goods the ranking names), each level with its own freight in, **held to your industry share of the
   good's day in The Forge**; past that, unpriced with what Jita supplies. Nothing capped it before: 5-NZNW's top setup read
@@ -172,7 +181,8 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   the page on 19 October 2026, the same with and without the median heads of T15b-5): P0 → P2 16.94 M (14.82 M with the colony at 5
   heads an extractor), feed 15.02 M, P0 → P1 13.72 M, bought 71.86 M. Those figures hid that, at the seeded colony's median of 10
   heads uncapped, every unrated planet fit at no level (T15b-8): the page case now asserts none does, and the planner-in-steps check
-  that every planet of P0 → P1, P0 → P2 and the feed fits.
+  that every planet of P0 → P1, P0 → P2 and the feed fits. T15b-12 moved them at 10 heads (P0 → P1 12.16 M, P0 → P2 13.97 M, feed
+  14.32 M): Barren planets borrowing the 10-head rate had been ranked on a layout that fit at no level; at 5 heads unchanged.
 
 ## Limits
 
@@ -191,9 +201,12 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   fit at no level, while its figures stayed the same (the round claimed every layout fitted beside 20 heads; it didn't). Capped,
   the rates' layout comes first and the heads give way, said: beside a colony's storage, an unrated Base Metals line runs on 3 heads
   under a median of 5, beside 3 + 2 Basics and 2 Advanced. **When even one head a line leaves no room for it, and with nothing
-  learned,** one head a line is reserved while F9 sizes the factories, and `fitted` fills in the most heads that fit after, said
-  only as "the most that fit" (T8-1). **A rate whose heads are known keeps them**, another P0's learned rate too: on the page case's
-  Barren planets, Noble Metals at the rate learned for Base Metals keeps its 10 heads, and those layouts fit at no level, said.
+  learned,** one head a line is reserved while F9 sizes the factories, and `fitted` fills in the most heads that fit after, said on
+  the line ("at the most heads that fit beside its factories"; before Task 15c a line with no rate didn't say it). **A rate learned
+  for that P0 keeps its heads** where they leave no room (said with what it lacks); another P0's or a typed one is set aside then
+  (T15b-12), ranked on an assumed rate, not the borrowed one's yield.
+- **A good valued at Jita's because the hub has no price isn't a sale at the hub** (F11): what it nets shipped to Jita (or Jita's
+  own before freight), a figure to list it at home by or to ship it later; no hub buyer is known to take it.
 - **The feed's and chain's factory planet must fit at CCU V** (T9-3), not at the character's own level: placed with someone it
   doesn't fit, it's ranked and said with what it lacks.
 

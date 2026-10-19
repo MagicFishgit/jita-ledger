@@ -103,7 +103,9 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     plan's own example (the ranked P0 → P2 makes Mechanical Parts there: Nanites is the cheapest Barren P2). A chain's P3 "can"
     only when it needs more planets than one character has (`CHAIN_P3_WHEN`). **Ruling T12-2**: each value says the book it's on
     (`UnitNet.book`: Jita now, this morning's Jita book, the hub's own read, Goonmetrics'), since only the ranking's goods are read
-    live. Goods the system can't supply are greyed (`aria-disabled`, still pickable): **UALX-3 lacks four P0s**, not the plan's
+    live. With Sell at the hub, a good it doesn't price is valued at Jita's (F11, planets-planner.md): the chip ends "· Jita's"
+    (`data-fallback`), its tip and recipe head say "No price at UALX-3: valued at Jita's: … (Jita lists it at …)"; Oxides read "–".
+    Goods the system can't supply are greyed (`aria-disabled`, still pickable): **UALX-3 lacks four P0s**, not the plan's
     two (no Lava, Plasma, Ice or Oceanic planet: Felsic Magma, Heavy Metals, Non-CS Crystals, Planktic Colonies), and 40 goods are
     greyed there; 5-NZNW has all 15. Scrolls to the recipe only on a pick, never on opening with a good kept
     (`jita-ledger:planets-good`).

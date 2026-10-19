@@ -85,7 +85,11 @@ planets-planner.md.
       nothing. **An output on the colony's side unpriced** (UALX-3's prices, where III's surplus P1 has none) **still says the fault,
       in counts alone** (Ruling T15b-11): "Makes Nanites; your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag
       above says why); no ISK figure while Bacteria and Reactive Metals have no price: …", `gain` null. Not known is never 0, and the
-      fault is what versusBest exists to catch; the ISK figure comes only with both sides priced.
+      fault is what versusBest exists to catch; the ISK figure comes only with both sides priced. **Since Ruling F11** a good the hub
+      doesn't price is valued at Jita's with Sell at the hub, so this is left for a good Jita doesn't price either: III's shape at
+      UALX-3 now reads "pays 106,080 ISK more a day: your 2 Advanced … (a flag above says why); valued at Jita's where UALX-3 has no
+      price: Bacteria and Reactive Metals", the goods so valued named on either side (`fallbackGoods`; Task 16 names a colony's own
+      the same way).
     - **Every rate the colony hasn't shown is said, each in its own words** (Ruling T15b-5): none, "if it gets 12,000 Noble Metals an
       hour, a rate no colony of yours has shown"; another P0's, "with Noble Metals at the rate learned for another P0"; typed, "with
       Noble Metals at the rate you typed". Task 16 shows the qualifier with the figure, never the figure alone, and draws a colony's
