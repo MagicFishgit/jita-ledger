@@ -8456,7 +8456,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { planSingle } = await import('../src/lib/piPlan.ts');
   const { readings } = await import('../src/lib/piExtraction.ts');
-  const { colonyChain, versusBest, pinKindOf } = await import('../src/lib/colonyChain.ts');
+  const { colonyChain, versusBest, pinKindOf, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
   const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
   const schOf = (name) => ix.schematics.find((s) => s.name === name).id;
@@ -8473,25 +8473,28 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // An extractor on hour-long cycles over a 72-hour programme begun 12 h before T, so it ends 60 h after: its lower reading is
   // its quantity a cycle an hour (72 cycles over 72 h); CCP's formula, which reads the quantity as a 15-minute base, is higher.
   const ecu = (id, p0, qty) => pin(id, ECU, { install: iso(T - 12 * H), expiry: iso(T + 60 * H), lastCycle: iso(T - H), extractor: { cycle: 3600, product: p0, qty, heads: 5 } });
+  // An extractor set on a P0 with no programme running: no times, no quantity.
+  const unset = (id, p0) => pin(id, ECU, { extractor: { cycle: 0, product: p0, qty: null, heads: 0 } });
   const fac = (id, typeId, schematic) => pin(id, typeId, { lastCycle: iso(T - 0.2 * H), schematic });
   const S_BACT = schOf('Bacteria'), S_REACT = schOf('Reactive Metals'), S_NAN = schOf('Nanites');
+  const colony = (pins, routes, level = 4) => ({ planetId: 40000001, systemId: 30004865, planetType: 'Barren', level, lastUpdate: iso(T - H), pins: pins.sort((a, b) => a.id - b.id), links: [], routes });
   // P0 → P2 Nanites from two extractors: Microorganisms at 12,000 an hour into 2 Basics (exactly what they take), Base Metals at
   // 18,000 into 3, so 80 Bacteria and 120 Reactive Metals an hour; 2 Advanced take 80 of each and make 10 Nanites an hour.
-  const nanites = ({ micro = 12000, base = 18000, drop = [], pins = [], contents = {} } = {}) => {
+  const nanites = ({ micro = 12000, base = 18000, drop = [], add = [], pins = [], swap = {}, contents = {}, level } = {}) => {
     const ps = [
       pin(1, CC), ecu(10, MICRO, micro), ecu(11, BASE, base),
       pin(20, STORE, { contents: contents[20] ?? [[MICRO, 3000], [BASE, 4000]] }), pin(30, PAD, { contents: contents[30] ?? [[NANITES, 20]] }),
       fac(41, BASIC, S_BACT), fac(42, BASIC, S_BACT), fac(43, BASIC, S_REACT), fac(44, BASIC, S_REACT), fac(45, BASIC, S_REACT),
       fac(51, ADV, S_NAN), fac(52, ADV, S_NAN), ...pins,
-    ].sort((a, b) => a.id - b.id);
+    ].map((p) => swap[p.id] ?? p);
     const routes = [
       [10, 20, MICRO, 25000], [11, 20, BASE, 36000],
       [20, 41, MICRO, 3000], [20, 42, MICRO, 3000], [20, 43, BASE, 3000], [20, 44, BASE, 3000], [20, 45, BASE, 3000],
       [41, 20, BACTERIA, 20], [42, 20, BACTERIA, 20], [43, 20, REACTIVE, 20], [44, 20, REACTIVE, 20], [45, 20, REACTIVE, 20],
       [20, 51, BACTERIA, 40], [20, 51, REACTIVE, 40], [20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40],
       [51, 30, NANITES, 5], [52, 30, NANITES, 5],
-    ].filter((r) => !drop.some((d) => d.every((x, i) => x === r[i])));
-    return { planetId: 40000001, systemId: 30004865, planetType: 'Barren', level: 4, lastUpdate: iso(T - H), pins: ps, links: [], routes };
+    ].filter((r) => !drop.some((d) => d.every((x, i) => x === r[i]))).concat(add);
+    return colony(ps, routes, level);
   };
   // Nanites 10,000 a unit, every other P2 3,000, P1 400, P0 2, every one sold whole in Jita (the planner's own tests' prices).
   const unitOf = (over = {}) => (id) => id in over ? over[id] : (id === NANITES ? 10_000 : { P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
@@ -8502,15 +8505,24 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   };
   const brave = { rate: 0.02, from: 'brave', npc: 0, interbus: false };
   const sell = sellBy(unitOf());
-  const chainOf = (k, over = {}) => colonyChain(k, ix, over.sell ?? sell, over.now ?? T, over.tax ?? brave, over.checked);
+  // Every chain is worked out on a stated reading, never PI_READING's value, so the block holds whichever reading the code ships
+  // with: null is the reading unchecked (the lower ranked, the other beside it), 'formula' the in-game check's answer.
+  const built = [];
+  const chainOf = (k, over = {}) => {
+    const c = colonyChain(k, ix, over.sell ?? sell, over.now ?? T, over.tax ?? brave, 'checked' in over ? over.checked : null);
+    built.push(c);
+    return c;
+  };
   const near = (x) => Math.round(x * 100) / 100;
   const flagsOf = (c) => c.flags.map((f) => [f.flag, f.id, f.pinId]);
+  const saidOf = (c, i = 0) => c.flags[i]?.said ?? '';
 
   // Pins are told apart by ESI's type ID: only that says a launchpad from storage, or a factory with no schematic chosen.
   eq('  pin kinds from their type IDs', [CC, ECU, BASIC, ADV, STORE, PAD, 2492, 3060, 99].map(pinKindOf), ['command', 'extractor', 'basic', 'advanced', 'storage', 'launchpad', 'basic', 'extractor', null]);
 
   const A = chainOf(nanites());
   const lowA = readings({ qtyPerCycle: 12000, cycleSeconds: 3600, install: T - 12 * H, expiry: T + 60 * H });
+  const lowB = readings({ qtyPerCycle: 18000, cycleSeconds: 3600, install: T - 12 * H, expiry: T + 60 * H });
   eq('  each extractor at its lower reading, the other beside it, its programme and its end', A.extracts.map((e) => [e.pinId, e.p0, e.perHour, e.programHours, e.heads, e.ends, e.why]),
     [[10, MICRO, 12000, 72, 5, T + 60 * H, null], [11, BASE, 18000, 72, 5, T + 60 * H, null]]);
   eq('  the higher reading is CCP’s formula, above the lower', [A.extracts[0].higher, A.extracts[0].higher > 12000], [lowA.formula.perHour, true]);
@@ -8519,25 +8531,53 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  every output listed and valued, the surplus P1 included', A.outputs.map((o) => [o.id, near(o.perDay), near(o.sold.isk), o.buildingUp]),
     [[NANITES, 240, 2_400_000, 0], [REACTIVE, 960, 384_000, 0]]);
   // Tax: 240 × 7,200 × 2% on the Nanites and 960 × 400 × 2% on the Reactive Metals.
-  eq('  ISK a day after the customs tax', [near(A.taxDay), near(A.iskDay), A.before, A.unvalued, A.why], [42_240, 2_741_760, [], 0, null]);
+  eq('  ISK a day after the customs tax', [near(A.taxDay), near(A.iskDay), A.before, A.unvalued, A.unshipped, A.imports, A.why], [42_240, 2_741_760, [], 0, 0, [], null]);
   eq('  taxed by tier', A.taxes.map((t) => [t.tier, near(t.perDay)]), [['P2', 34_560], ['P1', 7680]]);
   eq('  the higher reading is worked out too, and is no lower', [A.iskDayHigh != null, A.iskDayHigh >= A.iskDay], [true, true]);
+  eq('  the colony’s level and its last update in game ride along', [A.level, A.lastUpdate], [4, iso(T - H)]);
   // Microorganisms reach the Basics at exactly what they take: under is starving, equal isn't.
   eq('  nothing wrong with it: no flags', A.flags, []);
+
+  // On the formula's reading (the in-game check's answer): that rate alone, nothing beside it.
+  const AF = chainOf(nanites(), { checked: 'formula' });
+  eq('  settled on the formula: its rate alone, no other reading, no figure on one', [AF.extracts.map((e) => [e.perHour, e.higher]), AF.iskDayHigh], [[[lowA.formula.perHour, null], [lowB.formula.perHour, null]], null]);
+  eq('  and what the factories don’t take of it is an output', AF.outputs.map((o) => o.id), [NANITES, REACTIVE, MICRO, BASE]);
+  const shortF = chainOf(nanites({ base: 8000 }), { checked: 'formula' });
+  eq('  short even on the formula: starving, with no other reading to offer', [flagsOf(shortF), saidOf(shortF).includes('15,908'), saidOf(shortF).includes('higher reading')], [[['starving', BASE, null]], true, false]);
+  eq('  settled on the per-cycle reading, it says nothing of the other', [saidOf(chainOf(nanites({ base: 15000 }), { checked: 'perCycle' })).includes('higher reading'), chainOf(nanites(), { checked: 'perCycle' }).extracts[0].higher, chainOf(nanites(), { checked: 'perCycle' }).iskDayHigh], [false, null, null]);
 
   // A factory missing an input: nothing routes Bacteria into the second Advanced, so it makes none.
   const miss = chainOf(nanites({ drop: [[20, 52, BACTERIA, 40]] }));
   eq('  a factory missing an input is starving, naming the input and the factory', flagsOf(miss), [['starving', BACTERIA, 52]]);
-  has('  and says so', miss.flags[0].said, 'Bacteria');
+  has('  and says so', saidOf(miss), 'Bacteria');
   eq('  it makes no Nanites: 120 a day from the other', near(miss.makes.find((m) => m.id === NANITES).perDay), 120);
   eq('  what it doesn’t take is an output', miss.outputs.map((o) => [o.id, near(o.perDay)]), [[NANITES, 120], [BACTERIA, 960], [REACTIVE, 1920]]);
-  // An input whose supply is under its need: 15,000 Base Metals an hour into 3 Basics that take 18,000.
+  // An input whose supply is under its need: 15,000 Base Metals an hour into 3 Basics that take 18,000 (83%).
   const short = chainOf(nanites({ base: 15000 }));
   eq('  an input under its need is starving', flagsOf(short), [['starving', BASE, null]]);
-  has('  it says what reaches the factories and what they take', short.flags[0].said, '15,000');
-  has('  and that it’s on the lower reading (the formula’s gives them enough)', short.flags[0].said, 'higher reading');
+  has('  it says what reaches the factories and what they take', saidOf(short), '15,000');
+  has('  and that it’s on the lower reading (the formula’s gives them enough)', saidOf(short), 'higher reading');
   eq('  the Basics run at 15,000 ÷ 18,000: 2,400 Reactive Metals a day, still enough for 240 Nanites', [near(short.makes.find((m) => m.id === REACTIVE).perDay), near(short.makes.find((m) => m.id === NANITES).perDay)], [2400, 240]);
-  eq('  settled on the per-cycle reading, it says nothing of the other', [chainOf(nanites({ base: 15000 }), { checked: 'perCycle' }).flags[0].said.includes('higher reading'), chainOf(nanites(), { checked: 'perCycle' }).extracts[0].higher, chainOf(nanites(), { checked: 'perCycle' }).iskDayHigh], [false, null, null]);
+  // Starving is a named band: a few percent short is a programme's own wobble, not a fault (Ruling T15-3).
+  eq('  the band is 95% of the need', STARVING_BELOW, 0.95);
+  eq('  11,950 Microorganisms into Basics taking 12,000 (99.6%) is not starving', chainOf(nanites({ micro: 11950 })).flags, []);
+  const band = chainOf(nanites({ micro: 11300 }));
+  eq('  11,300 (94.2%) is, and says 94%, never rounded up', [flagsOf(band), saidOf(band).includes('94%')], [[['starving', MICRO, null]], true]);
+  // Only the root of a shortfall is flagged: Microorganisms at 9,000 hold the Bacteria Basics to 75%, and so the Nanites.
+  const root = chainOf(nanites({ micro: 9000 }));
+  eq('  a short P0 is one flag, not one for every good after it', flagsOf(root), [['starving', MICRO, null]]);
+  eq('  its words name what it holds back downstream', [saidOf(root).includes('75%'), saidOf(root).includes('Nanites')], [true, true]);
+  eq('  1,440 Bacteria and 180 Nanites a day; the Reactive Metals the Advanced don’t use go to storage', [root.makes.map((m) => near(m.perDay)), root.outputs.map((o) => [o.id, near(o.perDay)])], [[1440, 2880, 180], [[NANITES, 180], [REACTIVE, 1440]]]);
+  // An extractor with no programme explains everything after it: one flag.
+  const noProg = chainOf(nanites({ swap: { 10: unset(10, MICRO) } }));
+  eq('  an extractor with no programme is idle, and nothing after it is flagged again', flagsOf(noProg), [['idle', null, 10]]);
+  eq('  its words say what it holds back', [saidOf(noProg).includes('Bacteria'), saidOf(noProg).includes('Nanites')], [true, true]);
+  eq('  a colony with no programmes set: two idle extractors, nothing else', flagsOf(chainOf(nanites({ swap: { 10: unset(10, MICRO), 11: unset(11, BASE) } }))), [['idle', null, 10], ['idle', null, 11]]);
+  // The routes are followed pin by pin: the Basics draw Microorganisms from a storage nothing routes it into.
+  const offPad = chainOf(nanites({ drop: [[10, 20, MICRO, 25000]], add: [[10, 30, MICRO, 25000]] }));
+  eq('  a factory drawing from a storage nothing fills is starving, at the factory', flagsOf(offPad), [['starving', MICRO, 41], ['starving', MICRO, 42]]);
+  has('  and says it’s the storage', saidOf(offPad), 'storage');
+  eq('  so it makes nothing, and what reaches the launchpad is exported', [offPad.makes.map((m) => near(m.perDay)), offPad.outputs.map((o) => [o.id, near(o.perDay)])], [[0, 2880, 0], [[REACTIVE, 2880], [MICRO, 288_000]]]);
   // A P0 surplus sits in storage and can be exported: 20,000 Base Metals an hour, 18,000 taken.
   const p0 = chainOf(nanites({ base: 20000 }));
   eq('  a P0 surplus in storage is an output too', p0.outputs.map((o) => [o.id, near(o.perDay)]), [[NANITES, 240], [REACTIVE, 960], [BASE, 48_000]]);
@@ -8546,14 +8586,21 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // An output not routed onward and not to storage or a launchpad: the first Advanced's Nanites go nowhere.
   const stuck = chainOf(nanites({ drop: [[51, 30, NANITES, 5]] }));
   eq('  an output routed nowhere is building up, naming the good and the factory', flagsOf(stuck), [['buildingUp', NANITES, 51]]);
+  eq('  its words say only the route', saidOf(stuck), 'Nanites from an Advanced factory isn’t routed anywhere');
   const sn = stuck.outputs.find((o) => o.id === NANITES);
   eq('  it isn’t exported: half the Nanites sell, the other half build up', [near(sn.perDay), near(sn.sold.units), near(sn.buildingUp)], [240, 120, 120]);
   eq('  and only what’s exported counts', near(stuck.iskDay), 1_200_000 + 384_000 - 17_280 - 7680);
+  // A good that can't leave at all isn't shipped: said apart from a good with no price.
+  const kept = chainOf(nanites({ drop: [[51, 30, NANITES, 5], [52, 30, NANITES, 5]] }));
+  const kn = kept.outputs.find((o) => o.id === NANITES);
+  eq('  a good that can’t leave: none sold, all of it building up, counted apart from the unpriced', [kn.sold.units, near(kn.buildingUp), kept.unshipped, kept.unvalued, kept.before, near(kept.iskDay)], [0, 240, 1, 0, [], 384_000 - 7680]);
+  has('  and its reason says it isn’t shipped', kn.sold.why, 'isn’t shipped');
 
   // Storage or a launchpad at 95% of its capacity (the bundle's: 10,000 m³ a launchpad, 12,000 storage).
   const full = chainOf(nanites({ contents: { 30: [[NANITES, 12_800]], 20: [[BASE, 2_256_000]] } }));
   eq('  a launchpad at 9,600 m³ is full; storage at 11,280 (94%) isn’t', flagsOf(full), [['storageFull', null, 30]]);
-  has('  it says how full', full.flags[0].said, '9,600');
+  has('  it says how full', saidOf(full), '9,600');
+  has('  as of the colony’s last update in game', saidOf(full), 'as of the colony’s last update in game');
   // A factory with no schematic chosen is idle: it makes nothing, whatever it holds.
   const idle = chainOf(nanites({ pins: [fac(46, BASIC, null)] }));
   eq('  a factory with no schematic is idle', [flagsOf(idle), idle.makes.length, near(idle.iskDay)], [[['idle', null, 46]], 3, 2_741_760]);
@@ -8561,7 +8608,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  ending within a day', flagsOf(chainOf(nanites(), { now: T + 59 * H })), [['endingSoon', MICRO, 10], ['endingSoon', BASE, 11]]);
   eq('  ended', flagsOf(chainOf(nanites(), { now: T + 61 * H })), [['expired', MICRO, 10], ['expired', BASE, 11]]);
   eq('  ended, its figures are the programme’s', near(chainOf(nanites(), { now: T + 61 * H }).iskDay), 2_741_760);
-  has('  ended says to reset the heads', chainOf(nanites(), { now: T + 61 * H }).flags[0].said, 'reset');
+  has('  ended says to reset the heads', saidOf(chainOf(nanites(), { now: T + 61 * H })), 'reset');
 
   // Not known is never 0: an extractor that didn't say its quantity a cycle.
   const unk = nanites();
@@ -8570,6 +8617,14 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  a rate not known: null, with why', [U.extracts[0].perHour, U.extracts[0].why != null], [null, true]);
   eq('  so what it makes isn’t known: no figures, never 0', [U.makes.map((m) => m.perDay), U.outputs, U.iskDay, U.iskDayHigh, U.why != null], [[null, null, null], [], null, null, true]);
   eq('  and nothing is starving on a rate not known', U.flags.filter((f) => f.flag === 'starving'), []);
+
+  // A factory planet fed from its launchpad (setups 3 and 4 of the spec): its inputs are imported, never starving (Ruling T15-2).
+  const padFed = colony([
+    pin(1, CC), pin(30, PAD, { contents: [[BACTERIA, 4000], [REACTIVE, 4000]] }), fac(51, ADV, S_NAN), fac(52, ADV, S_NAN),
+  ], [[30, 51, BACTERIA, 40], [30, 51, REACTIVE, 40], [30, 52, BACTERIA, 40], [30, 52, REACTIVE, 40], [51, 30, NANITES, 5], [52, 30, NANITES, 5]]);
+  const P = chainOf(padFed);
+  eq('  fed from its launchpad: no flag, what it makes while kept stocked, and what that takes', [P.flags, P.makes.map((m) => [m.id, near(m.perDay)]), P.imports?.map((i) => [i.id, near(i.perDay)])], [[], [[NANITES, 240]], [[BACTERIA, 1920], [REACTIVE, 1920]]]);
+  eq('  its ISK a day isn’t known, though every output is priced: the imports’ cost isn’t, never 0', [P.iskDay, P.iskDayHigh, P.taxDay, P.why, P.outputs.map((o) => [o.id, near(o.sold.isk)])], [null, null, null, 'Its Bacteria and Reactive Metals come from off the planet, and their cost isn’t known here', [[NANITES, 2_400_000]]]);
 
   // An output nobody prices is neither credited nor taxed (the planner's I1).
   const noReactive = chainOf(nanites(), { sell: sellBy(unitOf({ [REACTIVE]: null })) });
@@ -8581,15 +8636,15 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const noTax = chainOf(nanites(), { tax: { rate: null, from: 'none', npc: 0, interbus: false } });
   eq('  a tax not known: before it, and what each 1% costs', [noTax.taxDay, near(noTax.perPct), near(noTax.iskDay), noTax.before], [null, (240 * 7200 + 960 * 400) / 100, 2_784_000, ['tax']]);
 
-  // Against the planner's best single-planet setup for that planet alone, at the colony's own rates.
+  // Against the planner's best single-planet setup for that planet alone, at the colony's own rates and its own level.
   const planet = { planetId: 40000001, name: 'Test I', type: 'Barren', radiusKm: 3750, tax: brave };
   const rateFrom = (c, extra = {}) => (t, id) => {
     const e = c.extracts.find((x) => x.p0 === id) ?? null;
     const r = e ? { perHour: e.perHour, higher: e.higher } : extra[id] ?? null;
     return r && { ...r, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: false };
   };
-  const bestOf = (c, s, extra) => {
-    const input = { ix, planets: [planet], char: { charId: 1, name: 'Owner', planets: 1, ccLevel: 4, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
+  const bestOf = (c, s, extra, ccLevel = 4) => {
+    const input = { ix, planets: [planet], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
     const [p1, p2] = [planSingle(input, 'p1'), planSingle(input, 'p2')];
     return (p2.iskDay ?? -Infinity) >= (p1.iskDay ?? -Infinity) ? p2 : p1;
   };
@@ -8606,10 +8661,24 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   one.pins = one.pins.filter((p) => p.id !== 52);
   const oneC = chainOf(one);
   eq('  the same product on a thinner layout: the planner’s own pays more', versusBest(oneC, bestOf(oneC, sell), ix), { gain: 430_080, said: 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day' });
+  // A best that doesn't fit at the colony's own level is no better: nothing said, never a suggestion to train (Ruling T15-1).
+  const C15 = chainOf(nanites({ micro: 15000 }));
+  const at4 = bestOf(C15, sell), at5 = bestOf(C15, sell, undefined, 5);
+  eq('  the planner’s best here is 3 + 3 Basics and 3 Advanced, which fits only at Command Center Upgrades V', [at4.roles[0].fit.fits, at4.roles[0].lacks, at5.roles[0].fit.fits, at5.iskDay > C15.iskDay + 1], [false, 'Command Center Upgrades V', true, true]);
+  eq('  a best that fits only at V against a colony at IV says nothing, planned at IV or at V', [versusBest(C15, at4, ix), versusBest(C15, at5, ix)], [{ gain: 0, said: '' }, { gain: 0, said: '' }]);
+  const C15v = chainOf(nanites({ micro: 15000, level: 5 }));
+  const vsV = versusBest(C15v, at5, ix);
+  eq('  the same best against a colony at V does speak', [near(vsV.gain), vsV.said.length > 0], [near(at5.iskDay - C15v.iskDay), true]);
+  // An output with no price on either side: no comparison against 0 (Review, Important 4).
+  const vsNoPrice = versusBest(noReactive, best, ix), vsBestNoPrice = versusBest(A, bestOf(A, sellBy(unitOf({ [REACTIVE]: null }))), ix);
+  eq('  an unpriced output on either side: gain null, and why', [vsNoPrice.gain, vsNoPrice.said.includes('Reactive Metals'), vsBestNoPrice.gain, vsBestNoPrice.said.includes('Reactive Metals')], [null, true, null, true]);
   eq('  nothing to compare: no gain, and why', [versusBest(A, null, ix).gain, versusBest(A, null, ix).said.length > 0], [null, true]);
-  const vsU = versusBest(U, best, ix), vsN = versusBest(A, bestOf(A, () => ({ isk: null, units: 0, where: [], why: NOHUB })), ix);
-  eq('  no valued ISK on either side: gain null, never 0, and why', [vsU.gain, vsU.said.length > 0, vsN.gain, vsN.said.includes('home hub')], [null, true, null, true]);
+  const vsU = versusBest(U, best, ix), vsN = versusBest(A, bestOf(A, () => ({ isk: null, units: 0, where: [], why: NOHUB })), ix), vsP = versusBest(P, best, ix);
+  eq('  no valued ISK on either side: gain null, never 0, and why', [vsU.gain, vsU.said.length > 0, vsN.gain, vsN.said.includes('home hub'), vsP.gain, vsP.said.includes('off the planet')], [null, true, null, true, null, true]);
   eq('  before the customs tax, said', versusBest(chainOf(nanites(), { sell: dearMech, tax: { rate: null, from: 'none', npc: 0, interbus: false } }), { ...bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), before: ['tax'] }, ix).said.includes('before the customs tax'), true);
+
+  // Never "100%" on a starving flag, in any chain worked out above.
+  eq('  no starving flag says 100%', built.flatMap((c) => c.flags).filter((f) => f.flag === 'starving' && f.said.includes('100%')).map((f) => f.said), []);
 }
 
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
