@@ -16,8 +16,8 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   Past that, each way of running fewer that fits with room for no more (a Basic a line at least, never an idle Advanced) is a
   candidate the search values, the P0 its Basics can't take an output, said on the planet's line ("5 Basics and 2 Advanced fit at
   Command Center Upgrades IV: the Basics take 30,000 of the 35,293 P0 an hour; the rest builds up"). A layout fitting only higher is
-  never ranked in its place; one at its least whose heads leave no room keeps the rates' layout, said with what it lacks. Heads stay
-  the rate's. At the real rates (16,000–20,000 an extractor) every 5-NZNW planet's layout wanted 7–10 factories beside 10 heads,
+  never ranked in its place; when the least layout of its kind doesn't fit (a Basic a line, and an Advanced for P0 → P2) the rates'
+  layout stays, said with what it lacks. Heads stay the rate's. At the real rates (16,000–20,000 an extractor) every 5-NZNW planet's layout wanted 7–10 factories beside 10 heads,
   where 6 fit at IV, and read "train V" or fit at no level. With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if
   your extractors deliver 12,000 P0 an hour each" and listed in `before`, never claimed. Heads are the rate's (`ceil` of its
   median); 0 heads means the colony didn't say and the layout takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
@@ -50,7 +50,7 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   a good jointly, until nothing gains (`MAX_MOVES` 50). The greedy alone read 2,605,440 on the review's case where 4,525,440 was
   there (Test Cultures capped at 240 a day on Temperate). Measured 3–6 ms (P0 → P2) and 32 ms (P0 → P1) on 12 planets. With F9's
   candidates the searches compare by `scoreOf` (assess's figure alone) and pair planets only on goods offered: 5–7 and 25–27 ms
-  warm on 5-NZNW at the real rates (Task 15b; 61 and 124 before).
+  warm on 5-NZNW at the real rates (Task 15b; 3 and 31–35 before it, 61 and 124 with F9's candidates and no `scoreOf`).
 - **Feed** (`planFeed`): extraction planets make P1 (or a P2 alone) and ship to one factory planet making a P2 or P3, the three P2s
   no planet makes alone among them; export tax at each feeder, import at half and export at the factory.
   - **Every feeder must be needed** (`allNeeded`): without it the search dressed planets that only sell their own P1 up as
@@ -61,7 +61,14 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
     level it fits; feeders to a character they fit at its own level before one merely with more room (Rulings T9-3, T9-6).
   - **Feeders are sized as F9 sizes a planet** (`feederFits`): on their class's largest planet, at the lowest of the characters'
     levels that holds them (the feed's one; the chain's all), so one fits with anyone at that level or above; `remake` keeps the
-    counts the search valued. At the lowest level outright, one alt at CCU II threw every feeder back to the rates' layout.
+    counts the search valued. At the lowest level outright, one alt at CCU II threw every feeder back to the rates' layout. On an
+    owner above that level its line says so ("sized for Command Center Upgrades III, the lowest among this chain's characters, so it
+    fits whoever runs it": Ruling T15b-2); no feeder per level, which would multiply feeders as below.
+  - **One way per feeder** (`fedCtx`): of the ways F9 gives a feeder, one for each set of P0s it feeds the factory from (one that
+    fits, then the most Basics on them, the most even, its other line paying most), and one for each P2 made alone (the most P2).
+    Every way a feeder of its own cut the chain's search on 3 of Task 9's 240 brute-force systems where none was cut before, one 30%
+    short; one way each, none. The cost, on the user's real colonies with two characters: 15,862,624 a character against 16,025,985.
+    Brute force and the search share `fedCtx`, so the gates can't see that ~1%.
 - **The chain** (`planChain`): a P4, or a P3 needing more planets than one character has, across `[shown, ...others]`, only those
   whose skills are read and who aren't Alpha; a clone not read is worked out as Omega and said (Ruling T9-7).
   - **Ranked by ISK a day per character used** (the spec), so it sits in one list with one character's setups; the row shows the
@@ -161,8 +168,15 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
 
 - **A feed's or chain's extraction planet is sized on its class's largest planet** (F9): on a smaller one a factory more might fit
-  (5-NZNW's Gas: 5 Basics on VII's 53,350 km, 6 on IX's 16,390). **The export rule judges a good's first unit**: a later side
-  `soldOf` takes at a unit over nothing before the tax, so one netting under its tax sells at a small loss (never seen).
+  (5-NZNW's Gas: 5 Basics on VII's 53,350 km, 6 on IX's 16,390). **A chain's is sized at the lowest level among its characters that
+  holds it**, so a character at a higher level could run more there (T15b-2: with a second character at III, the owner's IV planets
+  run 4 Basics where 6 fit). **The export rule judges a good's first unit**: a later side `soldOf` takes at a unit over nothing
+  before the tax, so one netting under its tax sells at a small loss (never seen).
+- **A rate whose heads aren't known** (every extractor of that type and P0 said none) reserves one head a line while F9 sizes the
+  factories; `fitted` fills in the most heads that fit after, and the whole learned rate is credited to them, said only as "the
+  most that fit".
+- **The feed's and chain's factory planet must fit at CCU V** (T9-3), not at the character's own level: placed with someone it
+  doesn't fit, it's ranked and said with what it lacks.
 
 - **Planets compares setups within one system**, prices nothing until a home hub is picked on the Industry tab (Jita is priced
   through the hub's freight route, so even a high-sec system planned with no hub gets no prices), and at a thin home market a

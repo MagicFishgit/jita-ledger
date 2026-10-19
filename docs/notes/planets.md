@@ -121,13 +121,14 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 ## Open, and left for the stage-1 final review
 
 - **The chain at the real rate**, closed (Task 15b): two characters at IV on 5-NZNW read cut at 80,000 arrangements, 15,862,624 a
-  character, and 15,970,910 at 8 M (35 s), 0.7% more. No `RAN_OUT`, and too little for a seeded bound to be worth it.
+  character, and 15,970,910 at 8 M (35 s), 0.7% more. No `RAN_OUT`, and too little for a seeded bound to be worth it. The row
+  still says it "may be well under what this system can do", which overstates a 0.7% gap there; the words stay (the ruling).
 - **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): the main's five colonies run 9 or
   10 heads at CCU IV (4 + 5 or 5 + 5), inside the fit model beside their factories. It bit at the formula's rates: the planner's
   layouts wanted 7–10 factories where 6 fit, so Ruling F9 ranks the most that fit (Task 15b, planets-planner.md).
 - Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
   question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
-  ranked and said, since F9 only one whose heads leave room for no factory. The colonies' own are in planets-colonies.md.
+  ranked and said, since F9 only where the least layout of its kind doesn't fit. The colonies' own are in planets-colonies.md.
 - **A bought setup cut because its sizing didn't settle says the budget ran out** (`cut`'s one note): untrue for that path, never
   seen (no LP in 5,500 random programmes or any gate failed to settle). Telling the two apart needs a field saying which kind of
   cut; carried to stage 2 (the final re-review, 18 October 2026).
