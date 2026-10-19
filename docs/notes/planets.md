@@ -120,14 +120,14 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 
 ## Open, and left for the stage-1 final review
 
-- **The chain at the real rate**: the reading is settled (above), so the learned rates are about twice what they read. If the chain
-  runs out of budget there (`RAN_OUT`), that is a fix (seed the chain's bound from the feed's answer), not a limit.
-- **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): every one of the main's five
-  colonies runs 9 or 10 heads at CCU IV (4 + 5 or 5 + 5 on two extractors), inside the fit model's 11 beside a P0 → P2 colony's
-  factories, so the model holds there.
+- **The chain at the real rate**, closed (Task 15b): two characters at IV on 5-NZNW read cut at 80,000 arrangements and the same
+  16,025,985 a character at 400,000, 2 M and 8 M (29 s). No `RAN_OUT`, and nothing for a seeded bound to find.
+- **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): the main's five colonies run 9 or
+  10 heads at CCU IV (4 + 5 or 5 + 5), inside the fit model beside their factories. It bit at the formula's rates: the planner's
+  layouts wanted 7–10 factories where 6 fit, so Ruling F9 ranks the most that fit (Task 15b, planets-planner.md).
 - Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
   question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
-  ranked and said; the in-game check's head count decides whether that ever bites. The colonies' own are in planets-colonies.md.
+  ranked and said, since F9 only one whose heads leave room for no factory. The colonies' own are in planets-colonies.md.
 - **A bought setup cut because its sizing didn't settle says the budget ran out** (`cut`'s one note): untrue for that path, never
   seen (no LP in 5,500 random programmes or any gate failed to settle). Telling the two apart needs a field saying which kind of
   cut; carried to stage 2 (the final re-review, 18 October 2026).

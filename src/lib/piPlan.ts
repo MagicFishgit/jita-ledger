@@ -303,6 +303,8 @@ export const keptSold = (why: string): Sold => ({ isk: 0, units: 0, where: [], w
  * a colony none of whose outputs is gives no ISK a day, never one made of nothing.
  */
 export const valuedOutput = (o: Output) => o.sold.isk != null && !(o.stays?.noPrice && o.stays.perDay >= o.perDay - 1e-6);
+/** Whether any of an output leaves its planet for market: none does when all of it is kept (`keptWhy`), as a P0 left over usually is. */
+export const shippedOutput = (o: Output) => o.perDay > 0 && !(o.stays && o.stays.perDay >= o.perDay - 1e-6);
 
 /** The Basic schematic refining each P0, by the P0. */
 const basicsOf = new WeakMap<PiIndex, Map<number, Schematic>>();
@@ -1139,18 +1141,31 @@ function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number, level
   const raw: { cls: number; plan: Plan }[] = [];
   classes.forEach((c, ci) => {
     const m = c.members[0], fit = feederFits(c, levels);
-    const keep = new Map<string, { plan: Plan; other: number }>();
+    // One feeder for each set of P0s it feeds the factory from, as before Ruling F9: of the ways it runs at the level that holds it, one
+    // that fits before one that doesn't, then the most Basics on those P0s, the most even between them, and its other line paying most.
+    // Every way a feeder of its own made the chain's search run out of its budget where it used to finish (Task 9's brute force: 3 of
+    // 240 systems cut, one 30% short).
+    const rank = (p: Plan, useful: Line[], other: number) => [p.sized === 'over' ? 0 : 1, useful.reduce((n, l) => n + l.basics, 0), Math.min(...useful.map((l) => l.basics)), other];
+    const ahead = (a: number[], b: number[]) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
+    const keep = new Map<string, { plan: Plan; rank: number[] }>();
     for (const p of plansFor(input, m.planet, m.at, 'p1', false, fit)) {
       const useful = p.lines.filter((l) => kinds.has(l.p1));
       if (!useful.length) continue;
-      // Plans alike for the factory: the same P0s feeding it through as many Basics (a plan run with fewer than its rates feed is another).
-      const key = useful.map((l) => `${l.p0}x${l.basics}`).join(',');
-      const other = p.lines.filter((l) => !kinds.has(l.p1)).reduce((n, l) => n + lineNet(ix, sold, l, c.rate), 0);
+      const key = useful.map((l) => l.p0).join(',');
+      const r = rank(p, useful, p.lines.filter((l) => !kinds.has(l.p1)).reduce((n, l) => n + lineNet(ix, sold, l, c.rate), 0));
       const held = keep.get(key);
-      if (!held || other > held.other) keep.set(key, { plan: p, other });
+      if (!held || ahead(r, held.rank)) keep.set(key, { plan: p, rank: r });
     }
     for (const k of keep.values()) raw.push({ cls: ci, plan: k.plan });
-    if (tree.p2.size) for (const p of plansFor(input, m.planet, m.at, 'p2', false, fit)) if (tree.p2.has(p.product)) raw.push({ cls: ci, plan: p });
+    // A P2 made alone: the way that makes most of it, then the most Basics, the most even.
+    const p2s = new Map<number, { plan: Plan; rank: number[] }>();
+    if (tree.p2.size) for (const p of plansFor(input, m.planet, m.at, 'p2', false, fit)) {
+      if (!tree.p2.has(p.product)) continue;
+      const r = [p.sized === 'over' ? 0 : 1, p.advanced?.count ?? 0, ...rank(p, p.lines, 0).slice(1, 3)];
+      const held = p2s.get(p.product);
+      if (!held || ahead(r, held.rank)) p2s.set(p.product, { plan: p, rank: r });
+    }
+    for (const k of p2s.values()) raw.push({ cls: ci, plan: k.plan });
   });
   for (const r of raw) for (const s of r.plan.ships) if (!gi.has(s.id)) { gi.set(s.id, goods.length); goods.push(s.id); }
   const unit = Float64Array.from(goods, (g) => unitNet(sold, g));

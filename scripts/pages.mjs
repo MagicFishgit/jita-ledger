@@ -4006,6 +4006,35 @@ try {
       }
       if (SHOTS) { await page.locator('[data-planets="colonies"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies.png` }); }
     }
+
+    // --- Ruling F9 and T15-5 (Task 15b): the same colony with 5 heads an extractor, as the user's real ones run. Its rate (16,617 an
+    // hour) wants 3 + 3 Basics and 3 Advanced, where 5 Basics and 2 Advanced fit beside 10 heads at CCU IV: Plan ranks those, says so
+    // on the planet's line, and the P0 they can't take stays on the planet (through Brave Freight a unit of it nets under nothing).
+    {
+      const at5 = { colonies: colonies.colonies.map((c) => ({ ...c, pins: c.pins.map((p) => (p.extractor ? { ...p, extractor: { ...p.extractor, heads: 5 } } : p)) })) };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, colonies: at5, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+      // The app's address (BASE is Base Metals' type ID in this block).
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew again with 5 heads an extractor'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (5 heads): ${e.message.split('\n')[0]}`));
+      await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('5-NZNW’s planets never listed (5 heads)'));
+      await settled();
+      const line = await text(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`);
+      if (!/\d+ Basics and \d+ Advanced fit at Command Center Upgrades IV: the Basics take [\d,]+ of the [\d,]+ P0 an hour; the rest builds up/.test(line)) problems.push(`with 5 heads an extractor, planet I in P0 → P2 doesn’t say what fits at IV and what becomes of the rest: “${line.slice(0, 500)}”`);
+      if (/don’t fit at|No Command Center Upgrades level fits/.test(line)) problems.push(`with 5 heads an extractor, planet I in P0 → P2 is still ranked at a layout that doesn’t fit: “${line.slice(0, 300)}”`);
+      if (!/stay on the planet: a unit nets −[\d.]+ ISK after freight and fees, so it doesn’t pay to ship/.test(line)) problems.push(`planet I’s P0 left over isn’t said to stay for not paying to ship: “${line.slice(0, 500)}”`);
+      if (await page.locator('[data-planets="setup:p2"] [data-planets="train"]').count()) problems.push(`P0 → P2 still tells you to train: “${await text('[data-planets="setup:p2"] [data-planets="train"]')}”`);
+      const toggle = page.locator('[data-planets="setup:p2"] button[aria-expanded="false"]', { hasText: 'What it makes' });
+      if (await toggle.count()) await toggle.click().catch(() => undefined);
+      await page.waitForTimeout(300);
+      const outs = (await page.locator('[data-planets="setup:p2"] .pl-lines').filter({ hasText: 'What it makes, valued' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+      if (!outs.some((t) => /^(Base Metals|Microorganisms|Noble Metals): [\d,]+ a day, none shipped: it stays on the planet, building up, untaxed: a unit nets −[\d.]+ ISK after freight and fees, so it doesn’t pay to ship$/.test(t))) problems.push(`P0 → P2's outputs don't say the P0 left over stays: ${JSON.stringify(outs).slice(0, 500)}`);
+      if (outs.some((t) => /sold at nowhere|[^\d,]0 sold/.test(t))) problems.push(`an output kept on the planet reads as sold at nowhere: ${JSON.stringify(outs).slice(0, 400)}`);
+      if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with 5 heads an extractor');
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (5 heads an extractor): ${o}`);
+      if (SHOTS) { await page.locator(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-fit.png` }); }
+    }
     }
 
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();

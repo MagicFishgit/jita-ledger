@@ -6,7 +6,7 @@ import { dayCount } from '../../lib/split';
 import type { PlanetType } from '../../lib/pi';
 import type { Commodity, PiIndex, Schematic, Tier } from '../../lib/piBundle';
 import { canMake, goodsByTier, makingIn, missingFor, recipeOf, TIERS, typesWith, type CanMake } from '../../lib/piChart';
-import { charWhy, NO_SKILLS, type Setup, type SetupKind } from '../../lib/piPlan';
+import { charWhy, NO_SKILLS, shippedOutput, type Setup, type SetupKind } from '../../lib/piPlan';
 import { Points } from '../Facts';
 import { ItemIcon } from '../ui';
 import type { IndustryChar } from './industryChars';
@@ -300,4 +300,4 @@ function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: Ret
 
 /** A setup's name inside a sentence: "a chain across characters", "P0 → P1 on each planet". */
 const lower = (s: string) => (/^P\d/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
-const outputsSaid = (s: Setup | undefined, name: (id: number) => string) => (s ? listSaid(s.outputs.filter((o) => o.perDay > 0).map((o) => name(o.id))) : '');
+const outputsSaid = (s: Setup | undefined, name: (id: number) => string) => (s ? listSaid(s.outputs.filter(shippedOutput).map((o) => name(o.id))) : '');

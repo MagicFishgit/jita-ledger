@@ -12,7 +12,13 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   on the higher, null now). A layout is
   sized to the rate (Basics `ceil(P0 an hour ÷ 6,000)`, Advanced `ceil(the lesser P1 ÷ 40)`), not picked from fixed 2 + 4 or
   3 + 6: a factory short of input runs fewer cycles rather than stopping, so a layout counts the factories that keep up,
-  rounded up, and how busy they are (`runs`). With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if
+  rounded up, and how busy they are (`runs`), **as far as it fits at the character's own level** (Ruling F9, Task 15b, `fittedPlans`).
+  Past that, each way of running fewer that fits with room for no more (a Basic a line at least, never an idle Advanced) is a
+  candidate the search values, the P0 its Basics can't take an output, said on the planet's line ("5 Basics and 2 Advanced fit at
+  Command Center Upgrades IV: the Basics take 30,000 of the 35,293 P0 an hour; the rest builds up"). A layout fitting only higher is
+  never ranked in its place; one at its least whose heads leave no room keeps the rates' layout, said with what it lacks. Heads stay
+  the rate's. At the real rates (16,000–20,000 an extractor) every 5-NZNW planet's layout wanted 7–10 factories beside 10 heads,
+  where 6 fit at IV, and read "train V" or fit at no level. With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if
   your extractors deliver 12,000 P0 an hour each" and listed in `before`, never claimed. Heads are the rate's (`ceil` of its
   median); 0 heads means the colony didn't say and the layout takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
   programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
@@ -28,7 +34,10 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   to make but its customs, so their only loss-making tail is a good whose first side nets under its export tax (`soldOf` sells the
   first side even at a loss, shown as a loss), or one taxed while unpriced, which I1 ended; at today's prices the first doesn't
   arise for anything they export (freight is 20–50% of a P1's value). Don't extend the linear programme or the last-paying-unit
-  rule to P0 → P1, P0 → P2, feed or chain.
+  rule to P0 → P1, P0 → P2, feed or chain as sizing. **For exports it holds since Ruling T15-5** (Task 15b, `keptWhy`, shared with
+  colonyChain): a planet ships a good only while its first unit (`soldOf`'s first side, after freight and fees) nets above nothing
+  after the planet's export tax; the rest stays, untaxed, building up, and production isn't resized. F9's P0 left over is that
+  tail: Brave Freight's 4.5 ISK a unit against Jita asks of 2.10–4.60. A P0 with no price stays too, a known nothing, not unvalued.
 - **One market cap per good, and what builds up isn't taxed** (Ruling T8-3). A good's output is summed across planets and
   characters and sold once (`sell` on the total). What the market takes is exported from the lowest-tax planets first; the rest
   stays on its planet, untaxed, and is said to build up. Taxing every unit made let `iskDayHigh` read under `iskDay` (P0 → P1 on
@@ -39,7 +48,9 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
 - **P0 → P1 and P0 → P2: greedy, then a pick taken first gives way** (Ruling T8-2). Greedy by marginal value (what a pick adds to
   what's already sold, less its tax), then `improve`: re-pick a chosen planet, swap in an unused one, and re-pick a planet sharing
   a good jointly, until nothing gains (`MAX_MOVES` 50). The greedy alone read 2,605,440 on the review's case where 4,525,440 was
-  there (Test Cultures capped at 240 a day on Temperate). Measured 3–6 ms (P0 → P2) and 32 ms (P0 → P1) on 12 planets.
+  there (Test Cultures capped at 240 a day on Temperate). Measured 3–6 ms (P0 → P2) and 32 ms (P0 → P1) on 12 planets. With F9's
+  candidates the searches compare by `scoreOf` (assess's figure alone) and pair planets only on goods offered: 5–8 and 30–34 ms
+  warm on 5-NZNW at the real rates (Task 15b; 61 and 124 before).
 - **Feed** (`planFeed`): extraction planets make P1 (or a P2 alone) and ship to one factory planet making a P2 or P3, the three P2s
   no planet makes alone among them; export tax at each feeder, import at half and export at the factory.
   - **Every feeder must be needed** (`allNeeded`): without it the search dressed planets that only sell their own P1 up as
@@ -48,6 +59,9 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
     at supply, a Nanites factory capped at 100 a day read 2,400,160 where 3,318,560 was there.
   - The factory is sized to what it's fed and must fit at CCU V; it goes to the first character, from the shown one, at whose
     level it fits; feeders to a character they fit at its own level before one merely with more room (Rulings T9-3, T9-6).
+  - **Feeders are sized as F9 sizes a planet** (`feederFits`): on their class's largest planet, at the lowest of the characters'
+    levels that holds them (the feed's one; the chain's all), so one fits with anyone at that level or above; `remake` keeps the
+    counts the search valued. At the lowest level outright, one alt at CCU II threw every feeder back to the rates' layout.
 - **The chain** (`planChain`): a P4, or a P3 needing more planets than one character has, across `[shown, ...others]`, only those
   whose skills are read and who aren't Alpha; a clone not read is worked out as Omega and said (Ruling T9-7).
   - **Ranked by ISK a day per character used** (the spec), so it sits in one list with one character's setups; the row shows the
@@ -145,6 +159,10 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
 ## Limits
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **A feed's or chain's extraction planet is sized on its class's largest planet** (F9): on a smaller one a factory more might fit
+  (5-NZNW's Gas: 5 Basics on VII's 53,350 km, 6 on IX's 16,390). **The export rule judges a good's first unit**: a later side
+  `soldOf` takes at a unit over nothing before the tax, so one netting under its tax sells at a small loss (never seen).
 
 - **Planets compares setups within one system**, prices nothing until a home hub is picked on the Industry tab (Jita is priced
   through the hub's freight route, so even a high-sec system planned with no hub gets no prices), and at a thin home market a

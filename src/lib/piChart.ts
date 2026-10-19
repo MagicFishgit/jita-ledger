@@ -8,7 +8,7 @@
  */
 import type { PlanetType } from './pi';
 import { madeAlone, p0Of, type Commodity, type PiIndex, type Schematic, type Tier } from './piBundle';
-import type { Setup, SetupKind } from './piPlan';
+import { shippedOutput, type Setup, type SetupKind } from './piPlan';
 
 export const TIERS: readonly Tier[] = ['P0', 'P1', 'P2', 'P3', 'P4'];
 const RANK: Record<Tier, number> = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 };
@@ -130,7 +130,7 @@ export function makingIn(setups: readonly Setup[], id: number): Making[] {
       const dug = r.extracts.filter((e) => e.p0 === id).reduce((n, e) => n + e.perHour * 24, 0);
       if (made > 0 || dug > 0) { planets.add(r.planetId); perDay += made + dug; }
     }
-    if (planets.size) out.push({ kind: s.kind, planets: [...planets], perDay, sold: s.outputs.some((o) => o.id === id && o.perDay > 0) });
+    if (planets.size) out.push({ kind: s.kind, planets: [...planets], perDay, sold: s.outputs.some((o) => o.id === id && shippedOutput(o)) });
   }
   return out;
 }

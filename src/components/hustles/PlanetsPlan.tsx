@@ -566,19 +566,30 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   );
 }
 
-/** Every output: what is made a day, what sells and where, and what builds up; one with no price says why and counts as nothing summed. */
+/**
+ * Every output: what is made a day, what sells and where, and what builds up; one with no price says why and counts as nothing summed.
+ * What stays on the planet unoffered (Ruling T15-5: it doesn't pay to ship, or a P0 has no price) says so apart from what the market
+ * doesn't take.
+ */
 function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
   return (
     <div className="col pl-lines">
       <span className="lbl">What it makes, valued</span>
-      {s.outputs.map((o) => (
-        <span key={o.id} className="pl-line">
-          <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
-          {o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
-            : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
-          {o.sold.isk != null && o.buildingUp > 1e-6 && <span className="pl-up">; {aDay(o.buildingUp)} a day build up: the market takes no more at your share</span>}
-        </span>
-      ))}
+      {s.outputs.map((o) => {
+        const kept = o.stays && o.stays.perDay > 1e-6 ? o.stays : null;
+        const all = !!kept && kept.perDay >= o.perDay - 1e-6;
+        const over = o.buildingUp - (kept?.perDay ?? 0);
+        return (
+          <span key={o.id} className="pl-line">
+            <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
+            {all ? <span className="pl-up">, none shipped: it stays on the planet, building up, untaxed: {clause(kept!.why)}</span>
+              : o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
+                : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
+            {!all && kept && <span className="pl-up">; {aDay(kept.perDay)} a day stay on the planet, untaxed: {clause(kept.why)}</span>}
+            {!all && o.sold.isk != null && over > 1e-6 && <span className="pl-up">; {aDay(over)} a day build up: the market takes no more at your share</span>}
+          </span>
+        );
+      })}
     </div>
   );
 }

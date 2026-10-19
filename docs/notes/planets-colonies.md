@@ -76,14 +76,17 @@ in planets.md and planets-planner.md.
     storage. The first version pooled each good across the colony, so Basics drawing from a storage nothing filled read as fed.
     **The command centre is storage here** (Ruling T15-6): a route into or out of it is followed, which the first fix round's
     didn't (an extractor routed into it read as starving its Basics). A factory drawing from a holder that nothing on the planet
-    routes a good into, the good also made here, "runs only on what you bring in": the chain counts it as making none, but "so it
-    makes none" was false for a factory the user tops up.
+    routes a good into, the good also made here, "runs only on what you bring in": the chain counts it as making none ("and isn't
+    counted here", T15-7), but "so it makes none" was false for a factory the user tops up. **A P0 is never brought in** (T15-7): from
+    a holder nothing fills, an idle extractor on the planet says it ("with it, the Bacteria factories make nothing"), else "so it
+    makes none"; a fresh extractor with no product read 288,000 Microorganisms a day imported.
   - **Imports** (Ruling T15-2): an input nothing on the planet makes, routed in from storage or a launchpad, is brought in (a
     factory planet fed from its launchpad): never starving, worked out as kept stocked (`imports`), and the planet's ISK a day is
     null, "Its … come from off the planet, and their cost isn't known here", never 0. The first version read such a planet as
     "starving, makes nothing" at 0 ISK.
-  - **Valuing**: what's left of each good is an output (the surplus P1 and P0 included), sold and taxed as the planner does
-    (`taxRows`; I1). A good that can't leave sells none, "isn't shipped", counted in `unshipped`, never as unpriced. ISK a day is 0
+  - **Valuing**: what's left of each good is an output (the surplus P1 and P0 included), shipped only while a unit pays (Ruling
+    T15-5, the planner's `keptWhy`; a P0 with no price stays too), sold and taxed as the planner does (`taxRows`; I1). Every real
+    colony's P0 left over nets −0.17 to −1.33 ISK a unit through Brave Freight, and was counted sold at a loss. A good that can't leave sells none, "isn't shipped", counted in `unshipped`, never as unpriced. ISK a day is 0
     with no why when nothing it makes leaves: Task 16 says so in words, never "0 ISK".
   - **Flags, only at the root** (Ruling T15-3): `starving` under `STARVING_BELOW` (95%) of what an input's factories take (a Basic
     losing about 2 of its 48 cycles a day; a programme's rate is its average, which falls across it), its percent floored, never
@@ -104,6 +107,8 @@ in planets.md and planets-planner.md.
     suggestion to train (Ruling T15-1; the fit's CPU and powergrid against that level's budget), and so is one whose fit isn't
     checked (the planet's size not known). On the formula's reading the first version told every real colony the planner's own
     layout paid more: sized to the higher rate, it didn't fit at their level. An output unpriced on either side, or no valued ISK on either, gives no gain, with why: never a gain against 0.
+    A P0 left over with no price isn't one: nothing on both sides, said. Since F9 the best fits at the colony's level and speaks on
+    all five real colonies (a Basic more where they keep storage).
 
 ## Open, and left for the stage-1 final review
 
@@ -125,6 +130,8 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   quantities and factories' own buffers aren't read, storage routed into storage isn't followed, and a factory whose output goes
   nowhere is counted as running. The command centre is taken as storage (the game's own handling of a route through it isn't in
   these notes), and isn't judged full: its capacity isn't in the planets bundle.
-- **What reaches storage, a launchpad or the command centre is counted as exported and sold**: nothing leaves until it goes through the customs office
+- **What reaches storage, a launchpad or the command centre is counted as exported and sold** while it pays to ship (a good left in
+  the command centre at the export rate, though a launch from it pays 1.5×): nothing leaves until it goes through the customs office
   (from storage, a transfer to a launchpad first), so the chain's ISK a day is what the colony makes for market, not what has
   sold; a P0 surplus left in storage is counted with it.
+- **`versusBest`'s best has no storage** (the fit model has none), so against a colony that keeps one it can be a Basic more.
