@@ -93,6 +93,10 @@ against play, rewards, HyperNet, what you built and copied, transfers, net worth
   typed-in fees, which say so): sales tax for Accounting, broker fee for Broker Relations, the price-change discount
   for Advanced Broker Relations, order slots for Trade, Retail, Wholesale and Tycoon. Levels queued one after another
   build on each other. The app already followed a finished level on the next sync; this is the preview.
+- **The PLEX reading is shared** (`usePlexPrice` in `components/plexPrice.ts`, 19 October 2026): Omega's page and Planets' Plan both
+  use it. It reads the Global PLEX Market's lowest sell into `meta.plex` on mount when over 30 minutes old (as Omega always did,
+  but now Plan keeps it fresh too), and a month of Omega is `monthOfOmega(plexPerMonth, plexPriceOf(typed, read))` in
+  `lib/iskPeriods.ts`, one function for both.
 - **Omega's "Could trading pay for it?" counts every item, as Results' "Every item traded" does** (`everyItemCalcs` in
   `lib/everyItem.ts`, shared with Results). It counted realized profit on tracked positions only: 17.77 M of the
   user's last 30 days (29 September 2026), which they took for a stale or broken figure, against 92.13 M over the 30

@@ -10946,5 +10946,18 @@ console.log('\n--- Planets: the main\'s colonies, kept as a synced document (col
   eq('  a synced document', [DOC_KEYS.includes('colonies'), refusedDoc('Unknown document: colonies')], [true, 'colonies']);
 }
 
+
+{
+  // Ruling F10: ISK a day as a week and a month, and the month against a month of Omega. Not known is null, never 0.
+  const P = await import('../src/lib/iskPeriods.ts');
+  eq('periods: a week is 7 days and a month 30', P.periods(1_000_000), { day: 1_000_000, week: 7_000_000, month: 30_000_000 });
+  eq('periods: not known stays not known; a known 0 stays 0', [P.periods(null), P.periods(undefined), P.periods(NaN), P.periods(0)?.month], [null, null, null, 0]);
+  eq('omegaShare: 36 M a month over 500 PLEX at 5 M is 1.44%', +P.omegaShare(36e6, 500, 5e6).toFixed(4), 0.0144);
+  eq('omegaShare: null with no month, no price or nothing positive', [P.omegaShare(null, 500, 5e6), P.omegaShare(36e6, 500, null), P.omegaShare(36e6, 500, 0), P.omegaShare(36e6, 0, 5e6), P.omegaShare(0, 500, 5e6), P.omegaShare(-1, 500, 5e6)], [null, null, null, null, null, null]);
+  eq('omegaShare: exactly paying for it is 1', P.omegaShare(2.5e9, 500, 5e6), 1);
+  eq('shareSaid: whole percent to 100%, then one decimal times', [P.shareSaid(0.144), P.shareSaid(1), P.shareSaid(1.44), P.shareSaid(0.004)], ['14%', '100%', '1.4×', '0%']);
+  eq('plexPriceOf / monthOfOmega: the typed price when over 0, else the market\'s; Omega\'s own sum', [P.plexPriceOf(4e6, 5e6), P.plexPriceOf(0, 5e6), P.plexPriceOf(0, undefined), P.plexPriceOf(0, 0), P.monthOfOmega(500, 5e6), P.monthOfOmega(500, null)], [4e6, 5e6, null, null, 2.5e9, null]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

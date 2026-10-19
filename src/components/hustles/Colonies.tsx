@@ -154,7 +154,7 @@ export function Colonies({ goods }: { goods?: PiIndex | null }) {
               {[
                 { l: 'Colonies', v: units(shown.length), n: `${units(shown.reduce((t, c) => t + c.extractors.length, 0))} extractors, ${units(shown.reduce((t, c) => t + c.factories, 0))} factories` },
                 ...(value ? [
-                  { l: 'Coming out an hour', v: iskBig(value.perHour), n: `${iskBig(value.perDay)} a day`, c: 'var(--pos)', tip: 'What your running extractors produce, priced at what it would net you at Jita.\n\n• Each extractor’s per-cycle figure from ESI, turned into an hourly rate.\n• Unconfirmed on cycles over 15 minutes: CCP’s formula reads the same programme differently (each extractor gives both totals), and neither is yet checked against the game’s total.' },
+                  { l: 'Coming out an hour', v: iskBig(value.perHour), n: `${iskBig(value.perDay)} a day`, c: 'var(--pos)', tip: 'What your running extractors take out of the ground, priced at what it would net you at Jita.\n\n• Each extractor’s programme total is CCP’s formula, as the game reads it (its “Avg. Per hour”), checked in game against one programme.\n• It is the P0 extracted, not what your factories sell: what they make from it comes with the chain view.' },
                   { l: 'Waiting to be collected', v: iskBig(value.stored), n: 'Sitting in storage and launchpads', c: value.stored > 0 ? 'var(--pos)' : undefined },
                   { l: 'A week of this', v: iskBig(value.perDay * 7), n: 'If nothing runs out', c: 'var(--pos)' },
                 ] : [

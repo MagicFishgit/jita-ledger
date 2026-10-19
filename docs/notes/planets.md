@@ -97,6 +97,13 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     cut short as "The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this
     system can do", a tax not known with each 1%'s cost, and outputs not valued by count. A planet whose layout fits at no level is
     still ranked and said, in the row's head and on its line (the spec; whether to rank it is the final review's).
+  - **Each setup shows its day as a week and a month, and the month against a month of Omega** (Ruling F10, `lib/iskPeriods.ts`; 19
+    October 2026). The user: "i also need to be able to see during planning and after i have built the isk per day/week/month", and
+    "the latest youtube guides say that you can easily plex your account and then some with null PI". A week is 7 days and a month
+    30 (Research's convention); the share is the month over `plexPerMonth` × the PLEX price (Omega's own sum, `monthOfOmega`), "15%",
+    "1.4×" past 100%, its tip giving the PLEX count, price, the price's age and that it is one account's month. A chain's is per
+    character, as its day is. No PLEX price read yet: the share is "–" with why, never 0%; no ISK a day, no periods. Colonies gets it
+    with Task 16.
   - **Chart** (`PlanetsChart.tsx`, `piChart.ts`): the 83 goods by tier from the bundle (never evehelper's data), each valued a unit
     and a m³ at the chosen market, a picked good's recipe down to P0 with quantities and cycles, the planet types and the system's
     planets that give its P0s. **Ruling T12-1**: "Which setups can make it at X" reads what each kind *can* make from the bundle

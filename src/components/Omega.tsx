@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { usePlexPrice } from './plexPrice';
 import { Gem, GraduationCap, History, RefreshCw, Scale } from 'lucide-react';
 import { effectiveSkills, omegaRates, orderSlots, rates, sanitizeSettings, type Rates, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, share, units } from '../lib/format';
 import { computePosition } from '../lib/positions';
 import { isTrade, itemResult } from '../lib/longRange';
-import { jitaBook } from '../lib/market';
 import { update, useData } from '../lib/store';
 import { navigate, useAuth, useNow } from '../lib/hooks';
-import { JITA_44, PLEX_TYPE } from '../lib/config';
+import { JITA_44 } from '../lib/config';
 import { bumpWarp } from '../lib/motion';
-import { toast } from '../lib/toast';
 import { LevelBoxes } from './common';
 import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
 import { Points } from './Facts';
@@ -39,27 +38,9 @@ export function Omega() {
   const auth = useAuth();
   const now = useNow(60_000);
   const s = d.settings;
-  const [loading, setLoading] = useState(false);
   const set = (patch: Partial<S>) => update((x) => ({ settings: sanitizeSettings({ ...x.settings, ...patch }) }));
 
-  async function fetchPlex() {
-    setLoading(true);
-    try {
-      const b = await jitaBook(PLEX_TYPE, true);
-      update((x) => ({ meta: { ...x.meta, plex: { price: b.bestSell, buy: b.bestBuy, at: new Date().toISOString() } } }));
-    } catch (e) {
-      toast(`Couldn’t load the PLEX price: ${e instanceof Error ? e.message : String(e)}`, 'err');
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    const at = d.meta.plex?.at ? Date.parse(d.meta.plex.at) : 0;
-    if (Date.now() - at > 30 * 60_000) fetchPlex();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const plexPrice = s.plexPrice > 0 ? s.plexPrice : d.meta.plex?.price ?? null;
-  const monthCost = plexPrice ? plexPrice * s.plexPerMonth : null;
+  const { loading, refresh: fetchPlex, price: plexPrice, monthCost } = usePlexPrice();
   const wallet = d.meta.walletBalance ?? null;
   const months = monthCost && wallet != null ? wallet / monthCost : null;
   const alpha = s.clone === 'alpha';

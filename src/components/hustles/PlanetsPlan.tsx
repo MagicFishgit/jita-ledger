@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
-import { iskBig, units } from '../../lib/format';
+import { ago, iskBig, units } from '../../lib/format';
+import { monthOfOmega, omegaShare, periods, shareSaid } from '../../lib/iskPeriods';
+import { useNow } from '../../lib/hooks';
+import { usePlexPrice } from '../plexPrice';
 import { dayCount } from '../../lib/split';
 import { secBand } from '../../lib/industry';
 import { secText } from '../../lib/industrySites';
@@ -430,6 +433,11 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
 function Setups({ setups, working, ix, planets, chars, shown, name }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
 }) {
+  // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
+  const plex = usePlexPrice();
+  const plexNow = useNow(60_000);
+  const settings = useData().settings;
+  const omega = { price: plex.price, perMonth: settings.plexPerMonth, typed: settings.plexPrice > 0, at: plex.read?.at, now: plexNow };
   if (!setups) return <p className="note small" style={{ margin: 0 }} data-planets="working">Working out each setup…</p>;
   const best = setups.find((s) => s.iskDay != null) ?? null;
   return (
@@ -439,13 +447,15 @@ function Setups({ setups, working, ix, planets, chars, shown, name }: {
         {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
       <span className="note small">Worked out at the customs tax, extraction rates and program length below; change any and they are worked out again.</span>
-      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} />)}
+      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} />)}
     </div>
   );
 }
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
-  s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
+type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
+
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega }: {
+  s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost;
 }) {
   const [open, setOpen] = useState(false);
   // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
@@ -466,6 +476,10 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   const perChar = s.kind === 'chain' && inChain.length > 1;
   const priced = s.why == null && s.iskDay != null;
   const high = s.iskDayHigh != null && s.iskDay != null && Math.abs(s.iskDayHigh - s.iskDay) >= 1;
+  // Ruling F10: the day as a week and a month, and the month against a month of Omega (one account's). Not known is "–", never 0.
+  const per = priced ? periods(s.iskDay) : null;
+  const share = per ? omegaShare(per.month, omega.perMonth, omega.price) : null;
+  const cost = monthOfOmega(omega.perMonth, omega.price);
   const taxedPlanets = new Set(s.taxes.filter((t) => t.perDay == null).map((t) => t.planetId));
   const notes: ReactNode[] = [];
   if (s.why) notes.push(s.why === RAN_OUT ? `${RAN_OUT}: nothing was found within it, which says nothing of what this system can do.` : `${s.why}.`);
@@ -502,6 +516,19 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
         </div>
         <div className="pl-isk">
           {priced ? <><b>{iskBig(s.iskDay)}</b><span className="sub">a day{perChar ? ' per character' : ''}</span></> : <b>–</b>}
+          {per && (
+            <span className="sub" data-planets="periods">
+              <span data-planets="week">{iskBig(per.week)} a week</span> · <span data-planets="month">{iskBig(per.month)} a month</span>{perChar ? ' per character' : ''}
+            </span>
+          )}
+          {per && (
+            <span className="sub" data-planets="omega">
+              {share != null ? <>{shareSaid(share)} of a month of Omega</> : 'Omega: – (PLEX price not read yet)'}
+              <Tip title="Against a month of Omega" text={cost != null
+                ? `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}) over what one account's month of Omega costs: ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.${perChar ? '\n\nA chain’s figure is per character, so this is per character too.' : ''}`
+                : 'The PLEX price hasn’t been read yet, so a month of Omega can’t be priced. It is read when this page opens; type one on Omega to use your own.'} />
+            </span>
+          )}
           {priced && high && <span className="sub pl-high">up to {iskBig(s.iskDayHigh)} if the game reads extraction the other way</span>}
         </div>
       </div>

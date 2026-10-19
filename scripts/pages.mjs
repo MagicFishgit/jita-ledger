@@ -3552,7 +3552,7 @@ try {
     const ledger = {
       settings: { acc: 4, br: 4, abr: 0, trade: 4, retail: 0, wholesale: 0, tycoon: 0, clone: 'omega', faction: 3.63, corp: 7.04, fromCharacter: true },
       skills: { 2495: 4, 2505: 4, 2406: 4, 3446: 4, 16622: 4, 3443: 4 },
-      meta: { lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 2e9, attributes: ATTRS },
+      meta: { lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 2e9, attributes: ATTRS, plex: { price: 5_000_000, buy: 4_900_000, at: iso(now - 600_000) } },
       colonies,
     };
     const BRAVE = [{ id: 'brave-jita-ualx', name: 'Brave Freight, Jita ↔ UALX-3', a: 30000142, b: 30004807, perM3: 900, collateral: 0.007875, min: 5e6, source: 'Brave wiki, 3 June 2026' }];
@@ -3700,6 +3700,18 @@ try {
       const why = await text(`[data-planets="setup:${k}"] .pl-notes`);
       if (!t) problems.push(`no setup row for ${k}`);
       else if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test(fig) && !(fig === '–' && why.length > 12)) problems.push(`setup ${k} shows neither an ISK a day nor why: “${fig}”, notes “${why.slice(0, 120)}”`);
+    }
+    // Ruling F10: a week and a month beside the day, and the month against a month of Omega (500 PLEX at the seeded 5 M = 2.5 B).
+    {
+      const money = (t) => { const m = /^(−?[\d.,]+) ?([kMB])?/.exec(t.trim()); return m ? Number(m[1].replace(/,/g, '')) * ({ k: 1e3, M: 1e6, B: 1e9 }[m[2]] ?? 1) : NaN; };
+      const day = money(await text('[data-planets="setup:p2"] .pl-isk b'));
+      const week = money(await text('[data-planets="setup:p2"] [data-planets="week"]'));
+      const month = money(await text('[data-planets="setup:p2"] [data-planets="month"]'));
+      if (!(Math.abs(week / day - 7) < 0.1) || !(Math.abs(month / day - 30) < 0.5)) problems.push(`P0 → P2's day, week and month don't run 1 : 7 : 30: ${day}, ${week}, ${month}`);
+      const om = await text('[data-planets="setup:p2"] [data-planets="omega"]');
+      const want = month / 2.5e9, said = want > 1 ? `${(Math.round(want * 10) / 10).toFixed(1)}×` : `${Math.round(want * 100)}%`;
+      if (!om.includes(`${said} of a month of Omega`)) problems.push(`P0 → P2's Omega share should read ${said}: “${om}”`);
+      if (/\bNaN\b/.test(await text('[data-planets="setup:p2"] .pl-head, [data-planets="setup:p2"]'))) problems.push('a period reads NaN');
     }
     // Ruling T15b-8: at the seeded colony's median of 10 heads, an unrated planet's extractors are capped where its layout fits;
     // uncapped, every one read "No Command Center Upgrades level fits it" while the figures stayed the same.
@@ -4066,13 +4078,19 @@ try {
     {
       const at5 = { colonies: colonies.colonies.map((c) => ({ ...c, pins: c.pins.map((p) => (p.extractor ? { ...p, extractor: { ...p.extractor, heads: 5 } } : p)) })) };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, colonies: at5, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+      await seed({ ...ledger, meta: { ...ledger.meta, plex: undefined }, colonies: at5, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
       // The app's address (BASE is Base Metals' type ID in this block).
       await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan`);
       await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew again with 5 heads an extractor'));
       await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (5 heads): ${e.message.split('\n')[0]}`));
       await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('5-NZNW’s planets never listed (5 heads)'));
       await settled();
+      // Ruling F10: no PLEX price read (the stand-in market answers no PLEX book): the share is "–" and says why, never 0%; the periods still show.
+      {
+        const om = await text('[data-planets="setup:p2"] [data-planets="omega"]');
+        if (!/–/.test(om) || !/PLEX price not read yet/.test(om) || /\b0%/.test(om)) problems.push(`with no PLEX price, P0 → P2's Omega share should be “–” with why: “${om}”`);
+        if (!(await text('[data-planets="setup:p2"] [data-planets="month"]'))) problems.push('with no PLEX price, the month is gone too');
+      }
       const line = await text(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`);
       if (!/\d+ Basics and \d+ Advanced fit at Command Center Upgrades IV: the Basics take [\d,]+ of the [\d,]+ P0 an hour; the rest builds up/.test(line)) problems.push(`with 5 heads an extractor, planet I in P0 → P2 doesn’t say what fits at IV and what becomes of the rest: “${line.slice(0, 500)}”`);
       if (/don’t fit at|No Command Center Upgrades level fits/.test(line)) problems.push(`with 5 heads an extractor, planet I in P0 → P2 is still ranked at a layout that doesn’t fit: “${line.slice(0, 300)}”`);
