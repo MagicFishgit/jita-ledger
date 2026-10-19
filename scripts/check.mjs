@@ -7910,6 +7910,13 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  F9 (chain): every extraction planet fits at its own character’s level, each the most the lowest level holds',
     [extracts24.length > 0, extracts24.every((r) => r.fit?.fits && !r.lacks), [...new Set(extracts24.map((r) => r.makes.filter((m) => m.facility === 'basic').reduce((n, m) => n + m.count, 0)))].sort()],
     [true, true, [4]]);
+  // Ruling T15b-2: on the owner's IV planets the line says the layout is sized for the second's III, never "fit at III" as if IV held
+  // no more; on the second's own, what fits at its III.
+  const said24 = (charId) => extracts24.filter((r) => r.charId === charId).map((r) => r.why ?? '');
+  eq('  T15b-2: a chain feeder sized below its owner’s level says what it was sized for',
+    [said24(OWNER).length > 0 && said24(OWNER).every((w) => /4 Basics, sized for Command Center Upgrades III, the lowest among this chain’s characters, so it fits whoever runs it: they take [\d,]+ of the [\d,]+ P0 an hour/.test(w)),
+      said24(SECOND).length > 0 && said24(SECOND).every((w) => /4 Basics fit at Command Center Upgrades III: they take/.test(w) && !/sized for/.test(w))],
+    [true, true]);
   eq('  the CCU II character lacks the level its roles need', chain.perChar[1].lacks.some((x) => x.startsWith('Command Center Upgrades')), true);
   // Ruling T11-2: what a planet lacks is its own. Each character's lacks are exactly what its planets that don't fit lack, and a
   // planet that fits carries none.

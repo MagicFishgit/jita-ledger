@@ -1979,15 +1979,21 @@ function staysNotes(name: (id: number) => string, kept: readonly { id: number; p
  * Ruling F9: a planet run with fewer factories than its rates feed says how many fit at what level, what they take of the P0 its
  * extractors give, and what becomes of the rest (`exported`: what the planet ships to market).
  */
-function fitNote(p: Plan, exported: readonly Ship[]): string | null {
+function fitNote(p: Plan, exported: readonly Ship[], owner?: number): string | null {
   if (p.sized !== 'fit' || !p.fitAt) return null;
   const b = p.lines.reduce((n, l) => n + l.basics, 0), a = p.advanced?.count ?? 0;
   const all = p.lines.reduce((n, l) => n + l.perHour, 0), left = p.lines.reduce((n, l) => n + l.p0Left, 0);
   const p0s = new Set(p.lines.map((l) => l.p0));
   const out = exported.filter((x) => p0s.has(x.id)).reduce((n, x) => n + x.perDay, 0) / 24;
   const fate = out >= left - 1e-6 ? 'sells as P0' : out <= 1e-6 ? 'builds up' : 'partly sells as P0 and partly builds up';
-  const what = a ? `${b} Basic${b === 1 ? '' : 's'} and ${a} Advanced fit` : `${b} Basic${b === 1 ? ' fits' : 's fit'}`;
   const take = a ? 'the Basics take' : b === 1 ? 'it takes' : 'they take';
+  // A chain's feeder is sized at the lowest of its characters' levels that holds it (Ruling T15b-2): with its owner higher, it's said
+  // as what it is, never as if the planet's level held no more.
+  if (owner != null && owner > p.fitAt.cc) {
+    const what = a ? `${b} Basic${b === 1 ? '' : 's'} and ${a} Advanced` : `${b} Basic${b === 1 ? '' : 's'}`;
+    return `${what}, sized for ${p.fitAt.cc > 0 ? `Command Center Upgrades ${ROMAN[p.fitAt.cc]}` : 'no Command Center Upgrades'}, the lowest among this chain’s characters, so it fits whoever runs it: ${take} ${unitsSaid(all - left)} of the ${unitsSaid(all)} P0 an hour; the rest ${fate}`;
+  }
+  const what = a ? `${b} Basic${b === 1 ? '' : 's'} and ${a} Advanced fit` : `${b} Basic${b === 1 ? ' fits' : 's fit'}`;
   return `${what} ${atCcu(p.fitAt.cc)}: ${take} ${unitsSaid(all - left)} of the ${unitsSaid(all)} P0 an hour; the rest ${fate}`;
 }
 
@@ -2022,7 +2028,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
       const w = ctx.kept[fd.cls][g];
       if (w) kept.push({ id, perDay: left, why: w.why }); else over.push({ id, perDay: left });
     });
-    const fitSaid = fitNote(plan, ships.filter((x) => x.to === 'market'));
+    const fitSaid = fitNote(plan, ships.filter((x) => x.to === 'market'), who[pl.char].cc);
     const notes = [...rateNotes(input, plan), ...fit.notes, ...(fitSaid ? [fitSaid] : []), ...staysNotes(name, kept, over)];
     return {
       planetId: pl.member.planet.planetId, charId: who[pl.char].c.charId, does: 'extract',
