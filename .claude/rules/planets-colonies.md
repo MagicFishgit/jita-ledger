@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{colonies,colony,colonyStore}.ts"
+  - "src/lib/{colonies,colony,colonyStore,colonyChain}.ts"
   - "src/components/hustles/Colonies.tsx"
   - "worker/src/planets.ts"
   - "src/components/hustles/Planets.tsx"
