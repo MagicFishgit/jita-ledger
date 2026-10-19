@@ -13,8 +13,12 @@ export type Learned = {
 };
 export type Rate = { perHour: number; higher: number | null; from: 'learned' | 'typed'; programHours: number; heads: number; otherP0: boolean; checked: boolean };
 
-/** Set by the in-game check (Task 13): which reading of ESI's qty_per_cycle is right. Null until then. */
-export const PI_READING: 'formula' | 'perCycle' | null = null;
+/**
+ * Which reading of ESI's qty_per_cycle is right, settled by the in-game check (Task 13, 19 October 2026): CCP's formula. The main's
+ * 5-NZNW IV Noble Metals extractor (5 heads, qty_per_cycle 10,196, 1-hour cycles, 73 h from 17 October 14:03 UTC) read "Total:
+ * 1,473,445" and "Avg. Per hour: 20,184" in game; the formula gives 1,473,446 (20,184.2 an hour), the figure a cycle 744,308.
+ */
+export const PI_READING: 'formula' | 'perCycle' | null = 'formula';
 /** How a rate or a programme's total is said until that check: the Plan section's learned rates and the Colonies panel's programmes alike. */
 export const PI_UNCHECKED = 'not yet checked against the game’s total';
 

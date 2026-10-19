@@ -8,7 +8,8 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
 
 - **What every setup counts.** Rates come from the schematics, never typed: a Basic takes 6,000 P0 an hour for 40 P1, an Advanced
   40 of each of two P1s for 5 P2, a P3 20 or 30 P2s for 3, a P4 on a High-Tech plant (Barren and Temperate only). Extraction is the
-  rate's `perHour` (the lower reading until the in-game check), and `iskDayHigh` the same arrangement on the higher. A layout is
+  rate's `perHour`, CCP's formula since the in-game check (planets.md; the lower reading before it, `iskDayHigh` the same arrangement
+  on the higher, null now). A layout is
   sized to the rate (Basics `ceil(P0 an hour ÷ 6,000)`, Advanced `ceil(the lesser P1 ÷ 40)`), not picked from fixed 2 + 4 or
   3 + 6: a factory short of input runs fewer cycles rather than stopping, so a layout counts the factories that keep up,
   rounded up, and how busy they are (`runs`). With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if

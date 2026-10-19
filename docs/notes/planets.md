@@ -31,18 +31,22 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   (25 at V) or 15 High-Tech (19). A link per structure (one too many) still passes that table, since an extra link moves no
   floor: only the exact-cost test catches it. Advanced and Basic layouts run out of powergrid, High-Tech out of CPU. A radius
   not known isn't fitted, and says so.
-- **The extraction formula, and the reading that isn't settled** (`piExtraction.ts`: `cycleOutputs`, `readings`, `lowerReading`;
-  the formula and the open question are eve-planets.md's). `Math.floor` on doubles: CCP's example (6,965, 30-minute cycles,
+- **The extraction formula, and the reading the game settled** (`piExtraction.ts`: `cycleOutputs`, `readings`, `lowerReading`;
+  the formula is eve-planets.md's). `Math.floor` on doubles: CCP's example (6,965, 30-minute cycles,
   47.5 h) is 24,261 first, 5,389 last, **789,314** in all (eve-pi's "always take one off" gives 789,219). Read as the current
   cycle's output, the same programme is 6,965 × 95 = **661,675**. A cycle's first output is up to 16× apart between the two
   readings (4-hour cycles); over a programme, with the decay, about 2× on 3 days and 3× on 14. `readings` gives both, null
   (never 0 or NaN) for a programme whose times are missing or reversed or whose quantity or cycle isn't positive (Ruling T3-1).
-  - **Until the in-game check the planner ranks on the lower reading** and shows the higher beside it ("up to X if the game reads
-    extraction the other way"): a figure that may be four times too high mustn't put a setup on top (the spec). Learned rates and
-    Colonies' programmes say "not yet checked against the game’s total" (`PI_UNCHECKED`).
-  - **How it is settled**: once the cloud's hourly read keeps the main's real colonies, the user reads one named extractor's
-    programme "Total" in game; the reading within 2% of it goes into `PI_READING` (`piLearn.ts`) in a commit citing the
-    extractor, both totals and the game's. If neither is within 2%, the three numbers go here and `PI_READING` stays null.
+  - **The game reads CCP's formula** (`PI_READING` `'formula'`, `piLearn.ts`; the in-game check, 19 October 2026). The main's
+    5-NZNW IV Noble Metals extractor (5 heads, `qty_per_cycle` 10,196, 1-hour cycles, 73 h from 17 October 14:03 UTC, as the
+    cloud kept it) read "Total: 1,473,445" and "Avg. Per hour: 20,184" in the game's extraction programme window; the formula
+    gives 1,473,446 (20,184.2 an hour), the figure a cycle 744,308. The user had changed other colonies the day before; this
+    programme was the kept one. So ESI's `qty_per_cycle` is the formula's base for 15 minutes, and the Plan ranks on the formula,
+    with nothing beside it (`higher` null, so no "up to X if the game reads extraction the other way").
+  - **Before it, the planner ranked on the lower reading** and showed the higher beside it: a figure that might be four times
+    too high mustn't put a setup on top (the spec). Learned rates and Colonies' programmes said "not yet checked against the
+    game’s total" (`PI_UNCHECKED`, kept for a build with `PI_READING` null). The lower was the figure a cycle on every real
+    programme: Plan read the user's planets at half their yield or less until the check.
 - **Learned rates** (`piLearn.ts`: `learnedRates`, `rateFor`). Each extractor's per hour over its whole programme (ended ones too:
   a programme that ran out still says what the planet gave), keyed by planet type and product P0; only extractors with a quantity
   over 0, known install and expiry, a planet type and a P0 product. The two readings are averaged apart and the lower mean is the
@@ -116,8 +120,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 
 ## Open, and left for the stage-1 final review
 
-- **The real reading** (above), and with it the chain at the real rate: if it runs out of budget there (`RAN_OUT`), that is a fix
-  (seed the chain's bound from the feed's answer), not a limit.
+- **The chain at the real rate**: the reading is settled (above), so the learned rates are about twice what they read. If the chain
+  runs out of budget there (`RAN_OUT`), that is a fix (seed the chain's bound from the feed's answer), not a limit.
 - **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): every one of the main's five
   colonies runs 9 or 10 heads at CCU IV (4 + 5 or 5 + 5 on two extractors), inside the fit model's 11 beside a P0 → P2 colony's
   factories, so the model holds there.
@@ -139,10 +143,9 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
 - **A planet's yield can't be known before it is built.** A learned rate averages your own extractors of that planet type and
   P0, measured at their head count and programme length (another length says so, never rescaled), and planets of one type
   differ; with none, a setup is ranked at what its factories take, "if your extractors deliver" 12,000 an hour, never claimed.
-- **Which reading of `qty_per_cycle` is the game's is unconfirmed** until one programme's total is checked in game
-  (`PI_READING`, planets.md). Until then Plan ranks on the lower reading and shows the higher beside it: over a programme they
-  differ by 1.19× on CCP's example (47.5 h), and by the formula's averages about 2× on 3 days and 3× on 14. Either way a
-  programme's output decays: no per-hour figure is steady.
+- **The reading rests on one programme checked in game** (5-NZNW IV's Noble Metals, 1-hour cycles, 73 h: the formula's total
+  to the unit). Another cycle length hasn't been checked; the formula is CCP's own for all of them. A programme's output
+  decays: no per-hour figure is steady, and the rates are each programme's average.
 - **Planets' customs tax is typed or Brave's wiki's 2023 rates** (2% Barren and Temperate, 5% the rest, in sov null-sec): ESI
   shows no skyhook's or office's rate, and what a high-sec InterBus office charges is unverified. A system "not Brave's" or a
   wormhole is ranked before the tax.

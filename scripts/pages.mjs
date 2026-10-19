@@ -3688,9 +3688,9 @@ try {
       await settled();
     }
 
-    // --- the learned rate: Barren's Base Metals from the kept colony, not yet checked against the game.
+    // --- the learned rate: Barren's Base Metals from the kept colony, on the reading the in-game check settled (the formula).
     const learned = await text('[data-planets="rate:Barren:2267"]');
-    if (!/learned/i.test(learned) || !learned.includes('not yet checked against the game’s total')) problems.push(`Barren’s Base Metals rate: “${learned}”`);
+    if (!/learned/i.test(learned) || learned.includes('not yet checked') || learned.includes('the other way')) problems.push(`Barren’s Base Metals rate: “${learned}”`);
 
     // --- the five setups, each with its ISK a day or its reason; P0 → P2 with its gap to the best.
     // Each a figure in ISK, or "–" with the reason in its notes (m4: the old check passed on almost any text).
@@ -3734,8 +3734,8 @@ try {
       const p2up = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
       if (!/Freight a week one every [\d.]+ (weeks|years) [\d,]+ m³ to Jita \(one contract every/i.test(p2up) || /\b0\.\d+\b/.test(p2up.match(/Freight a week ([^ ]+ ){0,4}/i)?.[0] ?? '')) problems.push(`P0 → P2's freight under one a week: “${p2up.slice(0, 300)}”`);
     }
-    // The seeded extractor's reading isn't checked, so a setup on Barren's learned rates says what the other reading would make.
-    if (!(await page.locator('[data-planets^="setup:"]', { hasText: 'if the game reads extraction the other way' }).count())) problems.push('no setup shows the higher figure beside its ISK a day');
+    // The reading is settled (the in-game check), so no setup says what the other reading would make.
+    if (await page.locator('[data-planets^="setup:"]', { hasText: 'if the game reads extraction the other way' }).count()) problems.push('a setup still shows the other reading beside its ISK a day');
     // Planet I's role lines name what it makes and its factories (in P0 → P2 its Basic and Advanced ones); the upkeep says resets a week.
     const rolesI = (await page.locator(`[data-planets^="setup:"] [data-planets="role:${PLANET_I}"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
     if (!rolesI.length || !rolesI.every((t) => /\d+ (Basic|Advanced|High-Tech) [^;]* makes? [\d,]+ \w/.test(t))) problems.push(`planet I’s role lines: ${JSON.stringify(rolesI).slice(0, 400)}`);
@@ -3957,8 +3957,8 @@ try {
       if (SHOTS) { await page.locator('[data-planets="tier:P1"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-chart-ualx.png` }); }
     }
 
-    // --- Colonies (Task 12): with no read in memory, the kept document's colony; its extractor's program total both ways
-    // (789,314 by CCP's formula, 661,675 as 6,965 × 95 cycles), not yet checked against the game.
+    // --- Colonies (Task 12): with no read in memory, the kept document's colony; its extractor's program total by CCP's formula
+    // (789,314 over 47.5 h, 16,617 an hour on average), as the game reads it (the in-game check, 19 October 2026).
     await section('Colonies');
     const colonied = await page.waitForSelector('[data-planets="colonies"]', { timeout: 10_000 }).then(() => true, () => (problems.push('Colonies never drew'), false));
     if (colonied) {
@@ -3972,8 +3972,8 @@ try {
       if (/Item #/.test(opened) || !/Base Metals/.test(opened) || !/Microorganisms/.test(opened)) problems.push(`the kept colony's extractors aren't named: “${opened.slice(0, 400)}”`);
       for (const pin of [1001, 1002]) {
         const prog = await text(`[data-planets="program:${pin}"]`);
-        if (!prog.includes('789,314') || !prog.includes('661,675')) problems.push(`extractor ${pin}'s program doesn't give both totals: “${prog}”`);
-        if (!prog.includes('not yet checked against the game’s total')) problems.push(`extractor ${pin}'s program doesn't say it isn't checked: “${prog}”`);
+        if (!prog.includes('789,314 over 1d 23h') || !prog.includes('16,617 an hour') || prog.includes('661,675')) problems.push(`extractor ${pin}'s program doesn't give the formula's total and average alone: “${prog}”`);
+        if (!prog.includes('as the game reads it')) problems.push(`extractor ${pin}'s program doesn't say the game reads it so: “${prog}”`);
       }
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the kept colonies): ${o}`);
       // The programme totals sit in a table that scrolls sideways, which the overflow check lets be: they must still fit the box's

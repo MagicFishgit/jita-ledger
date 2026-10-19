@@ -59,9 +59,10 @@ Don't re-derive or contradict these without new evidence.
   its decay 0.012 and noise 0.8 are the defaults of dogma 1683 and 1687, exact). Fed ESI's `qty_per_cycle`, `cycle_time`,
   `install_time` and `expiry_time`, it gives every cycle's output: a 1-day programme averages about 0.75 of its start rate, 3
   days 0.49, 7 days 0.31, 14 days 0.20. Cycles (EVE University): 15 minutes up to 25 h, 30 minutes to 50 h, 1 h to 100 h, 2 h to
-  200 h, 4 h beyond. **Open: what `qty_per_cycle` is.** The formula reads it as a base for 15 minutes; a May 2026 forum post says
-  it is the current cycle's output, and often null until the programme is submitted. So ESI's figure turned into an hour
-  (`qty × 3600 / cycle`, colony.ts) is the formula's first-hour rate only on 15-minute cycles (half on 30-minute ones, a sixteenth
-  on 4-hour ones), and is said as unconfirmed on cycles over 15 minutes until one programme's total is checked against the game's
-  (planets.md). How heads, programme length and richness make `qty_per_cycle` is the client's and undocumented: no planet's yield
+  200 h, 4 h beyond. **`qty_per_cycle` is the formula's base for 15 minutes** (checked in game, 19 October
+  2026: the main's 5-NZNW IV Noble Metals programme, 10,196 a 1-hour cycle over 73 h, read "Total: 1,473,445" and "Avg. Per
+  hour: 20,184" in the extraction programme window, the formula's 1,473,446; read as the current cycle's output it would be
+  744,308; planets.md). A May 2026 forum post said it was the current cycle's output: wrong. It is often null until the
+  programme is submitted. So ESI's figure turned into an hour (`qty × 3600 / cycle`, which colony.ts read until then) was the
+  formula's first-hour rate only on 15-minute cycles (half on 30-minute ones, a quarter on 1-hour, a sixteenth on 4-hour ones). How heads, programme length and richness make `qty_per_cycle` is the client's and undocumented: no planet's yield
   can be predicted before it is built.

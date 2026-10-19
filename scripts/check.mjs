@@ -911,9 +911,12 @@ eq('  and it says how long ago', Math.round(readExtractor(extractor(-5), NOWP).h
 // An extractor with no programme never started; that is not the same as one that ran out.
 eq('no expiry at all is idle', readExtractor(extractor(null), NOWP).state, 'idle');
 eq('no quantity is idle too', readExtractor(extractor(48, 0), NOWP).state, 'idle');
-// Output per hour comes off the cycle, and an ended programme produces nothing.
-eq('per-hour rate from the cycle', readExtractor(extractor(48, 3000, 1800), NOWP).unitsPerHour, 6000);
-eq('an hour-long cycle is the quantity', readExtractor(extractor(48, 3000, 3600), NOWP).unitsPerHour, 3000);
+// Output per hour is the programme's average by CCP's formula, as the game's own "Avg. Per hour" (the in-game check, 19 October
+// 2026, planets.md); an ended programme produces nothing. CCP's example: 6,965 a 30-minute cycle over 47.5 h is 789,314 in all.
+eq('per hour: the programme\'s average by the formula', readExtractor({ ...extractor(37.5, 6965, 1800), install_time: hoursOut(-10) }, NOWP).unitsPerHour, 789314 / 47.5);
+// ESI's qty_per_cycle is the formula's base for 15 minutes: with no install time, that base an hour, whatever the cycle.
+eq('no install time: the 15-minute base an hour, on a 30-minute cycle', readExtractor(extractor(48, 3000, 1800), NOWP).unitsPerHour, 12000);
+eq('  and on an hour-long one', readExtractor(extractor(48, 3000, 3600), NOWP).unitsPerHour, 12000);
 eq('an expired programme produces nothing', readExtractor(extractor(-1), NOWP).unitsPerHour, 0);
 eq('and so does an idle one', readExtractor(extractor(null), NOWP).unitsPerHour, 0);
 eq('heads are counted', readExtractor(extractor(48), NOWP).heads, 2);
@@ -932,7 +935,7 @@ eq('  and nothing is coming out', col.unitsPerHour, 0);
 col = readColony(head, { pins: [extractor(100), extractor(4)], links: [{}] }, NOWP);
 has('one ending soon is flagged even when another is fine', col.warnings, 'endingSoon');
 eq('  and the soonest deadline is the one reported', Math.round(col.soonest), 4);
-eq('  with both still producing', col.unitsPerHour, 6000);
+eq('  with both still producing', col.unitsPerHour, 24000);
 has('a colony with no extractor is flagged', readColony(head, { pins: [], links: [] }, NOWP).warnings, 'noExtractor');
 has('extracting with nowhere to send it is flagged',
   readColony(head, { pins: [extractor(100)], links: [] }, NOWP).warnings, 'nothingRouted');
@@ -951,8 +954,9 @@ const withStock = readColony(head, {
 }, NOWP);
 eq('every type touched is offered for pricing', typesIn([withStock]).sort(), [2268]);
 let colVal = valueOf([withStock], () => 100);
-eq('production is per hour at the net price', colVal.perHour, 3000 * 100);
-eq('  and a day is twenty-four of them', colVal.perDay, 3000 * 100 * 24);
+// 3,000 a cycle with no install time is the formula's 15-minute base, 12,000 an hour.
+eq('production is per hour at the net price', colVal.perHour, 12000 * 100);
+eq('  and a day is twenty-four of them', colVal.perDay, 12000 * 100 * 24);
 eq('stock already out of the ground is counted apart', colVal.stored, 5000 * 100);
 // An unpriceable item understates the total rather than poisoning it with NaN.
 colVal = valueOf([withStock], () => null);
@@ -7584,7 +7588,7 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   eq('  learned heads: [0, 10] reads 10; all zeros read not known (0); [4, 0, 6] reads 5', [headsOf([0, 10]), headsOf([0, 0]), headsOf([4, 0, 6])], [10, 0, 5]);
   const Lf = learnedRates(cols, ix, 'formula').Barren['2267'];
   eq('  learned: once checked, the checked reading', [Lf.perHour, Lf.higher, Lf.checked, Lf.which], [789314 / 47.5, null, true, 'formula']);
-  eq('  an unchecked build reads null', PI_READING, null);
+  eq('  the in-game check settled it: the formula', PI_READING, 'formula');
   eq('  not learned from: qty null, no expiry, no planet type', learnedRates([{ colonies: [
     col('Barren', 1, [ext({ extractor: { qty: null } })]), col('Barren', 2, [ext({ pin: { expiry: null } })]), col(null, 3, [ext()])] }], ix, null), {});
   const typed = { perHour: 5000, programHours: 72, heads: 4 };

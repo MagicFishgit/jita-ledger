@@ -11,6 +11,8 @@
  * lost, and it is a date in a field that nothing was reading.
  */
 
+import { readings } from './piExtraction';
+
 export type RawPin = {
   pin_id: number;
   type_id: number;
@@ -100,10 +102,19 @@ export function readExtractor(pin: RawPin, now: number, soonHours = 24): Extract
     expiry,
     state,
     hours: Number.isFinite(hours) ? hours : Infinity,
-    // Output tails off across a programme; this is the per-cycle figure ESI reports, so treat it as
-    // the top of the range rather than a steady rate.
-    unitsPerHour: cycle > 0 && state !== 'expired' && state !== 'idle' ? qty * (3600 / cycle) : 0,
+    unitsPerHour: state === 'expired' || state === 'idle' ? 0 : perHourOf(qty, cycle, pin.install_time, expiry),
   };
+}
+
+/**
+ * An extractor's units an hour: its programme's average by CCP's formula, as the game's own "Avg. Per hour" (the in-game check,
+ * 19 October 2026: the formula's total was the game's to the unit; planets.md). ESI's qty_per_cycle is the formula's base for 15
+ * minutes, so qty × 3600 / cycle, read until then, was a quarter of it on 1-hour cycles and a half on 30-minute ones. Without an
+ * install time, the base an hour before its decay.
+ */
+function perHourOf(qty: number, cycle: number, install: string | undefined, expiry: number | null): number {
+  const r = install && expiry != null ? readings({ qtyPerCycle: qty, cycleSeconds: cycle, install: Date.parse(install), expiry }) : null;
+  return r ? r.formula.perHour : qty * (3600 / 900);
 }
 
 export type Stored = { typeId: number; amount: number };

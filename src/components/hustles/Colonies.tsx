@@ -47,9 +47,12 @@ function useSystems(ids: number[]): Record<number, { name: string; security: num
   return got;
 }
 
+/** A programme's length as the game's window says it ("3d 1h", whole hours: 47.5 h reads "1d 23h"), or in hours under a day. */
+const hoursSaid = (h: number) => (h >= 24 ? `${Math.floor(h / 24)}d ${Math.floor(h) % 24}h` : `${Math.round(h * 10) / 10} h`);
+
 /**
- * An extractor's programme total both ways (piExtraction.ts): by CCP's formula, and as ESI's figure a cycle times the cycles. Until
- * the in-game check (Task 13) says which the game reads, both are said and marked not yet checked; the Plan section ranks on the lower.
+ * An extractor's programme total (piExtraction.ts). The in-game check (Task 13, 19 October 2026) found the game reads CCP's formula,
+ * so that total is said as the game's, with its average an hour; were `PI_READING` unset, both readings would be said, not yet checked.
  */
 function ProgramTotal({ e }: { e: Extractor }) {
   const r = e.install != null && e.expiry != null ? readings({ qtyPerCycle: e.qtyPerCycle, cycleSeconds: e.cycleSeconds, install: e.install, expiry: e.expiry }) : null;
@@ -57,8 +60,12 @@ function ProgramTotal({ e }: { e: Extractor }) {
   return (
     <div style={{ fontSize: 11.5, color: 'var(--note)', marginTop: 4, maxWidth: 320, whiteSpace: 'normal' }} data-planets={`program:${e.pinId}`}>
       {!r ? 'Its programme’s total isn’t known: ESI gave no install time, expiry or quantity for it.' : (
-        <>Programme total: <b style={{ color: 'var(--figure)' }}>{units(r.formula.total)}</b> by CCP’s formula, <b style={{ color: 'var(--figure)' }}>{units(r.perCycle.total)}</b> as {units(e.qtyPerCycle)} × {units(cycles)} cycles
-          {PI_READING == null ? <>: {PI_UNCHECKED}.</> : <>: the game reads it {PI_READING === 'formula' ? 'by the formula' : 'as the figure a cycle'}.</>}</>
+        PI_READING === 'formula' ? (
+          <>Programme total: <b style={{ color: 'var(--figure)' }}>{units(r.formula.total)}</b> over {hoursSaid(r.hours)}, {units(Math.round(r.formula.perHour))} an hour on average, by CCP’s formula, as the game reads it.</>
+        ) : (
+          <>Programme total: <b style={{ color: 'var(--figure)' }}>{units(r.formula.total)}</b> by CCP’s formula, <b style={{ color: 'var(--figure)' }}>{units(r.perCycle.total)}</b> as {units(e.qtyPerCycle)} × {units(cycles)} cycles
+            {PI_READING == null ? <>: {PI_UNCHECKED}.</> : <>: the game reads it as the figure a cycle.</>}</>
+        )
       )}
     </div>
   );
@@ -115,7 +122,7 @@ export function Colonies({ goods }: { goods?: PiIndex | null }) {
           <p style={{ margin: 0 }}>Your own colonies, read from the game.</p>
           <Points compact items={[
             { kind: 'good', lead: 'Measured', text: 'every figure below comes from the game, not assumed.' },
-            { kind: 'warn', lead: 'Per hour', text: `is ESI’s figure a cycle turned into an hour, unconfirmed on cycles over 15 minutes: each extractor gives its programme’s total both ways, ${PI_UNCHECKED}.` },
+            { kind: 'good', lead: 'Per hour', text: 'is each programme’s average by CCP’s formula, as the game’s own “Avg. Per hour”: checked against one programme’s total in game, to the unit.' },
           ]} />
         </div>
         {canRead && <button type="button" className="btn primary tall" disabled={!!busy} onClick={() => readColonies(0)}><Globe aria-hidden="true" />{read ? 'Check again' : kept ? 'Read them now' : 'Read my colonies'}</button>}

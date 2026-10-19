@@ -40,10 +40,11 @@ in planets.md and planets-planner.md.
   and `lastUpdate` is the game's, never said as a read. No prices come with it: "–" and "not priced", never 0. Goods are named
   from the planets bundle, never "Item #…". Without the planets permission but with a kept document, the permission notice
   shows above the kept colonies.
-  - **Each extractor shows its programme's total both ways** (`data-planets="program:<pinId>"`: "789,314 by CCP's formula,
-    661,675 as 6,965 × 95 cycles: not yet checked against the game's total"); the live read's too (`Extractor.install`). Its
-    per-hour figure is ESI's figure a cycle turned into an hour, "unconfirmed on cycles over 15 minutes" (eve-planets.md), no
-    longer "the top of the range". With `PI_READING` set it says which reading the game uses.
+  - **Each extractor shows its programme's total by CCP's formula, as the game reads it** (`data-planets="program:<pinId>"`:
+    "789,314 over 1d 23h, 16,617 an hour on average"); the live read's too (`Extractor.install`). Its per hour is that average,
+    the game's own "Avg. Per hour" (`perHourOf` in colony.ts; the in-game check, planets.md), and so are the colony's ISK an hour
+    and To do's stake. It was ESI's figure a cycle turned into an hour, a quarter of the truth on 1-hour cycles. Before the check
+    it gave both totals, "not yet checked against the game's total".
   - **On a phone** an opened colony's detail wraps (`.col-unfold`), pinned within the table's visible width, and the extractor
     cards take the row's width; `check-phone` lets a box that scrolls sideways be, so the page case checks each total's right
     edge against its `.tbl-scroll` box (the crash's leftover rule, planted back, put both 31 px past).
