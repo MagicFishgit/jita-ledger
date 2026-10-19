@@ -8449,6 +8449,18 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
     eq('  T15b-8: an unrated planet at a median of 10 fits, its heads capped under 10, its Basics the rates’ 2 + 2', [r.fit.fits, r.lacks, r.extracts.every((e) => e.heads >= 1 && e.heads < 10), r.makes.map((m) => m.count)], [true, null, true, [2, 2]]);
     has('  T15b-8: and its line says the cap', r.why ?? '', 'heads: your extractors’ median is 10, and no more fit beside its factories');
   }
+  // Ruling T15b-12, the page case's shape: a Barren planet whose two lines both borrow another P0's learned rate at 10 heads (16,617
+  // an hour, as the seeded colony teaches). With 20 heads no layout fit anywhere; now each borrowed line is set aside, unknown, on the
+  // capped median, and said.
+  {
+    const bar = planets.find((p) => p.type === 'Barren');
+    const borrowed = { perHour: 16617, higher: null, from: 'learned', programHours: 72, heads: 10, otherP0: true, checked: true };
+    const r = PP.planSingle({ ...base, planets: [bar], char: { ...owner, planets: 1 }, rateOf: () => borrowed }, 'p2').roles[0];
+    eq('  T15b-12: two lines borrowing a 10-head rate: set aside, the role fits, under 10 heads each', [r.fit.fits, r.lacks, r.extracts.map((e) => [e.rate, e.setAside?.heads ?? null, e.heads < 10])], [true, null, [[null, 10, true], [null, 10, true]]]);
+    has('  T15b-12: and its line says why', r.why ?? '', 'another P0’s rate is at 10 heads, more than fit here, so ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, at ');
+    const own = PP.planSingle({ ...base, planets: [bar], char: { ...owner, planets: 1 }, rateOf: () => ({ ...borrowed, otherP0: false }) }, 'p2').roles[0];
+    eq('  T15b-12: its own learned rate keeps its heads (its colony had them)', [own.extracts.map((e) => [e.setAside ?? null, e.heads]), /more than fit here/.test(own.why ?? '')], [[[null, 10], [null, 10]], false]);
+  }
   // Ruling T15b-8: a fit can't regress behind unchanged figures again. At the median heads uncapped (10 here) every unrated planet
   // fitted at no level while every ISK a day stayed the same; the record holds no fit. So every planet a single-planet setup or the
   // feed uses must fit at its character's level.

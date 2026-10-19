@@ -601,7 +601,8 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   // It doesn't fit, and no Command Center Upgrades level fits it either: judged on this planet alone (Ruling T11-2).
   const noLevel = !!r.fit && !r.fit.fits && !r.lacks;
   const extract = r.extracts.map((e) => {
-    const from = !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : 'learned';
+    const from = e.setAside ? `${e.setAside.from === 'typed' ? 'your typed rate' : 'another P0’s rate'} set aside, its heads more than fit: if your extractors deliver it`
+      : !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : 'learned';
     const heads = e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : e.rate && !(e.rate.heads > 0) ? 'heads not known: the colony didn’t say how many' : 'heads not known';
     return `${name(e.p0)} at ${units(e.perHour)} an hour (${from}; ${heads})`;
   });

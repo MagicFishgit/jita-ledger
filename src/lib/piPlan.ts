@@ -206,7 +206,8 @@ export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
  */
 export type Role = {
   planetId: number; charId: number; does: 'extract' | 'factory' | 'unused';
-  extracts: { p0: number; perHour: number; heads: number | null; rate: Rate | null }[];
+  /** `setAside`: another P0's learned or a typed rate set aside, its heads more than fit here (Ruling T15b-12): `rate` is then null. */
+  extracts: { p0: number; perHour: number; heads: number | null; rate: Rate | null; setAside?: Rate }[];
   makes: { id: number; perDay: number; facility: Facility; count: number }[];
   ships: { id: number; perDay: number; to: 'market' | number }[];
   /** A factory planet's intake: from the market (bought) or from a planet of the setup (by its ID). */
@@ -359,8 +360,10 @@ type Line = {
   p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; p0Left: number;
   /** Null when not known and nothing learned (the most that fit, T8-1). `headsAssumed`: the median of your learned rates' heads (`headsMedian`), capped where its planet's layout must fit (`capHeads`). */
   heads: number | null; headsAssumed: boolean; headsMedian: number | null;
+  /** Another P0's learned rate or a typed one set aside because its heads leave no room here (Ruling T15b-12): the line is then unknown. */
+  setAside: Rate | null;
 };
-function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number, assumed?: number | null): Line {
+function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number, assumed?: number | null, setAside: Rate | null = null): Line {
   const inH = anHour(b, b.inputs[0].qty), outH = anHour(b, b.out.qty);
   // With no rate, the two Basics the 2 + 4 layout gives each P0 (12,000 P0 an hour), said as such, never claimed.
   const perHour = rate ? (high && rate.higher != null ? rate.higher : rate.perHour) : 2 * inH;
@@ -376,7 +379,25 @@ function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number,
     heads: rate && rate.heads > 0 ? Math.ceil(rate.heads) : assumed ?? null,
     headsAssumed: !(rate && rate.heads > 0) && assumed != null,
     headsMedian: !(rate && rate.heads > 0) && assumed != null ? assumed : null,
+    setAside,
   };
+}
+
+/**
+ * Ruling T15b-12: a line on another P0's learned rate, or a typed one, whose known heads leave no room for the plan's least layout
+ * (a Basic a line, and an Advanced for P0 → P2) where it must fit, is treated as unknown: the assumed 12,000 an hour on the capped
+ * median heads (T15b-8), said why. On the page case's Barren planets two lines borrowing a 10-head rate left no layout anywhere.
+ * The rate is never scaled to fewer heads. A line on its own learned rate keeps its heads: its colony had them.
+ */
+function setAsideBorrowed(input: PlanInput, p: Plan, at: FitAt, high: boolean): Plan {
+  const borrowed = p.lines.filter((l) => l.rate && l.rate.heads > 0 && (l.rate.otherP0 || l.rate.from === 'typed'));
+  if (!borrowed.length) return p;
+  const least: Counts = { basics: p.lines.map(() => 1), advanced: p.advanced ? 1 : 0 };
+  if (fitsAt(input.ix, { ...p, lines: p.lines.map((l) => (l.headsAssumed ? { ...l, heads: 1 } : l)) }, at, least)) return p;
+  const aside = borrowed.map((l) => l.p0);
+  const q = p.advanced ? planP2(input, p.planet, p.at, p.t, p.product, high, undefined, aside)
+    : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, undefined, aside);
+  return q ?? p;
 }
 
 /**
@@ -412,6 +433,8 @@ type Plan = {
   advanced: { id: number; count: number; perHour: number } | null;
   ships: { id: number; perDay: number }[];
   fitAt: FitAt | null; sized: 'rate' | 'fit' | 'over' | 'held';
+  /** The P0s whose borrowed rate is set aside here (Ruling T15b-12), kept through every rebuild of the plan. */
+  aside?: readonly number[];
 };
 /** How many factories a plan takes: the Basics on each line and the Advanced; absent, each rate's worth. */
 type Counts = { basics: number[]; advanced: number };
@@ -420,14 +443,14 @@ type Counts = { basics: number[]; advanced: number };
  * P0 → P2: two extractors at their rates, the Basics per P0 ceil(P0 an hour ÷ 6,000), the Advanced ceil(the lesser P1 an hour ÷ 40), or
  * `counts` of them (never an Advanced its Basics don't feed); a surplus P1 is shipped, and the P0 the Basics can't take.
  */
-function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType, p2: number, high: boolean, counts?: Counts): Plan | null {
+function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType, p2: number, high: boolean, counts?: Counts, aside?: readonly number[]): Plan | null {
   const s = input.ix.makes.get(p2);
   if (!s) return null;
   const lines: Line[] = [];
   for (const [k, i] of s.inputs.entries()) {
     const b = input.ix.makes.get(i.id);
     if (!b || b.facility !== 'basic') return null;
-    lines.push(lineOf(b, input.rateOf(t, b.inputs[0].id), high, counts?.basics[k], input.heads));
+    lines.push(lineFor(input, b, t, high, counts?.basics[k], aside));
   }
   // The Advanced factories' worth the lines feed: the lesser input, as a fraction of factories (one runs fewer cycles when short).
   const fed = Math.min(...s.inputs.map((inp, k) => lines[k].p1PerHour / anHour(s, inp.qty)));
@@ -441,20 +464,26 @@ function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
     if (left > 1e-6) ships.push({ id: lines[k].p1, perDay: left * 24 });
   });
   for (const l of lines) if (l.p0Left > 0) ships.push({ id: l.p0, perDay: l.p0Left * 24 });
-  return { planet, at, t, product: p2, lines, advanced: { id: p2, count: n, perHour }, ships, fitAt: null, sized: 'rate' };
+  return { planet, at, t, product: p2, lines, advanced: { id: p2, count: n, perHour }, ships, fitAt: null, sized: 'rate', ...(aside?.length ? { aside } : {}) };
+}
+
+/** A line at its P0's rate, or unknown with its borrowed rate set aside (Ruling T15b-12). */
+function lineFor(input: PlanInput, b: Schematic, t: PlanetType, high: boolean, basics: number | undefined, aside?: readonly number[]): Line {
+  const r = input.rateOf(t, b.inputs[0].id);
+  return aside?.includes(b.inputs[0].id) ? lineOf(b, null, high, basics, input.heads, r) : lineOf(b, r, high, basics, input.heads);
 }
 
 /** P0 → P1: two extractors on two of the planet's P0s, each feeding its Basics (each rate's worth, or `counts` of them); both P1s shipped, and the P0 left. */
-function planP1(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType, pair: [number, number], high: boolean, counts?: Counts): Plan | null {
+function planP1(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType, pair: [number, number], high: boolean, counts?: Counts, aside?: readonly number[]): Plan | null {
   const lines: Line[] = [];
   for (const [k, p0] of pair.entries()) {
     const b = basicFor(input.ix, p0);
     if (!b) return null;
-    lines.push(lineOf(b, input.rateOf(t, p0), high, counts?.basics[k], input.heads));
+    lines.push(lineFor(input, b, t, high, counts?.basics[k], aside));
   }
   const ships = [...lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24 })), ...lines.filter((l) => l.p0Left > 0).map((l) => ({ id: l.p0, perDay: l.p0Left * 24 }))];
   // `product` names the first P1 only: a P0 → P1 plan is replanned from its lines' P0s.
-  return { planet, at, t, product: lines[0].p1, lines, advanced: null, ships, fitAt: null, sized: 'rate' };
+  return { planet, at, t, product: lines[0].p1, lines, advanced: null, ships, fitAt: null, sized: 'rate', ...(aside?.length ? { aside } : {}) };
 }
 
 /** A plan's factories as counts. */
@@ -462,8 +491,8 @@ const countsOf = (p: Plan): Counts => ({ basics: p.lines.map((l) => l.basics), a
 /** The same planet, product and rates with these counts of factories (on either reading). */
 function withCounts(input: PlanInput, p: Plan, high: boolean, c: Counts): Plan | null {
   const q = p.advanced
-    ? planP2(input, p.planet, p.at, p.t, p.product, high, c)
-    : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, c);
+    ? planP2(input, p.planet, p.at, p.t, p.product, high, c, p.aside)
+    : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, c, p.aside);
   return q && keepHeads(q, p);
 }
 /** Whether a plan's factories fit at `at`, its extractors at their rates' heads, at least one a head where a rate didn't say how many. */
@@ -486,7 +515,7 @@ function fitsAt(ix: PiIndex, p: Plan, at: FitAt, c: Counts = countsOf(p)): boole
 function fittedPlans(input: PlanInput, base: Plan, at: FitAt | null, high: boolean): Plan[] {
   if (!at) return [base];
   const { ix } = input;
-  const p = capHeads(ix, base, at);
+  const p = capHeads(ix, setAsideBorrowed(input, base, at, high), at);
   if (fitsAt(ix, p, at)) return [{ ...p, fitAt: at }];
   const most = p.lines.map((l) => l.basics);
   const two = !!p.advanced;
@@ -591,8 +620,8 @@ function replan(input: PlanInput, p: Plan, kind: 'p1' | 'p2', high: boolean): Pl
     return q ? { ...q, fitAt: p.fitAt, sized: 'held' } : p;
   }
   const again = kind === 'p2'
-    ? planP2(input, p.planet, p.at, p.t, p.product, high)
-    : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high);
+    ? planP2(input, p.planet, p.at, p.t, p.product, high, undefined, p.aside)
+    : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, undefined, p.aside);
   if (!again) return p;
   const kept = keepHeads(again, p);
   if (p.sized === 'over' || !p.fitAt || (p.sized === 'rate' && fitsAt(input.ix, kept, p.fitAt))) return { ...kept, fitAt: p.fitAt, sized: p.sized };
@@ -874,7 +903,13 @@ const headsSaid = (l: Line) => {
 function rateNotes(input: PlanInput, p: Plan): string[] {
   const notes: string[] = [];
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
-  const none = p.lines.filter((l) => !l.rate);
+  const none = p.lines.filter((l) => !l.rate && !l.setAside);
+  for (const typed of [false, true]) {
+    const aside = p.lines.filter((l) => l.setAside && (l.setAside.from === 'typed') === typed);
+    if (!aside.length) continue;
+    const hs = Math.max(...aside.map((l) => l.setAside!.heads));
+    notes.push(`${listSaid(aside.map((l) => name(l.p0)))}: ${typed ? 'your typed rate' : 'another P0’s rate'} is at ${hs} head${hs === 1 ? '' : 's'}, more than fit here, so ranked at what the factories make if your extractors deliver ${unitsSaid(aside[0].perHour)} P0 an hour each${aside[0].headsAssumed ? `, ${headsSaid(aside[0])}` : ''}`);
+  }
   if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each${none[0].headsAssumed ? `, ${headsSaid(none[0])}` : ''}`);
   const other = [...new Set(p.lines.filter((l) => l.rate && Math.abs(l.rate.programHours - input.programHours) > EPS).map((l) => l.rate!.programHours))].sort((a, b) => a - b);
   if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: you chose ${chosenSaid(input.programHours)}, and nothing says what another length gives`);
@@ -986,7 +1021,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
     const notes = [...rateNotes(input, p), ...f.notes, ...(fitSaid ? [fitSaid] : []), ...staysNotes(name, kept, over)];
     return {
       planetId: planet.planetId, charId: char.charId, does: 'extract',
-      extracts: p.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: f.heads[i], rate: l.rate })),
+      extracts: p.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: f.heads[i], rate: l.rate, ...(l.setAside ? { setAside: l.setAside } : {}) })),
       makes: [
         ...p.lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24, facility: 'basic' as const, count: l.basics })),
         ...(p.advanced ? [{ id: p.advanced.id, perDay: p.advanced.perHour * 24, facility: 'advanced' as const, count: p.advanced.count }] : []),
@@ -2116,7 +2151,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     const notes = [...rateNotes(input, plan), ...fit.notes, ...(fitSaid ? [fitSaid] : []), ...staysNotes(name, kept, over)];
     return {
       planetId: pl.member.planet.planetId, charId: who[pl.char].c.charId, does: 'extract',
-      extracts: plan.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: fit.heads[i], rate: l.rate })),
+      extracts: plan.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: fit.heads[i], rate: l.rate, ...(l.setAside ? { setAside: l.setAside } : {}) })),
       makes: [
         ...plan.lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24, facility: 'basic' as const, count: l.basics })),
         ...(plan.advanced ? [{ id: plan.advanced.id, perDay: plan.advanced.perHour * 24, facility: 'advanced' as const, count: plan.advanced.count }] : []),
