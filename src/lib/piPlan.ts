@@ -173,7 +173,15 @@ export type PlanInput = {
   budget?: number;
   /** For the tests: the most pivots a bought setup's sizing may take (`lp.ts`'s cap when absent), to make it stall. */
   maxPivots?: number;
+  /**
+   * Structures a planet already has standing that its single-character layout must fit beside (by planet ID; Ruling T15b-1):
+   * `versusBest`'s planet only, from the colony's pins (colonyChain.ts' `reserveFor`), so its best is set against the colony like
+   * for like. Absent everywhere else, Plan included: one launchpad, no storage.
+   */
+  reserve?: Record<number, Reserve>;
 };
+/** Storage facilities and launchpads already standing on a planet (`PlanInput.reserve`). */
+export type Reserve = { storage: number; launchpads: number };
 export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
 /**
  * One planet's part. `extracts` is one line an extractor: its P0, the P0 an hour it's worked out at (its rate's lower
@@ -347,12 +355,12 @@ function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number)
   };
 }
 
-/** Where a planet's layout must fit (Ruling F9): a Command Center Upgrades level and the planet's radius. */
-type FitAt = { cc: number; radiusKm: number };
+/** Where a planet's layout must fit (Ruling F9): a Command Center Upgrades level and the planet's radius, beside the storage and launchpads already standing (`PlanInput.reserve`; one launchpad when not said). */
+type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: number };
 /**
  * One planet's arrangement before it's fitted: its extractors, its factories and what it ships. `sized`: 'rate', every extractor's
  * P0 refined (it fits where `fitAt` says, or nothing says where it must); 'fit', fewer factories than the rates feed, the most that fit
- * (Ruling F9); 'over', the rates' layout though nothing smaller fits either (today's: it's said, with what it lacks).
+ * (Ruling F9); 'over', the rates' layout though the least layout of its kind doesn't fit either (today's: said, with what it lacks).
  */
 type Plan = {
   planet: PlanPlanet; at: number; t: PlanetType; product: number;
@@ -416,7 +424,7 @@ function withCounts(input: PlanInput, p: Plan, high: boolean, c: Counts): Plan |
 /** Whether a plan's factories fit at `at`, its extractors at their rates' heads, at least one a head where a rate didn't say how many. */
 function fitsAt(ix: PiIndex, p: Plan, at: FitAt, c: Counts = countsOf(p)): boolean {
   const heads = p.lines.reduce((n, l) => n + (l.heads ?? 1), 0);
-  return fitOf(ix, p.t, at.cc, { ecus: p.lines.length, heads, basic: c.basics.reduce((n, b) => n + b, 0), advanced: c.advanced, hightech: 0, storage: 0, launchpads: 1 }, at.radiusKm).fits;
+  return fitOf(ix, p.t, at.cc, { ecus: p.lines.length, heads, basic: c.basics.reduce((n, b) => n + b, 0), advanced: c.advanced, hightech: 0, storage: at.storage ?? 0, launchpads: at.launchpads ?? 1 }, at.radiusKm).fits;
 }
 
 /**
@@ -424,9 +432,10 @@ function fitsAt(ix: PiIndex, p: Plan, at: FitAt, c: Counts = countsOf(p)): boole
  * otherwise each way of running fewer factories that fits and has no room for one more (each line at least one Basic and no more
  * than its rate feeds; a P0 → P2 at least one Advanced, and never one its Basics don't feed), every one a plan for the search to
  * value; the P0 the Basics can't take is shipped as P0 where it pays, else it builds up. The heads are always the rate's: a rate is
- * never scaled to fewer heads (one a head where a rate didn't say, the rest filled in by `fitted`). When nothing smaller fits either
- * (the extractors' heads alone are too many), the rates' layout, said with what it lacks, as before. A layout that fits only at a
- * higher level is never ranked in its place.
+ * never scaled to fewer heads (one a head where a rate didn't say, the rest filled in by `fitted`). When the least layout of its
+ * kind doesn't fit either (a Basic a line, and an Advanced for a P0 → P2), the rates' layout, said with what it lacks, as before.
+ * A layout that fits only at a higher level is never ranked in its place. Structures already standing (`FitAt.storage`, a
+ * colony's own: `PlanInput.reserve`) are fitted beside it.
  */
 function fittedPlans(input: PlanInput, p: Plan, at: FitAt | null, high: boolean): Plan[] {
   if (!at) return [p];
@@ -468,7 +477,7 @@ function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' |
   if (!t) return [];
   let memo = plansMemo.get(input);
   if (!memo) plansMemo.set(input, memo = new Map());
-  const key = `${at}|${kind}|${high ? 1 : 0}|${fits.map((f) => `${f.cc}:${f.radiusKm}`).join(',')}`;
+  const key = `${at}|${kind}|${high ? 1 : 0}|${fits.map((f) => `${f.cc}:${f.radiusKm}:${f.storage ?? 0}:${f.launchpads ?? 1}`).join(',')}`;
   const held = memo.get(key);
   if (held) return held;
   const base: Plan[] = [];
@@ -492,8 +501,12 @@ function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' |
   memo.set(key, out);
   return out;
 }
-/** Where a planet's single-character layout must fit: the character's level on the planet's own radius; none when its size isn't known (what fits isn't checked). */
-const fitFor = (planet: PlanPlanet, cc: number): FitAt[] => (planet.radiusKm != null && planet.radiusKm > 0 ? [{ cc, radiusKm: planet.radiusKm }] : []);
+/**
+ * Where a planet's single-character layout must fit: the character's level on the planet's own radius, beside what `reserve` says
+ * already stands there (a launchpad at least); none when its size isn't known (what fits isn't checked).
+ */
+const fitFor = (planet: PlanPlanet, cc: number, reserve?: Reserve): FitAt[] => (planet.radiusKm != null && planet.radiusKm > 0
+  ? [{ cc, radiusKm: planet.radiusKm, ...(reserve ? { storage: reserve.storage, launchpads: Math.max(1, reserve.launchpads) } : {}) }] : []);
 
 /**
  * The same planet and product on the other reading of its rates: sized to it when that fits where the plan must, else the plan's own
@@ -654,7 +667,7 @@ const better = (a: { value: number; unpriced: number }, b: { value: number; unpr
  * nothing to the ranking, never a figure; ties go to the planet listed first, then the first product. Then `improve`.
  */
 function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Seller): Plan[] {
-  const options = input.planets.map((p, at) => plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!)));
+  const options = input.planets.map((p, at) => plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!, input.reserve?.[p.planetId])));
   let chosen: Plan[] = [];
   const used = new Set<number>();
   while (chosen.length < allowed) {
@@ -726,7 +739,8 @@ function improve(input: PlanInput, options: Plan[][], start: Plan[], sold: Selle
 function fitted(input: PlanInput, p: Plan, cc: number): { heads: (number | null)[]; fit: Fit | null; notes: string[]; lacks: string | null } {
   const { ix } = input;
   const notes: string[] = [];
-  const base: Omit<Layout, 'heads'> = { ecus: p.lines.length, basic: p.lines.reduce((n, l) => n + l.basics, 0), advanced: p.advanced?.count ?? 0, hightech: 0, storage: 0, launchpads: 1 };
+  // Beside what already stands there (`PlanInput.reserve`, carried by the plan's `fitAt`), else one launchpad.
+  const base: Omit<Layout, 'heads'> = { ecus: p.lines.length, basic: p.lines.reduce((n, l) => n + l.basics, 0), advanced: p.advanced?.count ?? 0, hightech: 0, storage: p.fitAt?.storage ?? 0, launchpads: p.fitAt?.launchpads ?? 1 };
   const heads = p.lines.map((l) => l.heads);
   const r = p.planet.radiusKm;
   if (r == null || !(r > 0)) {

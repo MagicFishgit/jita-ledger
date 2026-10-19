@@ -11,7 +11,7 @@ import type { KeptColony, KeptPin } from './colonies';
 import { ENDING_SOON_HOURS } from './colony';
 import { lowerReading, readings } from './piExtraction';
 import { PI_READING } from './piLearn';
-import { anHour, keptSold, keptWhy, listSaid, taxRows, valuedOutput, type Output, type Role, type Sell, type Setup, type Sold } from './piPlan';
+import { anHour, keptSold, keptWhy, listSaid, taxRows, valuedOutput, type Output, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
 import type { Tax } from './planetsDoc';
 import { iskBig, units as unitsSaid } from './format';
 import { dayCount } from './split';
@@ -611,6 +611,57 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
 }
 
 /**
+ * The storage facilities and launchpads standing on a kept colony, as `PlanInput.reserve` takes them (Ruling T15b-1): the best
+ * `versusBest` sets the colony against is planned with them kept beside its own layout (`planSingle({ …, reserve: reserveFor(k) })`),
+ * so it can't win by spending the colony's storage on a factory. The command centre isn't a structure the fit counts.
+ */
+export function reserveFor(k: KeptColony): Record<number, Reserve> {
+  let storage = 0, launchpads = 0;
+  for (const p of k.pins) {
+    const kd = PIN_OF.get(p.typeId)?.kind;
+    if (kd === 'storage') storage++;
+    else if (kd === 'launchpad') launchpads++;
+  }
+  return { [k.planetId]: { storage, launchpads } };
+}
+
+const FAC_COUNT: Record<Facility, [string, string]> = { basic: ['Basic', 'Basics'], advanced: ['Advanced', 'Advanced'], hightech: ['High-Tech', 'High-Tech'] };
+/**
+ * What differs between a colony and the planner's layout for the same products, said after "pays X more a day": another count of
+ * factories on a good (", with another mix of factories: 3 Basics on Precious Metals where you run 2"), or the same count making less
+ * than they can, which the colony's flags explain (": your 2 Advanced on Mechanical Parts make 120 a day where they can make 240 (a
+ * flag above says why)").
+ */
+function differsSaid(chain: Chain, role: Role, ix: PiIndex): string {
+  const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
+  type Run = { count: number; perDay: number; facility: Facility };
+  const sum = (xs: readonly { id: number; count: number; perDay: number | null; facility: Facility }[]) => {
+    const m = new Map<number, Run>();
+    for (const x of xs) {
+      const r = m.get(x.id) ?? { count: 0, perDay: 0, facility: x.facility };
+      r.count += x.count; r.perDay += x.perDay ?? 0;
+      m.set(x.id, r);
+    }
+    return m;
+  };
+  const mine = sum(chain.makes), theirs = sum(role.makes);
+  const ids = [...new Set([...mine.keys(), ...theirs.keys()])].sort((a, b) => TIERS.indexOf(ix.byId.get(a)?.tier ?? 'P0') - TIERS.indexOf(ix.byId.get(b)?.tier ?? 'P0') || a - b);
+  const mix: string[] = [], short: string[] = [];
+  for (const id of ids) {
+    const c = mine.get(id), b = theirs.get(id);
+    const fac = (c ?? b)!.facility, n = (k: number) => (k ? `${k} ${FAC_COUNT[fac][k === 1 ? 0 : 1]}` : `no ${FAC_COUNT[fac][1]}`);
+    const cn = c?.count ?? 0, bn = b?.count ?? 0;
+    if (cn !== bn) mix.push(`${n(bn)} on ${name(id)} where you run ${cn}`);
+    else if (c && b && b.perDay > 0 && c.perDay < STARVING_BELOW * b.perDay) short.push(`your ${n(cn)} on ${name(id)} make ${dayCount(c.perDay)} a day where they can make ${dayCount(b.perDay)}`);
+  }
+  const flagged = chain.flags.some((f) => f.flag === 'starving' || f.flag === 'idle' || f.flag === 'buildingUp');
+  const why = flagged ? ' (a flag above says why)' : '';
+  if (mix.length) return `, with another mix of factories: ${listSaid(mix)}${short.length ? `; and ${listSaid(short)}${why}` : ''}`;
+  if (short.length) return `: ${listSaid(short)}${why}`;
+  return `, with the same factories, all they make shipped${flagged ? ' (a flag above says what holds yours back)' : ''}`;
+}
+
+/**
  * Whether a best's layout for the planet fits at the colony's own Command Center Upgrades level. The planner fits it at the level
  * it was given (`fit`, `lacks`); its CPU and powergrid don't move with the level, so they're set against the colony's own budget.
  * With no fit checked (the planet's size not known), it isn't known to fit: no better either (Ruling T15-6, the re-review's R5).
@@ -624,8 +675,9 @@ function fitsHere(ix: PiIndex, chain: Chain, role: Role | undefined): boolean {
 
 /**
  * The real planet against the best single-planet setup the planner gives that planet alone: the better of `planSingle`'s P0 → P1
- * and P0 → P2 with `planets` holding only it, at the same rates and at the colony's own level (the caller makes that call: its
- * `char.ccLevel` the chain's `level`). `gain` is what the best makes a day more; within a cent of it, or above, the colony is
+ * and P0 → P2 with `planets` holding only it, at the same rates and at the colony's own level, beside the colony's own storage and
+ * launchpads (the caller makes that call: its `char.ccLevel` the chain's `level`, its `reserve` `reserveFor(k)`; Ruling T15b-1). For
+ * the colony's own products the words say what differs (`differsSaid`), never a bare "pays more". `gain` is what the best makes a day more; within a cent of it, or above, the colony is
  * already the best and nothing is said (gain 0). A best that doesn't fit at the colony's own level, or whose fit isn't checked, is
  * no better: nothing said, never a suggestion to train (Ruling T15-1). With no valued ISK on either side, or an output unpriced on either side, gain is
  * null and the words say why: never a gain against 0. A P0 left over with no price isn't such an output: it stays on the planet, a known
@@ -654,13 +706,16 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex): { gai
     : chain.extracts.length ? `Extracts ${listSaid([...new Set(chain.extracts.map((x) => x.p0))].map(name))}` : 'Makes nothing';
   const pays = `${iskBig(gain)} more a day`;
   let rest: string;
-  if (best.kind === 'p1') {
-    const p1s = (role?.makes ?? []).filter((m) => m.facility === 'basic').map((m) => name(m.id));
-    rest = `the best P1s it can make alone here${p1s.length ? `, ${listSaid(p1s)},` : ''} pay ${pays}`;
+  // The same products as the colony's own: what differs is how many factories make what, or factories the colony has that it doesn't
+  // feed (Ruling T15b-1: never a bare "pays more"); another product says itself.
+  const theirTop = (role?.makes ?? []).filter((m) => m.facility === (best.kind === 'p1' ? 'basic' : 'advanced')).map((m) => m.id);
+  const same = theirTop.length > 0 && theirTop.length === tops.length && theirTop.every((id) => tops.includes(id));
+  if (same) {
+    rest = `the planner’s own layout for it here pays ${pays}${differsSaid(chain, role!, ix)}`;
+  } else if (best.kind === 'p1') {
+    rest = `the best P1s it can make alone here${theirTop.length ? `, ${listSaid(theirTop.map(name))},` : ''} pay ${pays}`;
   } else {
-    const adv = role?.makes.find((m) => m.facility === 'advanced');
-    rest = adv && tops.length === 1 && tops[0] === adv.id ? `the planner’s own layout for it here pays ${pays}`
-      : `the best P2 it can make alone here${adv ? `, ${name(adv.id)},` : ''} pays ${pays}`;
+    rest = `the best P2 it can make alone here${theirTop.length ? `, ${name(theirTop[0])},` : ''} pays ${pays}`;
   }
   // The best on a rate the planner assumes (a P0 the colonies haven't shown) is said as that, never claimed.
   const assumed = (role?.extracts ?? []).filter((x) => !x.rate);

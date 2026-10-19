@@ -8529,7 +8529,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { planSingle } = await import('../src/lib/piPlan.ts');
   const { readings } = await import('../src/lib/piExtraction.ts');
-  const { colonyChain, versusBest, pinKindOf, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
+  const { colonyChain, versusBest, pinKindOf, reserveFor, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
+  const { fitOf } = await import('../src/lib/piFit.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
   const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
   const schOf = (name) => ix.schematics.find((s) => s.name === name).id;
@@ -8745,8 +8746,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
     const r = e ? { perHour: e.perHour, higher: e.higher } : extra[id] ?? null;
     return r && { ...r, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: false };
   };
-  const bestOf = (c, s, extra, ccLevel = 4, pl = planet) => {
-    const input = { ix, planets: [pl], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
+  const bestOf = (c, s, extra, ccLevel = 4, pl = planet, reserve) => {
+    const input = { ix, planets: [pl], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72, ...(reserve ? { reserve } : {}) };
     const [p1, p2] = [planSingle(input, 'p1'), planSingle(input, 'p2')];
     return (p2.iskDay ?? -Infinity) >= (p1.iskDay ?? -Infinity) ? p2 : p1;
   };
@@ -8762,7 +8763,30 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const one = nanites({ drop: [[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [52, 30, NANITES, 5]] });
   one.pins = one.pins.filter((p) => p.id !== 52);
   const oneC = chainOf(one);
-  eq('  the same product on a thinner layout: the planner’s own pays more', versusBest(oneC, bestOf(oneC, sell), ix), { gain: 430_080, said: 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day' });
+  // Never a bare "pays more" for the colony's own product: what differs is said (Ruling T15b-1).
+  eq('  the same product on a thinner layout: the planner’s own pays more, and says what differs', versusBest(oneC, bestOf(oneC, sell), ix), { gain: 430_080, said: 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day, with another mix of factories: 2 Advanced on Nanites where you run 1' });
+  // Ruling T15b-1 (the user's own): the best is planned beside the colony's own storage and launchpad (`reserveFor`), so it can't win by
+  // spending the storage facility's room on a factory. A colony as the user's run, 4 Basics and 2 Advanced with storage and a
+  // launchpad, at its own heads (5 an extractor) and real-sized rates (16,600 an hour each), at CCU IV.
+  const userLike = (over = []) => colony([
+    pin(1, CC), ecu(10, MICRO, 16600), ecu(11, BASE, 16600), pin(20, STORE), pin(30, PAD),
+    fac(41, BASIC, S_BACT), fac(42, BASIC, S_BACT), fac(43, BASIC, S_REACT), fac(44, BASIC, S_REACT), fac(51, ADV, S_NAN), fac(52, ADV, S_NAN),
+  ], [
+    [10, 20, MICRO, 25000], [11, 20, BASE, 25000],
+    [20, 41, MICRO, 3000], [20, 42, MICRO, 3000], [20, 43, BASE, 3000], [20, 44, BASE, 3000],
+    [41, 20, BACTERIA, 20], [42, 20, BACTERIA, 20], [43, 20, REACTIVE, 20], [44, 20, REACTIVE, 20],
+    [20, 51, BACTERIA, 40], [20, 51, REACTIVE, 40], [20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [51, 30, NANITES, 5], [52, 30, NANITES, 5],
+  ].filter((r) => !over.some((d) => d.every((x, i) => x === r[i]))));
+  const UL = userLike(), ULc = chainOf(UL), ulBest = bestOf(ULc, sell, undefined, 4, planet, reserveFor(UL));
+  const ulMakes = ulBest.roles[0].makes, ulBasics = ulMakes.filter((m) => m.facility === 'basic').reduce((n, m) => n + m.count, 0), ulAdv = ulMakes.filter((m) => m.facility === 'advanced').reduce((n, m) => n + m.count, 0);
+  const vsUL = versusBest(ULc, ulBest, ix);
+  eq('  T15b-1: the colony’s storage and launchpad are kept: the best fits beside them, and says nothing or only another factory mix',
+    [reserveFor(UL), fitOf(ix, 'Barren', 4, { ecus: 2, heads: 10, basic: ulBasics, advanced: ulAdv, hightech: 0, storage: 1, launchpads: 1 }, 3750).fits, vsUL.gain === 0 ? '' : /^Makes Nanites; the planner’s own layout for it here pays .+ more a day, with another mix of factories: /.test(vsUL.said)],
+    [{ 40000001: { storage: 1, launchpads: 1 } }, true, vsUL.gain === 0 ? '' : true]);
+  // The colony 5-NZNW III is like: its second Advanced has nothing routed in. That still speaks, saying what differs.
+  const UL3 = userLike([[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]]), UL3c = chainOf(UL3);
+  const vsUL3 = versusBest(UL3c, bestOf(UL3c, sell, undefined, 4, planet, reserveFor(UL3)), ix);
+  eq('  T15b-1: a factory the colony has but doesn’t feed still speaks, saying so', [vsUL3.gain > 0, vsUL3.said === 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)'], [true, true]);
   // A best that doesn't fit at the colony's own level is no better: nothing said, never a suggestion to train (Ruling T15-1). Since
   // Ruling F9 the planner plans at a level only what fits there, so such a best is one planned at a higher level than the colony's:
   // planned at V, 3 + 3 Basics and 3 Advanced; planned at IV, the most that fit there, 2 + 3 and 2, as the colony is laid out.
