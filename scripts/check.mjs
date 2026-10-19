@@ -8569,7 +8569,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const root = chainOf(nanites({ micro: 9000 }));
   eq('  a short P0 is one flag, not one for every good after it', flagsOf(root), [['starving', MICRO, null]]);
   eq('  its words name what it holds back downstream', [saidOf(root).includes('75%'), saidOf(root).includes('Nanites')], [true, true]);
-  eq('  1,440 Bacteria and 180 Nanites a day; the Reactive Metals the Advanced don’t use go to storage', [root.makes.map((m) => near(m.perDay)), root.outputs.map((o) => [o.id, near(o.perDay)])], [[1440, 2880, 180], [[NANITES, 180], [REACTIVE, 1440]]]);
+  eq('  1,440 Bacteria and 180 Nanites a day; the Reactive Metals the Advanced don’t use go back to storage, exported', [root.makes.map((m) => near(m.perDay)), root.outputs.map((o) => [o.id, near(o.perDay), near(o.sold.units), o.buildingUp])], [[1440, 2880, 180], [[NANITES, 180, 180, 0], [REACTIVE, 1440, 1440, 0]]]);
   // An extractor with no programme explains everything after it: one flag.
   const noProg = chainOf(nanites({ swap: { 10: unset(10, MICRO) } }));
   eq('  an extractor with no programme is idle, and nothing after it is flagged again', flagsOf(noProg), [['idle', null, 10]]);
