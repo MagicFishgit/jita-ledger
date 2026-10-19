@@ -38,7 +38,19 @@ export type Sold = { isk: number | null; units: number; where: ('jita' | 'home')
  * price Jita lists it at (so it can be listed at home at that), `route` whether a freight route nets it after freight; without one,
  * Jita's price before freight. Every figure built on it says so (`fallbackSaid`).
  */
-export type Fallback = { hub: string; list: number | null; route: boolean };
+export type Fallback = {
+  hub: string; list: number | null; route: boolean;
+  /** Carried yourself to Jita (a high-sec hub near it: no freight paid), so not "after freight". */
+  carried?: boolean;
+  /**
+   * The hub's own reason, read and kept (the review of Task 15c): "No price at UALX-3", "Not read at UALX-3 yet", "Nothing says how
+   * fast it sells at UALX-3" (a good it lists whose pace isn't known: every listed good at a hub Goonmetrics doesn't track), "UALX-3's
+   * weekly movement isn't known, so its depth can't be judged". The words lead with it, never a blanket "no price".
+   */
+  hubWhy?: string | null;
+};
+/** A hub's reason as a sentence's lead, capitalised. */
+const lead = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 /**
  * The planner's searches bound what an arrangement can be worth by each good's first unit, and size a bought setup exactly on
  * its curve (Ruling T11-11), so a `Sell` must keep to this: the next unit never nets more than the last as the amount grows (the
@@ -85,23 +97,37 @@ export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | 
  * Jita's (`jita`: the route's sale, after freight to Jita, or with no route Jita's before freight, `route` saying which), marked
  * `fallback`, so a good is all on one place and `Sell`'s contract holds. Neither priced: unvalued, both reasons said (I1). Pure.
  */
-export function soldAtHome(perDay: number, sales: { home: Sale | null; jita: Sale | null }, share: number, hub: string, route: boolean): Sold {
+export function soldAtHome(perDay: number, sales: { home: Sale | null; jita: Sale | null }, share: number, hub: string, route: boolean, carried = false): Sold {
   const priced = (x: Sale | null): x is Sale => !!x && (x.listNet != null || x.bidNet != null);
+  const hubWhy = sales.home?.why ?? null;
   if (priced(sales.home) || !priced(sales.jita)) {
     const s = soldOf(perDay, { jita: null, home: sales.home }, 'home', share);
     if (s.isk != null || !sales.jita?.why) return s;
     return { ...s, why: [...new Set([s.why, `Jita: ${sales.jita.why}`].filter((w): w is string => !!w))].join('; ') };
   }
-  return { ...soldOf(perDay, { jita: sales.jita, home: null }, 'jita', share), fallback: { hub, list: sales.jita.list, route } };
+  return { ...soldOf(perDay, { jita: sales.jita, home: null }, 'jita', share), fallback: { hub, list: sales.jita.list, route, carried, hubWhy } };
 }
-/** A fallback's words, at what a unit came to: "No price at UALX-3: valued at Jita's: 1,100 ISK after freight (Jita lists it at 1,234)". */
+/**
+ * A fallback's words, at what a unit came to, led by the hub's own reason: "No price at UALX-3: valued at Jita's: 1,100 ISK after
+ * freight (Jita lists it at 1,234)", "Nothing says how fast it sells at UALX-3: valued at Jita's: …".
+ */
 export function fallbackSaid(sold: Pick<Sold, 'isk' | 'units' | 'fallback'>): string | null {
   const f = sold.fallback;
   if (!f) return null;
+  const why = lead(f.hubWhy ?? `No price at ${f.hub}`);
   const unit = sold.isk != null && sold.units > 0 ? sold.isk / sold.units : null;
   const listed = f.list != null ? ` (Jita lists it at ${isk(f.list)})` : '';
-  if (!f.route) return `No price at ${f.hub}: valued at Jita’s${unit != null ? ` ${isk(unit)}` : ''}, before freight: no freight route picked${listed}`;
-  return `No price at ${f.hub}: valued at Jita’s${unit != null ? `: ${isk(unit)} after freight` : ', after freight'}${listed}`;
+  if (!f.route) return `${why}: valued at Jita’s${unit != null ? ` ${isk(unit)}` : ''}, before freight: no freight route picked${listed}`;
+  const how = f.carried ? 'carried yourself' : 'after freight';
+  return `${why}: valued at Jita’s${unit != null ? `: ${isk(unit)} ${how}` : `, ${how}`}${listed}`;
+}
+/** An input bought at Jita for want of the hub, said with the hub's own reason (F11b): "with the freight in (UALX-3's weekly movement isn't known, …)". */
+export function boughtFallbackSaid(b: Pick<Bought, 'fallback'>): string | null {
+  const f = b.fallback;
+  if (!f) return null;
+  const why = f.hubWhy ?? `${f.hub} doesn’t sell it`;
+  // Lower-cased as a clause unless it starts with a name ("UALX-3's weekly movement…").
+  return `with the freight in (${/^[A-Z][a-z]/.test(why) ? why.charAt(0).toLowerCase() + why.slice(1) : why})`;
 }
 /** The goods among outputs valued at Jita's because the hub has no price (Ruling F11), for a setup's or a colony's one line. */
 export const fallbackGoods = (outputs: readonly Output[]): number[] => [...new Set(outputs.filter((o) => o.sold.fallback && o.sold.isk != null).map((o) => o.id))];
@@ -176,7 +202,7 @@ export function boughtAtHome(perDay: number, places: { home: BuyPlace; jita: Buy
     if (b.isk != null || sells(places.home) || !places.jita.why) return b;
     return { ...b, why: [...new Set([b.why, `Jita: ${places.jita.why}`].filter((w): w is string => !!w && w !== 'no price read'))].join('; ') || 'no price read' };
   }
-  return { ...boughtOf(perDay, [places.jita]), fallback: { hub, list: null, route: true } };
+  return { ...boughtOf(perDay, [places.jita]), fallback: { hub, list: null, route: true, hubWhy: places.home.why } };
 }
 /** Units of a purchase bought at Jita: as `boughtOf` splits them, else all when Jita is the only place. */
 export const boughtAtJita = (b: Bought, perDay: number) => b.jitaUnits ?? (b.where?.length === 1 && b.where[0] === 'jita' ? perDay : 0);
@@ -441,8 +467,18 @@ function setAsideBorrowed(input: PlanInput, p: Plan, at: FitAt, high: boolean): 
   const borrowed = p.lines.filter((l) => l.rate && l.rate.heads > 0 && (l.rate.otherP0 || l.rate.from === 'typed'));
   if (!borrowed.length) return p;
   const least: Counts = { basics: p.lines.map(() => 1), advanced: p.advanced ? 1 : 0 };
-  if (fitsAt(input.ix, { ...p, lines: p.lines.map((l) => (l.headsAssumed ? { ...l, heads: 1 } : l)) }, at, least)) return p;
-  const aside = borrowed.map((l) => l.p0);
+  // The least layout with these lines at one head (an unknown line counts one, as `fitsAt` reserves).
+  const fitsWith = (down: ReadonlySet<number>) => fitsAt(input.ix, { ...p, lines: p.lines.map((l) => (l.headsAssumed || down.has(l.p0) ? { ...l, heads: 1 } : l)) }, at, least);
+  if (fitsWith(new Set())) return p;
+  // Only where their heads are the cause (the review of Task 15c): set aside one at a time, the most heads first, until the least
+  // layout fits; none when even all of them at one head leave no room (a line of the planet's own makes it fail: said as that).
+  const down = new Set<number>();
+  for (const l of [...borrowed].sort((a, b) => b.rate!.heads - a.rate!.heads || a.p0 - b.p0)) {
+    down.add(l.p0);
+    if (fitsWith(down)) break;
+  }
+  if (!fitsWith(down)) return p;
+  const aside = [...down];
   const q = p.advanced ? planP2(input, p.planet, p.at, p.t, p.product, high, undefined, aside)
     : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, undefined, aside);
   return q ?? p;
@@ -944,6 +980,8 @@ function levelFor(ix: PiIndex, t: PlanetType, cc: number, l: Layout, r: number):
 
 /** A line whose heads aren't known with nothing learned, or no room even for one under the median: filled in by `fitted` (T8-1). */
 const MOST_HEADS = 'at the most heads that fit beside its factories';
+/** A line's heads not known and not assumed, said as `fitted` fills them: the most that fit; none when the layout doesn't fit (its 'over'); not checked with no size. */
+const unknownHeads = (p: Plan) => (!p.fitAt ? 'its heads not known' : p.sized === 'over' ? 'with no head fitting beside its factories' : MOST_HEADS);
 /** An assumed head count, said (Rulings T15b-5, T15b-8): the median, or the most that fit under it. */
 const headsSaid = (l: Line) => {
   const n = l.heads!, m = l.headsMedian!, hs = (k: number) => `${k} head${k === 1 ? '' : 's'}`;
@@ -958,9 +996,9 @@ function rateNotes(input: PlanInput, p: Plan): string[] {
     const aside = p.lines.filter((l) => l.setAside && (l.setAside.from === 'typed') === typed);
     if (!aside.length) continue;
     const hs = Math.max(...aside.map((l) => l.setAside!.heads));
-    notes.push(`${listSaid(aside.map((l) => name(l.p0)))}: ${typed ? 'your typed rate' : 'another P0’s rate'} is at ${hs} head${hs === 1 ? '' : 's'}, more than fit here, so ranked at what the factories make if your extractors deliver ${unitsSaid(aside[0].perHour)} P0 an hour each, ${aside[0].headsAssumed ? headsSaid(aside[0]) : p.fitAt ? MOST_HEADS : 'its heads not known'}`);
+    notes.push(`${listSaid(aside.map((l) => name(l.p0)))}: ${typed ? 'your typed rate' : 'another P0’s rate'} is at ${hs} head${hs === 1 ? '' : 's'}, more than fit here, so ranked at what the factories make if your extractors deliver ${unitsSaid(aside[0].perHour)} P0 an hour each, ${aside[0].headsAssumed ? headsSaid(aside[0]) : unknownHeads(p)}`);
   }
-  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each, ${none[0].headsAssumed ? headsSaid(none[0]) : p.fitAt ? MOST_HEADS : 'its heads not known'}`);
+  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each, ${none[0].headsAssumed ? headsSaid(none[0]) : unknownHeads(p)}`);
   const other = [...new Set(p.lines.filter((l) => l.rate && Math.abs(l.rate.programHours - input.programHours) > EPS).map((l) => l.rate!.programHours))].sort((a, b) => a - b);
   if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: you chose ${chosenSaid(input.programHours)}, and nothing says what another length gives`);
   const others = p.lines.filter((l) => l.rate?.otherP0);

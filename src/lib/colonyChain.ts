@@ -839,6 +839,6 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   const fellFrom = [chain.outputs, ...used.map((x) => x.outputs)];
   const fell = [...new Set(fellFrom.flatMap((os) => fallbackGoods(os)))];
   const hubOf = fellFrom.flat().find((o) => o.sold.fallback)?.sold.fallback?.hub;
-  const atJita = fell.length ? `; valued at Jita’s where ${hubOf} has no price: ${listSaid(fell.map(name))}` : '';
+  const atJita = fell.length ? `; valued at Jita’s for want of a ${hubOf} figure: ${listSaid(fell.map(name))}` : '';
   return { gain, said: `${what}; ${[ownSaid, otherSaid].filter(Boolean).join('; and ')}${beforeTax}${unpricedP0}${atJita}` };
 }

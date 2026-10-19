@@ -127,7 +127,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
     };
     const sell: Sell = (t, perDay): Sold => {
       const s = salesOf(t);
-      if (hub && where === 'home') return soldAtHome(perDay, { home: s.home, jita: jitaFor(t) }, share, hub.short, route);
+      if (hub && where === 'home') return soldAtHome(perDay, { home: s.home, jita: jitaFor(t) }, share, hub.short, route, jitaLeg.kind === 'here');
       return soldOf(perDay, { jita: s.jita, home: s.home }, where, share);
     };
     const unit = (t: number): UnitNet => {
@@ -141,7 +141,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       // Ruling F11: the hub doesn't price it: Jita's, said.
       if (hub && where === 'home') {
         const j = jitaFor(t), v = Math.max(j.listNet ?? -Infinity, j.bidNet ?? -Infinity);
-        if (v > -Infinity) return { isk: v, where: 'jita', why: null, book: liveBooks[t] ? 'now' : 'morning', fallback: { hub: hub.short, list: j.list, route } };
+        if (v > -Infinity) return { isk: v, where: 'jita', why: null, book: liveBooks[t] ? 'now' : 'morning', fallback: { hub: hub.short, list: j.list, route, carried: jitaLeg.kind === 'here', hubWhy: s.home.why } };
         nets.push({ p: 'jita', v, why: j.why ? `Jita: ${j.why}` : null });
       }
       return { isk: null, where: null, why: [...new Set(nets.map((x) => x.why).filter((w): w is string => !!w))].join('; ') || 'no price read' };

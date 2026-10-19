@@ -63,8 +63,12 @@ planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/202
   - **Sell at the hub: a good it doesn't price is valued at Jita's, warned** (Ruling F11, the user's own: "just pull the jita figure
     instead and warn, that way i can put it up for that price locally or store it for shipping to jita"; `soldAtHome`, once in
     `usePlanetMarket`'s `sell` and `unit`): on the route, what it nets shipped; with none, Jita's own before freight. Per good and
-    wholly (`Sell`'s contract holds); neither prices, unvalued with both reasons (I1). Marked `fallback`: each output says "No price
-    at UALX-3: valued at Jita's: … after freight (Jita lists it at …)", the setup and versusBest name the goods. Before, all unvalued.
+    wholly (`Sell`'s contract holds); neither prices, unvalued with both reasons (I1). Marked `fallback`, which keeps the hub's own
+    reason (`hubWhy`), and each output's words lead with it: "No price at UALX-3: valued at Jita's: … after freight (Jita lists it at
+    …)", but "Nothing says how fast it sells at UALX-3: …" for a good it lists whose pace isn't known (every listed good at a hub
+    Goonmetrics doesn't track), "Not read at UALX-3 yet: …" (the review of Task 15c: a blanket "no price" was false there); the
+    setup ("Valued at Jita's for want of a UALX-3 figure: … (each line says why)") and versusBest name the goods. Before, all
+    unvalued.
 - **Buying** (Rulings T11-3, T11-7). Jita: others' listings walked up the book for a week's need (the morning scan's seven levels,
   the live book's for the goods the ranking names), each level with its own freight in, **held to your industry share of the
   good's day in The Forge**; past that, unpriced with what Jita supplies. Nothing capped it before: 5-NZNW's top setup read
@@ -77,8 +81,8 @@ planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/202
   - **Sell at the hub: an input it doesn't sell is bought at Jita, warned** (Ruling F11b, buying following F11; `boughtAtHome`,
     once in `usePlanetMarket`'s `buy`): wholly at Jita's asks with the freight in on the route, as Either buys at Jita, so a good
     is bought at one place and `Buy`'s contract holds (tested); marked `fallback`, the input's line saying "with the freight in
-    (UALX-3 doesn't sell it)" and the setup naming them once ("Bought at Jita, with the freight in, because UALX-3 doesn't sell
-    them: …"). With no route, unpriced with both reasons: buying needs the freight in. Before, such an input was unpriced: with Sell at
+    (<the hub's own reason>)" and the setup naming them once ("Bought at Jita, with the freight in, for want of UALX-3: … (each
+    line says why)"). With no route, unpriced with both reasons: buying needs the freight in. Before, such an input was unpriced: with Sell at
     UALX-3 the page case's bought read 2.78 M ISK a day and fell from first, now 25.14 M and first (the others don't buy, and under
     Either it stays 71.86 M), so the page check's re-rank now takes the freight route away instead. Task 11's planner-vs-brute on
     bought, buying so: 400 of 400 equal, both paths taken.
@@ -103,5 +107,5 @@ Moved here from planets-planner.md with the rules above: state these rather than
   under what sells, on purpose. Buying at Jita is held to your industry share of the good's day in The Forge, walked up the
   book (seven levels, the morning scan's or the live one) for a week's need; at a hub, its own read's levels spread over a
   week, or a tenth of Goonmetrics' weekly movement. A deeper book isn't seen.
-- **An input bought at Jita because the hub doesn't sell it** (F11b) is priced on Jita's asks and the freight in, as at Either;
+- **An input bought at Jita for want of the hub** (F11b) is priced on Jita's asks and the freight in, as at Either;
   whether a hub seller appears later isn't known until it lists, and with no freight route it isn't bought at all.

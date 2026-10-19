@@ -3,8 +3,9 @@
 Decisions worth not undoing. A real colony's chain, worked out from its kept document (`colonyChain.ts`, pure): which pin feeds
 which, what it makes a day with every output valued, what's wrong at its root, and how it compares with the planner's best for
 that planet (`versusBest`). Split from planets-colonies.md on 19 October 2026 (Task 15b's fix round, the notes budget: Planets.tsx
-loaded 139,263 of 140,000), which keeps the `colonies` document, the cloud's reads and the Colonies section; the planner is in
-planets-planner.md.
+loaded 139,263 of 140,000), which keeps the `colonies` document, the cloud's reads and the Colonies section; what the chain shares
+with the planner (`keptWhy` and the export rule, I1, `soldOf`, F11's Jita figure) is in planets-market.md, the rest of the planner
+in planets-planner.md.
 
 - **A colony's real chain** (Task 15 and its fix rounds, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; Task 16 draws it).
   From a kept colony and the planet's customs tax (`customsRate`'s, passed in: the document carries no security or skills):
@@ -87,8 +88,8 @@ planets-planner.md.
       above says why); no ISK figure while Bacteria and Reactive Metals have no price: …", `gain` null. Not known is never 0, and the
       fault is what versusBest exists to catch; the ISK figure comes only with both sides priced. **Since Ruling F11** a good the hub
       doesn't price is valued at Jita's with Sell at the hub, so this is left for a good Jita doesn't price either: III's shape at
-      UALX-3 now reads "pays 106,080 ISK more a day: your 2 Advanced … (a flag above says why); valued at Jita's where UALX-3 has no
-      price: Bacteria and Reactive Metals", the goods so valued named on either side (`fallbackGoods`; Task 16 names a colony's own
+      UALX-3 now reads "pays 106,080 ISK more a day: your 2 Advanced … (a flag above says why); valued at Jita's for want of a UALX-3
+      figure: Bacteria and Reactive Metals", the goods so valued named on either side (`fallbackGoods`; Task 16 names a colony's own
       the same way).
     - **Every rate the colony hasn't shown is said, each in its own words** (Ruling T15b-5): none, "if it gets 12,000 Noble Metals an
       hour, a rate no colony of yours has shown"; another P0's, "with Noble Metals at the rate learned for another P0"; typed, "with
