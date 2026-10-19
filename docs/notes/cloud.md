@@ -101,5 +101,5 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   read lived inside the alert round behind `cfg.ev.pi && cfg.mailEv.pi`, so PI alerts off kept no colonies; now it runs hourly,
   before each ledger's alert round, whenever the main's login holds the planets permission, pushing only when the merged document
   changed, and the alert round reads the kept document, never ESI. **`'pi'` is watchdog-mailed**, so a failing read now mails
-  "Cloud job failing" with PI alerts off too, as intended. It pushes under `who.ledger` (the main's); an alt's must go under
-  `who.char`.
+  "Cloud job failing" with PI alerts off too, as intended. It pushes under `who.char`, the character the colonies are of
+  (the main's ledger for the main; an alt's are read by its hourly sheet and filed under the alt: planets-colonies.md).

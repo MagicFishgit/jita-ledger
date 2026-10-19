@@ -53,7 +53,12 @@ in planets.md and planets-planner.md.
     and 18 for a desktop scrollbar on the content (headless Chromium hides scrollbars, so the check can't see one). The phone's
     width (for its 56 px rail) would still run past with the rail open: before, the cards ran 179 and 147 px past at 800 with the
     rail shut (72 px, as it starts there), 309 and 277 open (236). The page case measures every card and total at 800 px both ways.
-- **Stage 2** (planned): the cloud reads every alt's colonies with its own login in the hourly alt read, filed under the alt;
+- **The cloud reads every alt's colonies** (Task 14, `colonyDocFor` in worker/src/planets.ts, called by `readSheet`): in the hourly
+  sheet, only when the alt's login holds the planets permission, merged against the alt's kept document and pushed with the sheet's
+  other documents only when it changed, under the alt, never the main. A failed read keeps what is held and doesn't fail the sheet;
+  nothing is written for an alt removed mid-read; the `sheet` job's `lastOk` dates it (no new watched job). The browser needed no
+  change: the alt store keeps every document it pulls, and Planets reads `docs.colonies` through `sanitizeColonies`. `check-worker`
+  pins each rule (planted wrong: pushing under the ledger, no permission gate, always pushing each failed it). Still planned:
   Colonies shows the shown character's or All; To do lists each character's expiring extractors (an alt's judged on a roster
   read of this session); mail stays the main's alone.
 
@@ -65,7 +70,7 @@ in planets.md and planets-planner.md.
   every factory kept as storage: ESI sends the schematic as the pin's own `schematic_id` (eve-planets.md), and only
   `factory_details` was read. Both are now; the next hourly read refills the document, since ties go to the read. The in-game
   check reads this document (planets.md).
-- `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
+- `readColoniesFor` now pushes under `who.char` (Task 14; the same for the main).
 
 ## Limits
 

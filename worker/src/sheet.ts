@@ -2,7 +2,7 @@
  * An alt's sheet: what the app's own sync reads for the main in the browser, read by the cloud for a character that
  * never logs in to the app. Its skills (the `skills` doc, trained levels, the main's shape) and a `meta` doc with the
  * main's field names (wallet, skill points, queue, attributes, loyalty points, clone state, standings, R&D agents'
- * research), its blueprints (the `blueprints` doc) and industry jobs (records), so the app's own rules read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already
+ * research), its colonies (the `colonies` doc), its blueprints (the `blueprints` doc) and industry jobs (records), so the app's own rules read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already
  * read.
  */
 import { ALPHA_SKILL_CAPS } from '../../src/lib/alphaCaps';
@@ -12,8 +12,10 @@ import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack'
 import { readBlueprintsFor, readJobsFor, SCOPE_BLUEPRINTS, SCOPE_JOBS, SCOPE_STRUCTURES } from './industryJobs';
 import { esiGet, readerLogin, stillKept, type Reader } from './eve';
 import { push, storedRecords } from './sync';
+import { PLANETS_SCOPE } from './alerts';
+import { colonyDocFor } from './planets';
 
-type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string };
+type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
 
 const S = {
   skills: 'esi-skills.read_skills.v1', queue: 'esi-skills.read_skillqueue.v1', standings: 'esi-characters.read_standings.v1',
@@ -120,6 +122,15 @@ export async function readSheet(
       for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
       meta.jobsRead = true;
     } catch { /* kept as it was */ }
+  }
+  // Its colonies (the `colonies` doc, the main's shape), only with the planets permission: a login without it isn't asked.
+  // Merged against the kept document and pushed only when that changed; no read time (the sheet job's lastOk dates it).
+  // A failed read leaves what's held and doesn't fail the sheet. Filed under the alt with its other documents.
+  if (login.scopes.includes(PLANETS_SCOPE)) {
+    try {
+      const c = await colonyDocFor(env, who, token);
+      if (c.changed) docs.push({ key: 'colonies', d: c.doc });
+    } catch { /* kept as it was; the next hourly read tries again */ }
   }
   if (extra.wallet != null) { meta.walletBalance = extra.wallet; meta.walletAt = new Date(now).toISOString(); }
   if (extra.lp) meta.lpBalances = extra.lp;

@@ -2454,5 +2454,70 @@ console.log('\n--- the main\'s colonies, kept hourly (Planets task 5) ---');
   }
 }
 
+console.log('\n--- an alt\'s colonies, read by its hourly sheet (Planets task 14) ---');
+{
+  const { readAlt } = await import('../worker/src/alts.ts');
+  const { readColoniesFor } = await import('../worker/src/planets.ts');
+  const { altReader } = await import('../worker/src/eve.ts');
+  const { pull } = await import('../worker/src/sync.ts');
+  const docOf = (db, char, key) => { const r = db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', char, key)[0]; return r ? JSON.parse(r.data) : null; };
+  const rev = (db, char) => db.rows('SELECT rev FROM revs WHERE char_id = ?', char)[0]?.rev ?? 0;
+  const PLANETS = 'esi-planets.manage_planets.v1', PLANET = 40400001;
+  const NOW = Date.parse('2026-10-18T14:00:00Z');
+  const heads = [{ planet_id: PLANET, planet_type: 'barren', solar_system_id: 30000142, upgrade_level: 4, num_pins: 2, last_update: new Date(NOW - 600_000).toISOString() }];
+  // A factory's schematic is on the pin itself, as ESI sends it.
+  const colony = { pins: [
+    { pin_id: 2001, type_id: 2848, expiry_time: new Date(NOW + 86400_000).toISOString(), install_time: new Date(NOW - 3600_000).toISOString(), last_cycle_start: new Date(NOW - 1800_000).toISOString(),
+      extractor_details: { cycle_time: 1800, product_type_id: 2268, qty_per_cycle: 500, heads: [{ head_id: 0 }] } },
+    { pin_id: 2002, type_id: 2473, schematic_id: 121, last_cycle_start: new Date(NOW - 1800_000).toISOString() },
+  ], links: [], routes: [] };
+  const routes = (over = {}) => [[`/characters/${ALT}/planets/`, over.heads ?? heads], [`/characters/${ALT}/planets/${PLANET}/`, over.colony ?? colony]];
+  const setup = async (scopes) => {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', scopes);
+    return { db, env };
+  };
+  const sheetOk = (db) => db.rows(`SELECT fails FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT)[0]?.fails;
+  {
+    const { db, env } = await setup([...SCOPES, PLANETS]);
+    const main = under(db, MAIN);
+    let f = stubFetch([...routes(), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  filed under the alt', docOf(db, ALT, 'colonies')?.colonies.map((c) => [c.planetId, c.planetType]), [[PLANET, 'Barren']]);
+    eq('  a factory\'s schematic is read from the pin', docOf(db, ALT, 'colonies').colonies[0].pins.map((p) => p.schematic).sort(), [121, null]);
+    eq('  nothing of it under the main', [docOf(db, MAIN, 'colonies'), under(db, MAIN)], [null, main]);
+    const pulled = await pull(db, ALT, 0, null);
+    eq('  it comes down in the alt\'s pull, as the alt store reads it', pulled.docs.some((x) => x.key === 'colonies'), true);
+    const r1 = rev(db, ALT);
+    f = stubFetch([...routes(), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  read again unchanged: no new revision', rev(db, ALT), r1);
+    const before = JSON.stringify(docOf(db, ALT, 'colonies'));
+    f = stubFetch([[`/characters/${ALT}/planets/`, new Response('{"error":"down"}', { status: 500 })], ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a failed read keeps the held document and the sheet still counts as read', [JSON.stringify(docOf(db, ALT, 'colonies')), sheetOk(db)], [before, 0]);
+    // Removed mid-read: nothing written.
+  }
+  {
+    const { db, env } = await setup(SCOPES);
+    const f = stubFetch([...routes(), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  without the permission: the planets are not asked, and no document', [f.calls.some((c) => c.path.includes('/planets/')), docOf(db, ALT, 'colonies')], [false, null]);
+  }
+  {
+    // readColoniesFor on an alt files under the alt (it pushed under the ledger), and the main's path is unchanged.
+    const { db, env } = await setup([...SCOPES, PLANETS]);
+    const f = stubFetch(routes());
+    const r = await readColoniesFor(env, altReader(MAIN, ALT), NOW);
+    f.restore();
+    eq('  readColoniesFor for an alt pushes under the alt, not its ledger', [r.pushed, docOf(db, ALT, 'colonies') != null, docOf(db, MAIN, 'colonies')], [true, true, null]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
