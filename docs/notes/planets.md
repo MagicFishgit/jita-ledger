@@ -92,7 +92,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     them out again"). First on
     the morning's books, then again on the live books of the goods that first ranking names (never the live ranking's: each
     re-rank could name more). Only an input whose contents changed starts it (planets-planner.md), never a write elsewhere.
-  - **Plan**: the setups first, ranked, then the inputs (tax chips, "Not Brave's space", rates, programme length) and the planets.
+  - **Plan**: the setups first, ranked, then the inputs (tax chips, "Not Brave's space", rates) and the planets; the programme length
+    sits at the top beside the system (the user: "that control seems like it should rather be at the top": it changes every row).
     P0 → P2 is always there, with how far it is from the best (`data-planets="gap"`). A row says its reason when blocked, a search
     cut short as "The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this
     system can do", a tax not known with each 1%'s cost, and outputs not valued by count. A planet whose layout fits at no level is
@@ -104,6 +105,31 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     "1.4×" past 100%, its tip giving the PLEX count, price, the price's age and that it is one account's month. A chain's is per
     character, as its day is. No PLEX price read yet: the share is "–" with why, never 0%; no ISK a day, no periods. Colonies gets it
     with Task 16.
+  - **Plan it: Plan held to one good** (19 October 2026; `PlanInput.only`, `onlyWhy`, `Setup.repeat` in piPlan.ts; `PlanningGood`,
+    `RepeatLine` in PlanetsPlan.tsx). The user: "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go
+    to PLAN I don't think it is showing how to build it on which planet to make that item". Plan ranked each kind by its own best
+    product, so a good showed only when it won.
+    - The Chart's picked good (P1 to P4) has **Plan it**: `hustles/planets/plan?good=<id>`, kept per browser
+    (`jita-ledger:planets-plan-good`) until **Every product**. "Planning Gel-Matrix Biopaste for Owner at 5-NZNW · Every product".
+    - Every setup is held to it (planets-searches.md): a planet that can't make it alone says so; a kind that can't make it says why on
+    `canMake`'s reasons (now in piPlan.ts, re-exported by piChart.ts): "Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only", "Can’t
+    make Superconductors: no planet here gives Aqueous Liquids and Suspended Plasma together", a good with no price "isn’t priced".
+    - **What choosing it costs** (the user: "max profit will probably be best to use planner as it is currently"): every product's
+    ranking is worked out beside the held one, each on live books of its own (one set for both would rank the full one again for the
+    held one's goods), and once both are in for these inputs: "Every product’s best here: 71.86 M ISK a day (bought, Broadcast Node);
+    Gel-Matrix Biopaste’s best is 59.9 M ISK a day under it" (the page case). Held to a subset, never over it where neither search was
+    cut (check.mjs, every good); a full search cut short says so.
+    - **Repeated on each character** (the user: "i will rarely go cross character setups and mostly repeat the P3 setup on each
+    character to make things simple to manage and scale"): a line on P0 → P1, P0 → P2, feed and bought rows, never a chain's: "On each
+    of your 3 characters doing planetary industry: about X a day together (Y a month)". Counted: skills read, not Alpha, a clone not
+    read said. Not: fewer planets than it uses, or a lower Command Center Upgrades level where a colony doesn't fit ("Willi Wakkerr:
+    Command Center Upgrades III"). Valued as the setup values itself on N copies on the same planets (a character holds one colony a
+    planet): each good summed and sold once, `keptWhy`, customs on what's exported; bought's N sized together by its linear programme.
+    The cap is named: the market at your share, or an input's supply (5-NZNW's bought Gel-Matrix Biopaste already buys Jita's 10% share
+    of Oxides for one character, so two make no more).
+    - **Resets** (the user, on "Resets a week: 11.7 · a program each extraction planet" at 72 hours: "why does this say i wil have to
+    reset 11 times a week, thats impossible"; it was 5 planets × 168 ÷ 72): "Every 3 days" ("every 18 hours" under a day), "5 planets
+    (10 extractors) each time: about 2.3 sittings and 11.7 planet resets a week"; a chain's each character's planets.
   - **Chart** (`PlanetsChart.tsx`, `piChart.ts`): the 83 goods by tier from the bundle (never evehelper's data), each valued a unit
     and a m³ at the chosen market, a picked good's recipe down to P0 with quantities and cycles, the planet types and the system's
     planets that give its P0s. **Ruling T12-1**: "Which setups can make it at X" reads what each kind *can* make from the bundle
@@ -158,6 +184,9 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
 - **The reading rests on one programme checked in game** (5-NZNW IV's Noble Metals, 1-hour cycles, 73 h: the formula's total
   to the unit). Another cycle length hasn't been checked; the formula is CCP's own for all of them. A programme's output
   decays: no per-hour figure is steady, and the rates are each programme's average.
+- **Repeated on each character is the shown character's layout run N times on the same planets**: a character at a higher Command
+  Center Upgrades level, or with more planets, could run more there, and is still counted at this layout; each runs every planet this
+  uses (no other planets of the system are tried for the others). What they make together is sold once at your share.
 - **Planets' customs tax is typed or Brave's wiki's 2023 rates** (2% Barren and Temperate, 5% the rest, in sov null-sec): ESI
   shows no skyhook's or office's rate, and what a high-sec InterBus office charges is unverified. A system "not Brave's" or a
   wormhole is ranked before the tax.

@@ -823,7 +823,9 @@ function resetsTile(s: Setup, programHours: number, charName: (id: number) => st
   const each = s.kind === 'chain' && byChar.length > 1
     ? `${byChar.map((id) => `${charName(id)} ${planetsSaid(ext.filter((r) => r.charId === id))}`).join(', ')} each time`
     : `${planetsSaid(ext)} each time`;
-  const week = `about ${perWeekSaid(sittings)} sitting${sittings === 1 ? '' : 's'}${s.kind === 'chain' && byChar.length > 1 ? ' a character' : ''} and ${perWeekSaid(ext.length * sittings)} planet resets a week`;
+  // A program over a week: a sitting every so many weeks, each resetting every planet, never "one every 1.2 weeks sittings".
+  const week = sittings < 1 - 1e-9 ? `one sitting every ${weeksSaid(1 / sittings)}`
+    : `about ${perWeekSaid(sittings)} sitting${Math.abs(sittings - 1) < 0.05 ? '' : 's'}${s.kind === 'chain' && byChar.length > 1 ? ' a character' : ''} and ${perWeekSaid(ext.length * sittings)} planet resets a week`;
   return { l: 'Resets', v: every, n: `${each}: ${week}` };
 }
 

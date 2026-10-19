@@ -57,6 +57,13 @@ setup in planets-market.md. Each ruling's number is the ledger's (`.superpowers/
     feed's and chain's bounds understated an arrangement making less than that and could prune it unseen. `slotDay` fills the best
     side first, so a sliver is exactly its net, a bound at every amount under `Sell`'s contract; 0 when unpriced or at a loss.
 
+- **Held to one good** (`PlanInput.only`, Plan it, planets.md): P0 → P1 and P0 → P2 take only plans whose line or product is it
+  (`optionsOf`), the feed's and chain's `fedTargets` and bought's `boughtCtx` only its factory. A subset of the candidates, so every
+  bound stays an upper bound. Gates (19 October 2026, HEAD 33469c1, one seed at a time under 2 GB): Task 9's brute force held to the
+  brute's own best product and one other, seeds 7, 42, 99 and 1234 × 30, 456 checked, 0 differ, none cut; Task 11's planner-vs-brute
+  on bought held to each product, seeds 1–8 × 50, 1,386 checked, 0 differ, none cut. A held search spends its whole budget on one
+  good, so it can find more than a full one that ran out (said on the page).
+
 ## Limits
 
 Moved here from planets-planner.md with the rules above: state these rather than letting them be discovered.
