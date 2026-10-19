@@ -67,6 +67,17 @@ export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, ch
   return out;
 }
 
+/**
+ * The heads a line whose heads aren't known (no rate, or a rate whose extractors didn't say) is fitted at (Ruling T15b-5): the
+ * median of the learned rates' heads, over every rate that said how many, rounded up to a whole head, so an assumed rate sits on a
+ * head count your own extractors run, never one or two squeezed in beside the factories. Null with none: then the most that fit
+ * (Ruling T8-1).
+ */
+export function assumedHeads(learned: Partial<Record<PlanetType, Record<string, Learned>>>): number | null {
+  const hs = Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.heads)).filter((h) => h > 0);
+  return hs.length ? Math.ceil(median(hs)) : null;
+}
+
 /** Learned for that P0, then typed, then learned for another P0 of the planet type (the best-seen one, marked). */
 export function rateFor(learned: Partial<Record<PlanetType, Record<string, Learned>>>, typed: TypedRate | undefined, t: PlanetType, p0: number): Rate | null {
   const of = (l: Learned, otherP0: boolean): Rate => ({ perHour: l.perHour, higher: l.higher, from: 'learned', programHours: l.programHours, heads: l.heads, otherP0, checked: l.checked });

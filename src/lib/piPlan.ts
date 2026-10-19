@@ -186,6 +186,12 @@ export type PlanInput = {
    * Absent everywhere else, Plan included.
    */
   hold?: Record<number, Hold>;
+  /**
+   * The heads a line whose heads aren't known (no rate, or a rate whose extractors didn't say) is fitted at: the median of the shown
+   * character's learned rates' heads (piLearn's `assumedHeads`; Ruling T15b-5), said on the line. Absent or null (nothing learned):
+   * the most that fit (Ruling T8-1).
+   */
+  heads?: number | null;
   /** With `hold`: plan only the held layouts (`versusBest`'s own comparison, colonyChain.ts' `bestsFor`): no other product, no other planet. */
   heldOnly?: boolean;
 };
@@ -349,8 +355,8 @@ function p2Alone(ix: PiIndex, t: PlanetType): number[] {
  * One extractor feeding its Basic factories. `basics` is how many there are: the rate's worth (ceil(P0 an hour ÷ 6,000)), or fewer
  * when that many don't fit (Ruling F9), when `p0Left` is the P0 an hour they can't take, shipped as P0 where it pays, else building up.
  */
-type Line = { p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; heads: number | null; p0Left: number };
-function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number): Line {
+type Line = { p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; heads: number | null; headsAssumed: boolean; p0Left: number };
+function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number, assumed?: number | null): Line {
   const inH = anHour(b, b.inputs[0].qty), outH = anHour(b, b.out.qty);
   // With no rate, the two Basics the 2 + 4 layout gives each P0 (12,000 P0 an hour), said as such, never claimed.
   const perHour = rate ? (high && rate.higher != null ? rate.higher : rate.perHour) : 2 * inH;
@@ -361,8 +367,10 @@ function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number)
   return {
     p0: b.inputs[0].id, p1: b.out.id, rate, perHour,
     basics: n, p1PerHour: (taken * outH) / inH, p0Left: perHour - taken > 1e-6 ? perHour - taken : 0,
-    // A rate's heads are what it was measured with; 0 means the colony didn't say (Ruling T8-1).
-    heads: rate && rate.heads > 0 ? Math.ceil(rate.heads) : null,
+    // A rate's heads are what it was measured with; 0 means the colony didn't say (Ruling T8-1). Not known, the median of your
+    // learned rates' heads where there is one (Ruling T15b-5), else filled in by `fitted` with the most that fit.
+    heads: rate && rate.heads > 0 ? Math.ceil(rate.heads) : assumed ?? null,
+    headsAssumed: !(rate && rate.heads > 0) && assumed != null,
   };
 }
 
@@ -395,7 +403,7 @@ function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
   for (const [k, i] of s.inputs.entries()) {
     const b = input.ix.makes.get(i.id);
     if (!b || b.facility !== 'basic') return null;
-    lines.push(lineOf(b, input.rateOf(t, b.inputs[0].id), high, counts?.basics[k]));
+    lines.push(lineOf(b, input.rateOf(t, b.inputs[0].id), high, counts?.basics[k], input.heads));
   }
   // The Advanced factories' worth the lines feed: the lesser input, as a fraction of factories (one runs fewer cycles when short).
   const fed = Math.min(...s.inputs.map((inp, k) => lines[k].p1PerHour / anHour(s, inp.qty)));
@@ -418,7 +426,7 @@ function planP1(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
   for (const [k, p0] of pair.entries()) {
     const b = basicFor(input.ix, p0);
     if (!b) return null;
-    lines.push(lineOf(b, input.rateOf(t, p0), high, counts?.basics[k]));
+    lines.push(lineOf(b, input.rateOf(t, p0), high, counts?.basics[k], input.heads));
   }
   const ships = [...lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24 })), ...lines.filter((l) => l.p0Left > 0).map((l) => ({ id: l.p0, perDay: l.p0Left * 24 }))];
   // `product` names the first P1 only: a P0 → P1 plan is replanned from its lines' P0s.
@@ -789,7 +797,8 @@ function fitted(input: PlanInput, p: Plan, cc: number): { heads: (number | null)
     notes.push('this planet’s size isn’t known, so what fits isn’t checked');
     return { heads, fit: null, notes, lacks: null };
   }
-  if (p.lines.some((l) => l.rate && !(l.rate.heads > 0))) notes.push('the colony didn’t say how many heads its extractors had: the most that fit');
+  const unsaid = p.lines.filter((l) => l.rate && !(l.rate.heads > 0));
+  if (unsaid.length) notes.push(`the colony didn’t say how many heads its extractors had: ${unsaid[0].headsAssumed ? headsSaid(unsaid[0].heads!) : 'the most that fit'}`);
   const unknown = heads.map((h, i) => (h == null ? i : -1)).filter((i) => i >= 0);
   if (unknown.length) {
     const most = maxHeads(ix, p.t, cc, base, r);
@@ -828,12 +837,14 @@ function levelFor(ix: PiIndex, t: PlanetType, cc: number, l: Layout, r: number):
   return null;
 }
 
+/** An assumed head count, said (Ruling T15b-5). */
+const headsSaid = (n: number) => `at ${n} head${n === 1 ? '' : 's'}, the median of your extractors’ learned rates`;
 /** What a role says about its rates: from another program length, another P0, or none (ranked at the factories' capacity). */
 function rateNotes(input: PlanInput, p: Plan): string[] {
   const notes: string[] = [];
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
   const none = p.lines.filter((l) => !l.rate);
-  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each`);
+  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each${none[0].headsAssumed ? `, ${headsSaid(none[0].heads!)}` : ''}`);
   const other = [...new Set(p.lines.filter((l) => l.rate && Math.abs(l.rate.programHours - input.programHours) > EPS).map((l) => l.rate!.programHours))].sort((a, b) => a - b);
   if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: you chose ${chosenSaid(input.programHours)}, and nothing says what another length gives`);
   const others = p.lines.filter((l) => l.rate?.otherP0);

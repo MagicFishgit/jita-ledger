@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { PlanetType } from '../../lib/pi';
 import type { PiIndex } from '../../lib/piBundle';
-import { learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
+import { assumedHeads, learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
 import { customsLevel, planCharOf, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
 import type { SystemPrefs } from '../../lib/planetsDoc';
 import { useStable } from '../../lib/hooks';
@@ -112,12 +112,14 @@ export function usePlanning({ c, chars, colonies, ix, systemId }: {
   const programHours = doc.programHours ?? defaultHours;
   const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
   const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, prefs.rates[t]?.[String(p0)], t, p0), [learned, prefs.rates]);
+  // A line whose heads aren't known sits on the median of your learned rates' heads (Ruling T15b-5).
+  const heads = useMemo(() => assumedHeads(learned), [learned]);
 
   const morning = usePlanetMarket(c, ix);
   const planets = value?.planets ?? null;
   const inputM = useMemo((): PlanInput | null => (planets && morning.ready
-    ? { ix, planets, char: planChar, others, rateOf, sell: morning.sell, buy: morning.buy, programHours, freight: morning.freight } : null),
-  [ix, planets, planChar, others, rateOf, morning.ready, morning.sell, morning.buy, morning.freight, programHours]);
+    ? { ix, planets, char: planChar, others, rateOf, heads, sell: morning.sell, buy: morning.buy, programHours, freight: morning.freight } : null),
+  [ix, planets, planChar, others, rateOf, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours]);
   const first = usePlanned(inputM, systemId);
   // The goods to read live come from the ranking on the morning's books, never the live one: each live re-rank could name more.
   const goodsKey = goodsOf(first.setups);
