@@ -475,6 +475,9 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   // Ruling F11: goods the hub doesn't price, valued at Jita's, named once on the setup; each output's line says its figure.
   const fell = fallbackGoods(s.outputs);
   if (priced && fell.length) notes.push(<span data-planets="fallback-goods">{`Valued at Jita’s where ${s.outputs.find((o) => o.sold.fallback)!.sold.fallback!.hub} has no price: ${listSaid(fell.map(name))}.`}</span>);
+  // Ruling F11b: inputs the hub doesn't sell, bought at Jita with the freight in, named once.
+  const fellIn = s.inputs.filter((i) => i.bought.fallback && i.bought.isk != null);
+  if (priced && fellIn.length) notes.push(<span data-planets="fallback-inputs">{`Bought at Jita, with the freight in, because ${fellIn[0].bought.fallback!.hub} doesn’t sell ${fellIn.length === 1 ? 'it' : 'them'}: ${listSaid(fellIn.map((i) => name(i.id)))}.`}</span>);
   if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted, and ${s.unvalued === 1 ? 'its' : 'their'} customs not counted either: never as 0.`);
   // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
   const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
@@ -537,7 +540,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
                 // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
                 const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
                 return (
-                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${boughtWhere(i.bought, i.perDay)}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
+                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${boughtWhere(i.bought, i.perDay)}${i.bought.note ? ` (${clause(i.bought.note)})` : i.bought.fallback ? ` with the freight in (${i.bought.fallback.hub} doesn’t sell it)` : ''}`}
                     {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} {(i.bought.maxAt ?? '').includes(' and ') ? 'supply' : 'supplies'}{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
                   </span>
                 );

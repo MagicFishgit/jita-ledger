@@ -2,7 +2,8 @@
 
 Decisions worth not undoing. The Planets side hustle (Side hustles → Planets): the static-data bundle, what fits on a planet,
 the extraction readings, learned rates, the `planets` document and customs tax, and the page (Plan, Chart). The planner's own
-rules (the five setups, the search, the exact sizing, the prices it buys and sells at) are in `planets-planner.md`; the
+rules (the five setups) are in `planets-planner.md`, the prices it buys and sells at and the exact sizing in `planets-market.md`, the
+feed, the chain and the searches in `planets-searches.md`; the
 colonies (the `colonies` document, the cloud's hourly read, the Colonies section) in `planets-colonies.md`. The user (10 and
 17 October 2026): they live in null-sec (Brave, Tenerifis), want to give the page a system and be told "per setup type what
 the isk is you can make best from it and then what to get from which planet", and "most of my setups will be P0 -> P2 per
@@ -87,7 +88,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     Scorched Barren are null, "No planetary industry on this kind of planet".
   - **One ranking for Plan and Chart** (`planetsPlanning.ts`, `usePlanning`, Task 12): the inputs and the planner run once for
     whichever section draws, so the Chart's "the ranking makes" and the Plan's rows can't differ. The setups run once the input
-    has stood still 350 ms, a step at a time in slices of 8 ms (planets-planner.md), the last ranking shown meanwhile ("Working
+    has stood still 350 ms, a step at a time in slices of 8 ms (planets-searches.md), the last ranking shown meanwhile ("Working
     them out again"). First on
     the morning's books, then again on the live books of the goods that first ranking names (never the live ranking's: each
     re-rank could name more). Only an input whose contents changed starts it (planets-planner.md), never a write elsewhere.
@@ -103,7 +104,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     plan's own example (the ranked P0 → P2 makes Mechanical Parts there: Nanites is the cheapest Barren P2). A chain's P3 "can"
     only when it needs more planets than one character has (`CHAIN_P3_WHEN`). **Ruling T12-2**: each value says the book it's on
     (`UnitNet.book`: Jita now, this morning's Jita book, the hub's own read, Goonmetrics'), since only the ranking's goods are read
-    live. With Sell at the hub, a good it doesn't price is valued at Jita's (F11, planets-planner.md): the chip ends "· Jita's"
+    live. With Sell at the hub, a good it doesn't price is valued at Jita's (F11, planets-market.md): the chip ends "· Jita's"
     (`data-fallback`), its tip and recipe head say "No price at UALX-3: valued at Jita's: … (Jita lists it at …)"; Oxides read "–".
     Goods the system can't supply are greyed (`aria-disabled`, still pickable): **UALX-3 lacks four P0s**, not the plan's
     two (no Lava, Plasma, Ice or Oceanic planet: Felsic Magma, Heavy Metals, Non-CS Crystals, Planktic Colonies), and 40 goods are
@@ -116,7 +117,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   factories, is seeded, not the user's.
 - **The chain's time, settled in the final fix round (Ruling T11-13)**: with two characters doing planetary industry the chain
   was one main-thread task of 282–346 ms on 5-NZNW (this machine, 18 October 2026; the re-review measured 740–910 ms), twice a
-  ranking (morning, then live): in the browser, tasks of 298 and 239 ms. Its search is now sliced (planets-planner.md): the
+  ranking (morning, then live): in the browser, tasks of 298 and 239 ms. Its search is now sliced (planets-searches.md): the
   longest slice holding the chain 10–14 ms, the whole ranking unchanged at 330–490 ms. Not a Web Worker (`PlanInput`'s closures
   don't clone) and not a tighter budget. P0 → P1 and bought are still one step each: on 5-NZNW at the real rates 23–25 and 11–14 ms
   warm, 57–59 and 28–31 ms the first time in a fresh process (Task 15b's fix round; 25–45 warm and up to 68 first before F9).
@@ -129,7 +130,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 - **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): the main's five colonies run 9 or
   10 heads at CCU IV (4 + 5 or 5 + 5), inside the fit model beside their factories. It bit at the formula's rates: the planner's
   layouts wanted 7–10 factories where 6 fit, so Ruling F9 ranks the most that fit (Task 15b, planets-planner.md).
-- Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
+- Settled in the final fix round (planets-market.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
   question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
   ranked and said, since F9 only where the least layout of its kind doesn't fit. The colonies' own are in planets-colonies.md.
 - **A bought setup cut because its sizing didn't settle says the budget ran out** (`cut`'s one note): untrue for that path, never

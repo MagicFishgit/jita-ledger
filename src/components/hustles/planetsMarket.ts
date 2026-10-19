@@ -6,7 +6,7 @@ import { HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, ty
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Buy, Fallback, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
-import { boughtOf, jitaSteps, soldAtHome, soldOf, type BuyPlace } from '../../lib/piPlan';
+import { boughtAtHome, boughtOf, jitaSteps, soldAtHome, soldOf, type BuyPlace } from '../../lib/piPlan';
 import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
 import { customsRate, type Tax } from '../../lib/planetsDoc';
 import { reloadApp } from '../../lib/reload';
@@ -195,6 +195,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
     };
     const buy: Buy = (t, perDay) => {
       const o = offerOf(t);
+      // Ruling F11b: with Sell at the hub, an input it doesn't sell is bought at Jita's asks with the freight in, wholly, said.
+      if (hub && where === 'home') return boughtAtHome(perDay, o, hub.short);
       const places = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p).map((p) => o[p]);
       const b = boughtOf(perDay, places);
       // Bought at Jita alone because the hub supplies none of it (no price there, its depth not known): the hub's reason is kept,
@@ -231,8 +233,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
             : `Jita: ${jitaSource}.`,
       usesHome && doc.hubFees[hub.id] == null ? `${hub.short}’s broker fee isn’t typed, so home sales are ranked before it.` : null,
       // Ruling F11: what the hub doesn't price is valued at Jita's, and each figure built on it says so.
-      !usesJita ? (jitaLeg.kind !== 'none' ? `What ${hub.short} doesn’t price is valued at Jita’s, after ${jitaLeg.kind === 'route' ? jitaLeg.name : 'the carry'}, and says so.`
-        : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so.`) : null,
+      !usesJita ? (jitaLeg.kind !== 'none' ? `What ${hub.short} doesn’t price is valued at Jita’s, after ${jitaLeg.kind === 'route' ? jitaLeg.name : 'the carry'}, and what it doesn’t sell is bought at Jita with the freight in; each says so.`
+        : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so; what it doesn’t sell can’t be bought at Jita without one.`) : null,
     ].filter(Boolean).join(' '));
   return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
     liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region` };

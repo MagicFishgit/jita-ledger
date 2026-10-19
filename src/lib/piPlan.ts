@@ -116,7 +116,7 @@ export const fallbackGoods = (outputs: readonly Output[]): number[] => [...new S
  * known, and an amount refused is refused outright. `maxAt` and `maxSaid`: where that is and what holds it there, for the page
  * ("Jita", "your 10% share of the 5,773 traded a day in The Forge"; two places named together under Either).
  */
-export type Bought = { isk: number | null; where: ('jita' | 'home')[] | null; why: string | null; note?: string | null; jitaUnits?: number; max?: number | null; maxAt?: string | null; maxSaid?: string | null };
+export type Bought = { isk: number | null; where: ('jita' | 'home')[] | null; why: string | null; note?: string | null; jitaUnits?: number; max?: number | null; maxAt?: string | null; maxSaid?: string | null; fallback?: Fallback | null };
 /**
  * The same contract as `Sell`, the other way (Ruling T11-7): a unit's marginal cost never falls as the amount grows, so the total
  * cost is convex, and there's no fixed charge a call. So what a planet's factories buy alone is never more than their share of
@@ -162,6 +162,21 @@ export function boughtOf(perDay: number, places: BuyPlace[]): Bought {
     if (s.place === 'jita') jita += take;
   }
   return { isk, where: (['home', 'jita'] as const).filter((p) => used.has(p)), jitaUnits: jita, why: null, ...cap };
+}
+/**
+ * A good's purchase with Sell set to the home hub (Ruling F11b, buying following F11): at the hub when it sells any; else wholly at
+ * Jita's asks with the freight in on the route (`jita`, as Either buys at Jita), marked `fallback`, so a good is bought at one place
+ * and `Buy`'s contract holds. With no route Jita's offer carries no steps (`NO_ROUTE_WHY`): buying needs the freight in, so it stays
+ * unpriced with both reasons, as when Jita lists none. Pure.
+ */
+export function boughtAtHome(perDay: number, places: { home: BuyPlace; jita: BuyPlace }, hub: string): Bought {
+  const sells = (p: BuyPlace) => p.steps.some((x) => x.units > 0);
+  if (sells(places.home) || !sells(places.jita)) {
+    const b = boughtOf(perDay, [places.home]);
+    if (b.isk != null || sells(places.home) || !places.jita.why) return b;
+    return { ...b, why: [...new Set([b.why, `Jita: ${places.jita.why}`].filter((w): w is string => !!w && w !== 'no price read'))].join('; ') || 'no price read' };
+  }
+  return { ...boughtOf(perDay, [places.jita]), fallback: { hub, list: null, route: true } };
 }
 /** Units of a purchase bought at Jita: as `boughtOf` splits them, else all when Jita is the only place. */
 export const boughtAtJita = (b: Bought, perDay: number) => b.jitaUnits ?? (b.where?.length === 1 && b.where[0] === 'jita' ? perDay : 0);

@@ -8064,6 +8064,15 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  bought at the home hub: brought in, none of it from Jita, no contract in', [home.upkeep.inM3PerWeek, home.upkeep.jitaInM3PerWeek, home.upkeep.contractsInPerWeek], [82_560 * 0.19 * 7, 0, 0]);
   }
   eq('  bought: one character, nothing lacking', bought.perChar, [{ charId: 1, iskDay: 41_484_480, lacks: [] }]);
+  {
+    // Ruling F11b in the planner: Sell at the hub, which sells no input: each bought wholly at Jita (100 a unit with the freight
+    // in), marked; the setup is the same as bought at Jita, and every input it buys carries the marker the setup's line names.
+    const { boughtAtHome } = await import('../src/lib/piPlan.ts');
+    const hubNone = { place: 'home', at: 'UALX-3', steps: [], maxSaid: null, why: 'No price at UALX-3' };
+    const jitaAt100 = { place: 'jita', at: 'Jita', steps: [{ units: 1e9, unit: 100 }], maxSaid: 'flat', why: null };
+    const atHub = planBought({ ...input, buy: (id, perDay) => boughtAtHome(perDay, { home: hubNone, jita: jitaAt100 }, 'UALX-3') });
+    eq('  F11b: bought with every input at Jita for want of the hub: the same figure, each input marked', [atHub.iskDay, atHub.inputs.length > 0, atHub.inputs.every((i) => i.bought.fallback?.hub === 'UALX-3' && i.bought.where[0] === 'jita')], [41_484_480, true, true]);
+  }
   eq('  bought: the Shattered planet says why', role(bought, C).why, 'No planetary industry on this kind of planet');
   // Nanites capped at 300 a day: the 2% planet makes the uncapped 3,000 P2 at full (2,640 × (3,000 − 1,600 − 64 − 144)) and the 5%
   // one the 300 Nanites (300 × (10,000 − 1,600 − 160 − 360)), on 3 of its 21 Advanced; the other way round pays 5,364,480 less.
@@ -8519,7 +8528,7 @@ console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---
 
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
 {
-  const { soldOf, soldAtHome, fallbackSaid } = await import('../src/lib/piPlan.ts');
+  const { soldOf, soldAtHome, fallbackSaid, boughtAtHome } = await import('../src/lib/piPlan.ts');
   const { sellAt, slotDay } = await import('../src/lib/industryRank.ts');
   const sale = (place, listNet, listPace, why = null) => ({ place, list: listNet, listNet, bid: null, bidNet: null, pace: listPace, listPace, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why });
   const jita = sale('jita', 9000, 1000), home = sale('home', 10000, 50);
@@ -8549,6 +8558,20 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   // The contract on Sell: a good wholly at one place, a unit's net never rising as the amount grows.
   const fellNets = [1, 50, 100, 300].map((n) => { const x = soldAtHome(n, { home: noHub, jita: routed }, 10, 'UALX-3', true); return x.isk == null || !(x.units > 0) ? null : x.isk / x.units; });
   eq('  F11: a fallback keeps Sell’s contract (valued at every amount, a unit never netting more)', fellNets.every((x, i, a) => x != null && (i === 0 || x <= a[i - 1] + 1e-9)), true);
+  // Ruling F11b: buying follows. With Sell at the hub, an input it doesn't sell is bought wholly at Jita's asks with the freight in
+  // (the route's steps, as Either buys at Jita), marked; one it sells stays the hub's, even where Jita is cheaper; with no route
+  // Jita's offer has no steps (buying needs the freight in), so it stays unpriced with both reasons.
+  const hubNone = { place: 'home', at: 'UALX-3', steps: [], maxSaid: null, why: 'No price at UALX-3' };
+  const hubSells = { place: 'home', at: 'UALX-3', steps: [{ units: 500, unit: 1500 }], maxSaid: 'a week', why: null };
+  const jitaIn = { place: 'jita', at: 'Jita', steps: [{ units: 100, unit: 1000 }, { units: 200, unit: 1300 }], maxSaid: 'your share', why: null };
+  const jitaNoRoute = { place: 'jita', at: 'Jita', steps: [], maxSaid: null, why: 'No freight route between the hub and Jita is picked' };
+  const b150 = boughtAtHome(150, { home: hubNone, jita: jitaIn }, 'UALX-3');
+  eq('  F11b: the hub doesn’t sell it: bought at Jita’s asks with the freight in, wholly, marked', [b150.isk, b150.where, b150.jitaUnits, b150.max, b150.fallback], [100 * 1000 + 50 * 1300, ['jita'], 150, 300, { hub: 'UALX-3', list: null, route: true }]);
+  eq('  F11b: one the hub sells stays the hub’s, unmarked, though Jita is cheaper', (({ isk, where, fallback }) => [isk, where, fallback ?? null])(boughtAtHome(150, { home: hubSells, jita: jitaIn }, 'UALX-3')), [150 * 1500, ['home'], null]);
+  const bNo = boughtAtHome(150, { home: hubNone, jita: jitaNoRoute }, 'UALX-3');
+  eq('  F11b: with no route, unpriced, both reasons, unmarked', [bNo.isk, bNo.why, bNo.fallback ?? null], [null, 'No price at UALX-3; Jita: No freight route between the hub and Jita is picked', null]);
+  const marginals = [50, 100, 150, 250, 300].map((n, i, a) => { const c = (m) => boughtAtHome(m, { home: hubNone, jita: jitaIn }, 'UALX-3').isk ?? NaN; return i === 0 ? c(n) / n : (c(n) - c(a[i - 1])) / (n - a[i - 1]); });
+  eq('  F11b: Buy’s contract: a unit’s marginal cost never falls', [marginals.every((x) => Number.isFinite(x)), marginals.every((x, i, a) => i === 0 || x >= a[i - 1] - 1e-9)], [true, true]);
 
   // The contract the planner's searches rely on: a unit's net never rises with the amount, and no fixed charge a call. The hook
   // works a Sale once a good (a week at your share, the freight minimum spread over it); a Sale worked out for each call's amount,
