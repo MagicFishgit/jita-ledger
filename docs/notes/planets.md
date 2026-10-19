@@ -120,8 +120,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 
 ## Open, and left for the stage-1 final review
 
-- **The chain at the real rate**, closed (Task 15b): two characters at IV on 5-NZNW read cut at 80,000 arrangements and the same
-  16,025,985 a character at 400,000, 2 M and 8 M (29 s). No `RAN_OUT`, and nothing for a seeded bound to find.
+- **The chain at the real rate**, closed (Task 15b): two characters at IV on 5-NZNW read cut at 80,000 arrangements, 15,862,624 a
+  character, and 15,970,910 at 8 M (35 s), 0.7% more. No `RAN_OUT`, and too little for a seeded bound to be worth it.
 - **The real colony's head count** (the first kept read, 18 October 2026; planets-colonies.md): the main's five colonies run 9 or
   10 heads at CCU IV (4 + 5 or 5 + 5), inside the fit model beside their factories. It bit at the formula's rates: the planner's
   layouts wanted 7–10 factories where 6 fit, so Ruling F9 ranks the most that fit (Task 15b, planets-planner.md).
