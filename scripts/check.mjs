@@ -8564,7 +8564,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { planSingle } = await import('../src/lib/piPlan.ts');
   const { readings } = await import('../src/lib/piExtraction.ts');
-  const { colonyChain, versusBest, bestsFor, pinKindOf, reserveFor, holdFor, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
+  const { colonyChain, versusBest, bestsFor, pinKindOf, reserveFor, holdFor, STARVING_BELOW, OTHER_PRODUCT_MIN } = await import('../src/lib/colonyChain.ts');
   const { learnedRates, rateFor } = await import('../src/lib/piLearn.ts');
   const { fitOf } = await import('../src/lib/piFit.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
@@ -8819,7 +8819,16 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // typed one; with nothing learned (no programme of yours readable), none: the planner assumes what two Basics take.
   eq('  another P0’s learned rate: said as that', vsOf(Ad, dearMech), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate learned for another P0' });
   eq('  a typed rate: said as that', vsOf(Ad, dearMech, { typed: { [NOBLE]: { perHour: 12000, programHours: 72, heads: 5 } } }), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate you typed' });
-  eq('  no rate at all: the assumed figure, said as one no colony of yours has shown', vsOf(Ad, dearMech, { learned: {} }), { gain: 103_680, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 103,680 ISK more a day, if it gets 12,000 Base Metals and Noble Metals an hour each, a rate no colony of yours has shown' });
+  // With nothing learned the colony's own P0s are assumed too, and Mechanical Parts at 12,000 pays 3.8% more, under the line below:
+  // at 16,000 it clears it.
+  const dearerMech = sellBy(unitOf({ [MECH]: 16_000 })), Ad16 = chainOf(nanites(), { sell: dearerMech });
+  eq('  no rate at all: the assumed figure, said as one no colony of yours has shown', vsOf(Ad16, dearerMech, { learned: {} }), { gain: 1_063_680, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 1.06 M ISK more a day, if it gets 12,000 Base Metals and Noble Metals an hour each, a rate no colony of yours has shown' });
+  // Ruling T15b-6: another product speaks only from OTHER_PRODUCT_MIN (10%) of the colony's day more; a sliver on a rate the colony
+  // hasn't shown is noise. Both sides of the line, on the Mechanical Parts best above.
+  const mp = bestsFor(kOf.get(Ad), ix, inputOf(Ad, dearMech));
+  const atLine = (d) => versusBest(Ad, { ...mp.best, iskDay: Ad.iskDay * 1.1 + d }, ix, mp.own);
+  eq('  T15b-6: another product 1 ISK under 10% of the colony’s day says nothing; 1 ISK over speaks', [OTHER_PRODUCT_MIN, atLine(-1), atLine(1).gain > 0, atLine(1).said.startsWith('Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays ')], [0.1, { gain: 0, said: '' }, true, true]);
+  eq('  T15b-6: and the first fix round’s case, 3.8% more on assumed rates, is silent', vsOf(Ad, dearMech, { learned: {} }), { gain: 0, said: '' });
   // Another mix of factories for the colony's own product says nothing (Ruling T15b-4), whichever way it trades: one Advanced where
   // two could be fed, here. Free, the planner would run 2 (and the first fix round said so).
   const one = nanites({ drop: [[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [52, 30, NANITES, 5]] });
@@ -8854,6 +8863,22 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const UL3 = userLike([[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]]), UL3c = chainOf(UL3, { sell: cheapNan });
   eq('  T15b-4: the premise: free, the best for III is the same other mix', bestOf(UL3c, cheapNan, undefined, 4, planet, reserveFor(UL3)).roles[0].makes.map((m) => [m.id, m.count]), [[BACTERIA, 2], [REACTIVE, 3], [NANITES, 1]]);
   eq('  T15b-4: a factory the colony has but doesn’t feed is said as the fault, with its own figure', vsOf(UL3c, cheapNan), { gain: 10_080, said: 'Makes Nanites; the planner’s own layout for it here pays 10,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)' });
+  // Ruling T15b-7: another product's layout with an output unpriced, or no figure, withholds only its own clause. III's shape with
+  // Mechanical Parts at 16,000: its best is that P2 (on Noble Metals at another P0's rate), said after the fault; unpriced, or with no
+  // figure, the fault alone is said. With no fault to say (the Nanites colony), why nothing is compared. Another mix of the colony's
+  // own factories is never said, so unpriced it withholds nothing.
+  const mechNan = sellBy(unitOf({ [NANITES]: 6_500, [MECH]: 16_000 })), UL3m = chainOf(UL3, { sell: mechNan });
+  const m3 = bestsFor(UL3, ix, inputOf(UL3m, mechNan));
+  const unpricedBest = (b) => ({ ...b, outputs: b.outputs.map((o) => (o.id === MECH ? { ...o, sold: { ...o.sold, isk: null, why: 'no price at UALX-3' } } : o)) });
+  const fault3 = 'Makes Nanites; the planner’s own layout for it here pays 10,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)';
+  const vsM3 = versusBest(UL3m, m3.best, ix, m3.own);
+  eq('  T15b-7: the premise: III’s best is Mechanical Parts, said after its fault', [m3.best.roles[0].makes.some((m) => m.id === MECH), vsM3.said.startsWith(`${fault3}; and the best P2 it can make alone here, Mechanical Parts, pays `)], [true, true]);
+  eq('  T15b-7: unpriced, or with no figure, another product’s layout leaves III’s fault said alone',
+    [versusBest(UL3m, unpricedBest(m3.best), ix, m3.own), versusBest(UL3m, { ...m3.best, iskDay: null, why: 'No home hub picked' }, ix, m3.own)], [{ gain: 10_080, said: fault3 }, { gain: 10_080, said: fault3 }]);
+  const mpU = versusBest(Ad, unpricedBest(mp.best), ix, mp.own), mpN = versusBest(Ad, { ...mp.best, iskDay: null, why: 'No home hub picked' }, ix, mp.own);
+  eq('  T15b-7: with no fault to say, why it isn’t compared', [mpU, mpN], [{ gain: null, said: 'It isn’t set against the planner’s best while Mechanical Parts has no price: no price at UALX-3' }, { gain: null, said: 'It isn’t set against the planner’s best, which has no figure here: no home hub picked' }]);
+  const ulb = bestsFor(UL, ix, inputOf(ULc, cheapNan));
+  eq('  T15b-7: another mix unpriced withholds nothing', versusBest(ULc, { ...ulb.best, outputs: ulb.best.outputs.map((o) => ({ ...o, sold: { ...o.sold, isk: null, why: 'no price' } })) }, ix, ulb.own), { gain: 0, said: '' });
   // Only the layouts the words speak of add their clauses: a best whose figure is before the customs tax says so only when it speaks.
   const ul3 = bestsFor(UL3, ix, inputOf(UL3c, cheapNan));
   eq('  a best that isn’t said lends the words no clause of its own', versusBest(UL3c, { ...ul3.best, before: ['tax'] }, ix, ul3.own).said.includes('before the customs tax'), false);

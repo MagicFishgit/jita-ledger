@@ -69,10 +69,16 @@ planets-planner.md.
       fault reaches it as III's did). **Another mix of the colony's factories says nothing**, whichever way it trades: a fifth Basic
       for the second Advanced (5-NZNW IV and VI, about 50k a day), one Advanced fewer, or its own P1s sold with no Advanced. Held,
       a colony laid out as theirs and fed is its own best for its own products; another product can still pay more.
-    - **Another product** (Ruling T15b-3) is set against the colony as it would be with its fault fixed: on 5-NZNW III, "the planner's
-      own layout for it here pays … more a day: your 2 Advanced on Mechanical Parts make 120 …; and the best P1s it can make alone
-      here, Water and Precious Metals, pay … more a day than that, with Aqueous Liquids at the rate learned for another P0". Before
-      the hold, the fault's gain was said as a mix, and then as that other product's.
+    - **Another product** (Ruling T15b-3) is set against the colony as it would be with its fault fixed ("…; and the best P2 it can
+      make alone here, Mechanical Parts, pays … more a day than that, with Noble Metals at the rate learned for another P0"), and
+      **only from `OTHER_PRODUCT_MIN` (10%) of the colony's ISK a day more** (Ruling T15b-6): it rests on a rate the colony hasn't
+      shown (another P0's, typed or assumed), so a sliver on a guess is noise (the user: "not too tight"). Under the page case's
+      prices, Plan's rates had I, IV and VI told that Water and Precious Metals pay under 1% more, on another P0's rate; now they are
+      silent, and III says its fault alone. The colony's own fault, on its own rates, still speaks above a cent. Before the hold, III's
+      fault was said as a mix, then as another product's gain.
+    - **Another product's layout with an output unpriced, or no figure, withholds only its own clause** (Ruling T15b-7): the fault is
+      still said; with none, the words say why nothing is compared. The colony's or its own layout's output unpriced withholds all
+      (UALX-3's prices, where III's and VII's surplus P1 has none). Another mix of the colony's factories, never said, withholds nothing.
     - **Every rate the colony hasn't shown is said, each in its own words** (Ruling T15b-5): none, "if it gets 12,000 Noble Metals an
       hour, a rate no colony of yours has shown"; another P0's, "with Noble Metals at the rate learned for another P0"; typed, "with
       Noble Metals at the rate you typed". Task 16 shows the qualifier with the figure, never the figure alone, and draws a colony's
