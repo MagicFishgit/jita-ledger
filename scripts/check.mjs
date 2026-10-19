@@ -8697,6 +8697,9 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // A factory with neither its input nor its output routed runs nothing: one flag, no building up (R4).
   const loose = chainOf(nanites({ pins: [fac(46, BASIC, S_BACT)] }));
   eq('  a factory with nothing routed in or out: one flag, nothing building up, the rest as before', [flagsOf(loose), saidOf(loose), near(loose.iskDay)], [[['starving', MICRO, 46]], 'Nothing routes Microorganisms into a Basic factory making Bacteria, so it makes none', 2_741_760]);
+  // Nor does it explain a real shortfall of what it would make: one Basic's Bacteria routed to the launchpad still short the Advanced.
+  const looseShort = chainOf(nanites({ pins: [fac(46, BASIC, S_BACT)], drop: [[41, 20, BACTERIA, 20]], add: [[41, 30, BACTERIA, 20]] }));
+  eq('  and it hides no one else’s shortfall of its product', flagsOf(looseShort), [['starving', MICRO, 46], ['starving', BACTERIA, null]]);
   // An extractor with no product set explains only the P0s its routes carry, never another's real shortfall (R6).
   const noProduct = chainOf(nanites({ base: 8000, swap: { 10: unset(10, null) } }), { checked: 'formula' });
   eq('  an extractor with no product and a short Base Metals extractor: both flagged', flagsOf(noProduct), [['idle', null, 10], ['starving', BASE, null]]);
