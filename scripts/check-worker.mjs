@@ -2500,7 +2500,6 @@ console.log('\n--- an alt\'s colonies, read by its hourly sheet (Planets task 14
     await readAlt(env, altReader(MAIN, ALT));
     f.restore();
     eq('  a failed read keeps the held document and the sheet still counts as read', [JSON.stringify(docOf(db, ALT, 'colonies')), sheetOk(db)], [before, 0]);
-    // Removed mid-read: nothing written.
   }
   {
     const { db, env } = await setup(SCOPES);
@@ -2508,6 +2507,28 @@ console.log('\n--- an alt\'s colonies, read by its hourly sheet (Planets task 14
     await readAlt(env, altReader(MAIN, ALT));
     f.restore();
     eq('  without the permission: the planets are not asked, and no document', [f.calls.some((c) => c.path.includes('/planets/')), docOf(db, ALT, 'colonies')], [false, null]);
+  }
+  {
+    // A colony's own read failing (the list answered) keeps the held document and the sheet still counts as read.
+    const { db, env } = await setup([...SCOPES, PLANETS]);
+    let f = stubFetch([...routes(), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    const before = JSON.stringify(docOf(db, ALT, 'colonies')), r0 = rev(db, ALT);
+    f = stubFetch([[`/characters/${ALT}/planets/${PLANET}/`, new Response('{"error":"down"}', { status: 500 })], ...routes(), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  one colony\'s read failing keeps the held document and the sheet stays ok', [JSON.stringify(docOf(db, ALT, 'colonies')), rev(db, ALT) >= r0, sheetOk(db)], [before, true, 0]);
+  }
+  {
+    // Taken off the roster while its planets were read: nothing of it goes back in.
+    const { db, env } = await setup([...SCOPES, PLANETS]);
+    const rs = routes();
+    rs[0] = [`/characters/${ALT}/planets/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`); return heads; }];
+    const f = stubFetch([...rs, ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT)).catch(() => undefined);
+    f.restore();
+    eq('  an alt removed mid-read gets no colonies doc', docOf(db, ALT, 'colonies'), null);
   }
   {
     // readColoniesFor on an alt files under the alt (it pushed under the ledger), and the main's path is unchanged.
