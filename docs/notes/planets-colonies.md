@@ -61,37 +61,49 @@ in planets.md and planets-planner.md.
   pins each rule (planted wrong: pushing under the ledger, no permission gate, always pushing each failed it). Still planned:
   Colonies shows the shown character's or All; To do lists each character's expiring extractors (an alt's judged on a roster
   read of this session); mail stays the main's alone.
-- **A colony's real chain** (Task 15, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; Task 16 draws it). From a kept colony
-  and the planet's customs tax (`customsRate`'s, passed in: the document carries no security or skills):
+- **A colony's real chain** (Task 15 and its fix round, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; Task 16 draws it).
+  From a kept colony and the planet's customs tax (`customsRate`'s, passed in: the document carries no security or skills):
   - **Pins**: an extractor and a factory by their shape; storage, a launchpad, a command centre and a factory with no schematic by
     ESI's type ID (`PIN_TYPES`, CCP's static data build 3569502: the bundle holds capacities, not IDs).
-  - **Rates**: each extractor's whole programme on the lower reading (`PI_READING` once set), the other beside it; a programme
-    that gives none (no quantity a cycle) is null with why, and then what the colony makes isn't worked out, never at 0.
-  - **Flows**, a tier at a time: what a pin routes out is shared among the factories routed to take it, by what they take at
-    full rate; a factory runs at its least share (fewer cycles when short, as the planner's), one with an input routed from
-    nowhere none. What's left of each good is an output, the surplus P1 and P0 in storage included; what goes to storage or a
-    launchpad is sold and taxed as the planner does (`taxRows`; I1: unpriced is neither credited nor taxed), the rest builds up.
-  - **Flags**: `starving` when an input's supply an hour is under what its factories take (judged on the lower reading, saying
-    when the higher one gives enough), or nothing routes it into a factory; `buildingUp` when an output is routed nowhere, or
-    only to factories that don't take it all; `storageFull` at 95% of a storage's or launchpad's capacity; `expired` and
-    `endingSoon` as the colony panel judges them (`ENDING_SOON_HOURS`), the figures staying at the rate the programme ran at;
-    `idle` for a factory with no schematic or an extractor with no programme.
-  - **`versusBest`** sets the planet's ISK a day against the better of `planSingle`'s P0 → P1 and P0 → P2 for that planet alone,
-    at the same rates (the caller's): what it pays more and on what ("the best P2 it can make alone here, Mechanical Parts, pays
-    480,000 ISK more a day"), a rate the planner only assumes said as that, nothing within a cent or above, null with why when
-    either side has no valued ISK.
-  - **On the real document** (the coordinator's copy of 19 October): III's second Advanced factory has no route bringing its
-    inputs, so it makes nothing; IV, VI and VII starve on the lower reading (8,151 to 10,196 P0 an hour into Basics taking
-    12,000) and not on the higher; I's, IV's, VI's and VII's bests rest on a P0 they don't extract.
+  - **Rates**: each extractor's whole programme on the reading `checked` names (`PI_READING` by default), the other beside it while
+    unchecked; a programme that gives none (no quantity a cycle) is null with why, and then nothing is worked out, never at 0.
+  - **The routes, pin by pin** (Ruling T15-3). Each factory input is decided from the routes first: it reaches (routed from a pin
+    that makes it, or from storage or a launchpad such a pin routes it into), it's imported, or it doesn't (`starving` at that
+    factory, which makes nothing; one flag a factory for each reason, naming its inputs). Then, a tier at a time, what a pin makes
+    goes to the factories routed straight from it, up to what they take at full rate, then into the storage or launchpads it's
+    routed to; a storage or launchpad supplies only what's routed into it (its contents are stock, never a rate), and what's left
+    there is exported. A factory runs at its least share (fewer cycles when short); what it drew beyond its use goes back to
+    storage. The first version pooled each good across the colony, so Basics drawing from a storage nothing filled read as fed.
+  - **Imports** (Ruling T15-2): an input nothing on the planet makes, routed in from storage or a launchpad, is brought in (a
+    factory planet fed from its launchpad): never starving, worked out as kept stocked (`imports`), and the planet's ISK a day is
+    null, "Its … come from off the planet, and their cost isn't known here", never 0. The first version read such a planet as
+    "starving, makes nothing" at 0 ISK.
+  - **Valuing**: what's left of each good is an output (the surplus P1 and P0 included), sold and taxed as the planner does
+    (`taxRows`; I1). A good that can't leave sells none, "isn't shipped", counted in `unshipped`, never as unpriced. ISK a day is 0
+    with no why when nothing it makes leaves: Task 16 says so in words, never "0 ISK".
+  - **Flags, only at the root** (Ruling T15-3): `starving` under `STARVING_BELOW` (95%) of what an input's factories take (a Basic
+    losing about 2 of its 48 cycles a day; a programme's rate is its average, which falls across it), its percent floored, never
+    "100%", on the lower reading saying when the higher gives enough, its words naming the factories after it that it holds back;
+    never a shortfall a flag before it explains (an extractor with no programme, a maker routed nowhere, makers short of their own
+    inputs). The first version flagged 11,950 into 12,000 and the good after it, "100% of the time". `buildingUp` for a pin's
+    product routed nowhere, or more than the factories it's routed to take with no storage route, said as the route alone;
+    `storageFull` at 95% of capacity, as of the colony's last update in game; `expired` and `endingSoon` as the colony panel judges
+    them (`ENDING_SOON_HOURS`), the figures staying at the programme's rate; `idle` for a factory with no schematic or an extractor
+    with no programme.
+  - **`versusBest`** sets the planet's ISK a day against the better of `planSingle`'s P0 → P1 and P0 → P2 for that planet alone, at
+    the same rates and the colony's own level (the caller plans with `ccLevel` the chain's `level`): what it pays more and on what
+    ("the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day"), a rate the planner only assumes said as
+    that, nothing within a cent or above. **A best that doesn't fit at the colony's own level is no better**: nothing said, never a
+    suggestion to train (Ruling T15-1; the fit's CPU and powergrid against that level's budget). On the formula's reading the
+    first version told every real colony the planner's own layout paid more: sized to the higher rate, it didn't fit at their
+    level. An output unpriced on either side, or no valued ISK on either, gives no gain, with why: never a gain against 0.
 
 ## Open, and left for the stage-1 final review
 
 - **The first real colonies were kept on 18 October 2026** (the 22:35 UTC hourly read after stage 1 shipped; D1, SELECT only):
-  five planets in 5-NZNW (I, III, IV and VI Barren, VII Gas), each at Command Center Upgrades IV with two extractors at 9 or 10
-  heads in all, inside the fit model's 11 (planets.md), the Barren ones with 4 Basic and 2 Advanced (P0 → P2). That read found
-  every factory kept as storage: ESI sends the schematic as the pin's own `schematic_id` (eve-planets.md), and only
-  `factory_details` was read. Both are now; the next hourly read refills the document, since ties go to the read. The in-game
-  check reads this document (planets.md).
+  every one inside the fit model's heads beside its factories (planets.md). That read found every factory kept as storage: ESI
+  sends the schematic as the pin's own `schematic_id` (eve-planets.md), and only `factory_details` was read. Both are now; the next
+  hourly read refills the document, since ties go to the read. The in-game check reads this document (planets.md).
 - `readColoniesFor` now pushes under `who.char` (Task 14; the same for the main).
 
 ## Limits
@@ -100,7 +112,11 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
 
 - **Colonies hasn't been looked at on a real colony yet.** The cloud has kept the main's since 18 October 2026 (above), but the
   page case draws a seeded one, and nobody has opened the page on the real document.
-- **A colony's chain is a model of its routes, not the game's router**: a good is shared among the factories routed to take it
-  by what each takes at full rate, so one held back by another input leaves its share unused rather than passing it on; route
-  quantities and a factory's own buffers aren't read; a factory whose output goes nowhere is counted as running (it piles up
-  until full, then stops).
+- **A colony's chain is a model of its routes, not the game's router**: it follows each good pin by pin, but where the game's
+  order isn't known it's chosen: a pin's product goes first to the factories routed straight from it, splits evenly over the
+  storage it's routed to, and a storage's is shared among the factories routed from it by what each takes at full rate. Route
+  quantities and factories' own buffers aren't read, storage routed into storage isn't followed, and a factory whose output goes
+  nowhere is counted as running.
+- **What reaches storage or a launchpad is counted as exported and sold**: nothing leaves until it goes through the customs office
+  (from storage, a transfer to a launchpad first), so the chain's ISK a day is what the colony makes for market, not what has
+  sold; a P0 surplus left in storage is counted with it.
