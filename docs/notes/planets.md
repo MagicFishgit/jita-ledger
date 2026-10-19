@@ -116,7 +116,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   was one main-thread task of 282–346 ms on 5-NZNW (this machine, 18 October 2026; the re-review measured 740–910 ms), twice a
   ranking (morning, then live): in the browser, tasks of 298 and 239 ms. Its search is now sliced (planets-planner.md): the
   longest slice holding the chain 10–14 ms, the whole ranking unchanged at 330–490 ms. Not a Web Worker (`PlanInput`'s closures
-  don't clone) and not a tighter budget. P0 → P1 and bought are still one step each: 25–45 ms warm, up to 68 ms the first time.
+  don't clone) and not a tighter budget. P0 → P1 and bought are still one step each: on 5-NZNW at the real rates 23–25 and 11–14 ms
+  warm, 57–59 and 28–31 ms the first time in a fresh process (Task 15b's fix round; 25–45 warm and up to 68 first before F9).
 
 ## Open, and left for the stage-1 final review
 
