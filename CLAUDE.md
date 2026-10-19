@@ -192,6 +192,8 @@ a tab's shell) doesn't load theirs, so Read them too:
   bought setup (a linear programme), the prices it sells and buys at, upkeep and the ranking.
 - `planets-colonies.md`: your colonies: the synced `colonies` document, the cloud's hourly read of the main's colonies, and
   the Colonies section.
+- `planets-chain.md`: a real colony's chain (what it makes, followed route by route, its flags and value) and `versusBest`,
+  set against the planner's best for that planet, planned beside the colony's own storage and launchpads.
 
 Always loaded, imported below, because they apply to any change:
 
