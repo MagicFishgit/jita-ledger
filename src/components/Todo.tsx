@@ -475,12 +475,12 @@ export function Todo() {
     // An alt whose login EVE refused, or that has none: one item each, from the roster as last read (from disk, if this session hasn't
     // read it yet: it ticks off only on a live read, see judgeAltLogin). Its button opens the Characters page, where that alt's login is
     // handed over again; never the main's or the sender's. One with no login kept isn't told "again": it may never have had one.
-    // The sender read as one of your characters has one login: its refusal is the sender's item above, not a second one here.
-    const senderRefused = cloud.background?.keys.find((k) => k.purpose === 'mailer' && k.refusedAt)?.charId;
     for (const a of roster) {
       const st = loginState(a, []).state;
       if (st === 'working') continue;
-      if (a.sender && a.charId === senderRefused) continue;
+      // The sender read as one of your characters has one login, the sender's: its refusal is the sender's item above
+      // (read from the same row, so the roster's flag alone decides; the cloud's status is read less often), never a second.
+      if (a.sender && st === 'refused') continue;
       const who = a.name ?? `Character ${a.charId}`;
       const refused = st === 'refused';
       out.push({
@@ -618,6 +618,8 @@ export function Todo() {
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {
             const a = roster.find((z) => String(z.charId) === x.key.slice('cloudLogin:alt:'.length));
+            // Now the sender: its login is the sender's, whose own item says it; this one goes, unticked.
+            if (a?.sender) return false;
             return judgeAltLogin(e, { live: rosterLive, readAt: rosterAt, state: a ? loginState(a, []).state : null });
           }
           const k = cloud.background?.keys.find((z) => z.purpose === id);
@@ -800,7 +802,7 @@ export function Todo() {
                 const look = LOOK[x.kind];
                 const opened = !checking && e.openedAt != null && now - e.openedAt < 20 * 60_000;
                 return (
-                  <div key={x.key} className={'tn-item' + (i === sel ? ' sel' : '') + (checking ? ' checking' : '')} onClick={() => setSel(i)} style={cssVars({ '--c': look.c })}>
+                  <div key={x.key} data-todo-key={x.key} className={'tn-item' + (i === sel ? ' sel' : '') + (checking ? ' checking' : '')} onClick={() => setSel(i)} style={cssVars({ '--c': look.c })}>
                     <button type="button" className="tn-box" role="checkbox" aria-checked={false} aria-label={`Done: ${x.title}`} data-tip={WARNINGS.has(x.kind) ? 'Mark as seen. It comes back only if it changes.' : HOLDS_UNTIL_CHANGED.has(x.kind) ? heldSaid(x.kind) : 'Tick it yourself. If it still needs doing, it comes back in 12 hours.'} onClick={(ev) => { ev.stopPropagation(); toggle(x.key); }}><Check aria-hidden="true" /></button>
                     <span className="tn-n">{String(i + 1).padStart(2, '0')}</span>
                     <span className="tn-ic"><look.Icon aria-hidden="true" /></span>
@@ -840,7 +842,7 @@ export function Todo() {
                     const look = LOOK[x.kind];
                     const byHand = !e.done;
                     return (
-                      <div key={x.key} className="tn-item done" style={cssVars({ '--c': look.c })}>
+                      <div key={x.key} data-todo-key={x.key} className="tn-item done" style={cssVars({ '--c': look.c })}>
                         <button type="button" className="tn-box" role="checkbox" aria-checked aria-label={`Done: ${x.title}`} aria-disabled={!byHand}
                           data-tip={byHand ? 'Untick to put it back on the list' : 'Ticked off by the data, so it can’t be unticked. If it comes back, it goes back on the list.'}
                           onClick={() => { if (byHand) toggle(x.key); }}><Check aria-hidden="true" /></button>

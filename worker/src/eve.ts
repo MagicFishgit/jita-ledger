@@ -97,6 +97,8 @@ export async function keepHandedOver(env: Env, ledger: number, asked: Asked, ref
     await db.prepare(`UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND (purpose = ?2 OR (purpose = 'mailer' AND token_char_id = ?5))`)
       .bind(ledger, altPurpose(who.charId), Date.now(), 'stopped by a sender login for the same character', who.charId).run();
     await revoke(env, t.refresh);
+    // When it is the sender, the login stopped is the one the cloud sends the mail from too: mail has stopped as well.
+    if (mailer?.id === who.charId) throw new EveError(400, `That was ${who.name}, your mail sender and one of your characters, and the login carries only the permissions to send mail. EVE allows a character one set of permissions, so that login has stopped the one the cloud sends your alert mail from and reads ${who.name} with: no alert mail goes out and nothing is read for ${who.name} until you hand ${who.name} over again on the Characters page, where EVE’s page asks for all the permissions.`);
     throw new EveError(400, `That was ${who.name}, one of your characters, and the login carries only the permissions to send mail. EVE allows a character one set of permissions, so that login has stopped the one the cloud reads ${who.name} with. Hand ${who.name} over again on the Characters page: EVE’s page asks for all the permissions there, and the cloud keeps it as your sender too when it is one.`);
   }
   const purpose: Purpose = sorted.as === 'alt' ? altPurpose(who.charId) : sorted.as;

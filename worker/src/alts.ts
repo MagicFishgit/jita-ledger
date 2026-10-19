@@ -107,7 +107,6 @@ export async function altsMining(env: Env, now = Date.now()): Promise<{ alts: nu
   return { alts: readers.length, read, failed };
 }
 
-/** The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last read. */
 /**
  * The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last
  * read. The login is the one it is read with (`ALT_KEYS`): for the sender, the sender's, so a refused sender reads as

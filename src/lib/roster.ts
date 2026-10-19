@@ -81,11 +81,14 @@ export function sortLogin(asked: Asked, char: number, ledger: number, mailer: nu
  * The purpose a login handed to the cloud is sent with. This browser's own mail sender, picked on EVE's page while
  * adding a character, goes as the sender, and the caller says it was an add (`adding`): the cloud can't know this
  * browser's sender unless it holds one itself, and it keeps the login as the sender and puts the character on the
- * roster. It went as an alt while it was already one of your characters, because the cloud refused a sender on the
- * roster; the cloud keeps such a sender now, so that exception went.
+ * roster. Only while the cloud has no sender (`cloudSender` null or not known) or this character is its sender: with
+ * another sender in the cloud it goes as an alt, which keeps that sender and gives this character a login of its own
+ * (the review's Minor 3: a stale browser sender would otherwise replace the cloud's). It went as an alt while it was
+ * already one of your characters, because the cloud refused a sender on the roster; the cloud keeps such a sender now,
+ * so that exception went.
  */
-export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined): Asked {
-  return asked === 'alt' && browserSender != null && char === browserSender ? 'mailer' : asked;
+export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined, cloudSender?: number | null): Asked {
+  return asked === 'alt' && browserSender != null && char === browserSender && (cloudSender == null || cloudSender === char) ? 'mailer' : asked;
 }
 
 /**

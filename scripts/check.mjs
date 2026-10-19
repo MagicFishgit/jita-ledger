@@ -5648,6 +5648,20 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('  adding a character, and this browser\'s mail sender came back: sent as the sender', handOverAs('alt', 7, 7), 'mailer');
   eq('    anyone else, or no sender here: sent as an alt', [handOverAs('alt', 2, 7), handOverAs('alt', 2, null), handOverAs('alt', 2, undefined)], ['alt', 'alt', 'alt']);
   eq('    the main\'s and the sender\'s own hand-overs are sent as asked', [handOverAs('main', 7, 7), handOverAs('mailer', 7, 7), handOverAs('mailer', 2, 7)], ['main', 'mailer', 'mailer']);
+  // Only while the cloud has no sender, or this character is its sender (the review's Minor 3): with another in the cloud, a
+  // stale browser sender added as a character goes as an alt, so the cloud's sender stays.
+  eq('    the cloud\'s sender is this character, or not known: sent as the sender', [handOverAs('alt', 7, 7, 7), handOverAs('alt', 7, 7, null), handOverAs('alt', 7, 7, undefined)], ['mailer', 'mailer', 'mailer']);
+  eq('    the cloud sends from another character: sent as an alt, keeping it', handOverAs('alt', 7, 7, 9), 'alt');
+  // MAIL_ONLY is a copy of auth.ts's MAILER_SCOPES (config's, which the Worker can't import): the two must stay the same, or an
+  // app version behind's plain sender hand-over would read as one that can read, and add its character (the review's Minor 5).
+  {
+    const fsM = await import('node:fs');
+    const auth = fsM.readFileSync(new URL('../src/lib/auth.ts', import.meta.url), 'utf8');
+    const config = fsM.readFileSync(new URL('../src/lib/config.ts', import.meta.url), 'utf8');
+    const scope = (k) => /'([^']+)'/.exec((new RegExp(`^\\s*${k}: '[^']+'`, 'm').exec(config) ?? [''])[0])?.[1] ?? null;
+    eq('  MAILER_SCOPES is the sender\'s two', /export const MAILER_SCOPES = \[SCOPE\.mailSend, SCOPE\.mailOrganize\];/.test(auth), true);
+    eq('    and MAIL_ONLY copies those two strings', [scope('mailSend'), scope('mailOrganize')], MAIL_ONLY);
+  }
   // Handing the cloud's sender over again: the full set while the cloud reads it as one of your characters (`alt` on
   // its key in the cloud's status), else the sender's two, as before; a Worker a version behind doesn't say.
   eq('  the sender handed over again: all the permissions while it\'s on the roster', senderAsksAll({ alt: true }), true);

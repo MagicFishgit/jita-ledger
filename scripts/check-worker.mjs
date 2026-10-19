@@ -947,6 +947,19 @@ console.log('\n--- the mail sender as one of your characters (19 October 2026) -
     eq('  an app version behind, adding its sender as a character: added, as was asked', [oldAdd.body.kept.alt, rosterIds(db), keysOf(db)], [true, [ALT, SENDER], [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]]);
   }
 
+  // The sender on the roster handed over again with only the mail permissions (Settings before it knew): EVE has stopped
+  // the cloud's login for it, which sent the mail and read it. Refused, the sender's row marked refused, the token revoked.
+  {
+    const { db, env } = await senderAdded();
+    const f = stubFetch(eve(SENDER, 'Postmaster', MAIL_ONLY));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x', adding: false });
+    f.restore();
+    eq('  the sender-alt handed over with only the mail permissions: refused, saying mail has stopped too', [r.status, /your mail sender and one of your characters/.test(r.body.error), /no alert mail goes out and nothing is read for Postmaster/.test(r.body.error)], [400, true, true]);
+    eq('    the sender\'s row is marked refused at once, and the new token revoked', [db.rows(`SELECT refused_at IS NOT NULL AS r FROM keys WHERE purpose = 'mailer'`)[0].r, revoked(f)], [1, true]);
+    eq('    the roster reads it refused', (await ask(env, 'GET', '/v1/alts')).body.find((a) => a.charId === SENDER).refusedAt != null, true);
+    eq('    the other alt\'s login isn\'t touched', db.rows('SELECT refused_at AS r FROM keys WHERE purpose = ?', `alt:${ALT}`)[0].r, null);
+  }
+
   // A roster alt handed over as the sender with every permission: the sender now, still on the roster, its own login gone.
   {
     const { db, env } = await setUp();

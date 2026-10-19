@@ -803,6 +803,10 @@ function MailAlerts() {
   // user logged their sender in again on a new phone because this panel only looked at the browser's own logins.
   const cloud = useCloud();
   const cloudSender = cloudSendsMail(cloud) ? cloud.background?.keys.find((k) => k.purpose === 'mailer') ?? null : null;
+  // The cloud holds a sender it reads as one of your characters, but isn't sending (it holds no login of the main's: watch
+  // stopped). Its login has every permission; one here, with the sender's two, would stop it (EVE: one set a character),
+  // so it is never offered for that character.
+  const heldAlt = !cloudSender ? cloud.background?.keys.find((k) => k.purpose === 'mailer' && k.alt) ?? null : null;
   const canSend = !!auth && (!!cloudSender || !!alt || has(SCOPE.mailSend)), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
   const signInAlt = () => loginMailer().catch((e) => toast(e instanceof Error ? e.message : String(e), 'err'));
   const dropAlt = async () => {
@@ -850,23 +854,34 @@ function MailAlerts() {
               </span>
               <button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Change it in Your data</button>
             </div>
-          ) : alt ? (
-            <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>From <b>{alt.characterName}</b> to <b>{auth.characterName}</b>, so it arrives like any other mail.</span>
-              <button type="button" className="btn sm" onClick={signInAlt}>Change</button>
-              <button type="button" className="link-btn dim" onClick={dropAlt}>Stop</button>
-            </div>
           ) : (
             <div className="col" style={{ gap: 8 }}>
-              <Points items={[
-                { kind: 'warn', lead: 'Mail to itself', text: `from ${auth.characterName} reaches the inbox, but the game only shows it after you log in again.` },
-                { kind: 'good', icon: Send, lead: 'From another character', text: 'it arrives like any other mail: any of yours, on this account or another, online or not.' },
-                { kind: 'info', icon: ShieldCheck, lead: 'Its permissions', text: 'only to send mail and delete what it sent.' },
-              ]} />
-              <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-                <button type="button" className="btn sm" onClick={signInAlt}><LogIn aria-hidden="true" />Log in a character to send from</button>
-                <span className="note small">EVE’s login page asks which character. Pick the other one, not {auth.characterName}.</span>
-              </div>
+              {heldAlt && (
+                <p className="note" style={{ margin: 0, color: 'var(--acc2)' }} data-settings="mail-held">
+                  The cloud holds <b>{heldAlt.name}</b>’s login and reads it as one of your characters, so logging {heldAlt.name} in here would
+                  stop it: EVE allows a character one set of permissions. The cloud sends your alert mail from {heldAlt.name} again once it keeps
+                  watch:{' '}<button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Let the cloud keep watch</button>. Or send from another character.
+                </p>
+              )}
+              {alt ? (
+                <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>From <b>{alt.characterName}</b> to <b>{auth.characterName}</b>, so it arrives like any other mail.</span>
+                  <button type="button" className="btn sm" onClick={signInAlt}>Change</button>
+                  <button type="button" className="link-btn dim" onClick={dropAlt}>Stop</button>
+                </div>
+              ) : (
+                <>
+                  <Points items={[
+                    { kind: 'warn', lead: 'Mail to itself', text: `from ${auth.characterName} reaches the inbox, but the game only shows it after you log in again.` },
+                    { kind: 'good', icon: Send, lead: 'From another character', text: 'it arrives like any other mail: any of yours, on this account or another, online or not.' },
+                    { kind: 'info', icon: ShieldCheck, lead: 'Its permissions', text: 'only to send mail and delete what it sent.' },
+                  ]} />
+                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                    <button type="button" className="btn sm" onClick={signInAlt}><LogIn aria-hidden="true" />{heldAlt ? 'Log in another character to send from' : 'Log in a character to send from'}</button>
+                    <span className="note small">EVE’s login page asks which character. Pick the other one, not {auth.characterName}{heldAlt ? ` or ${heldAlt.name}` : ''}.</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

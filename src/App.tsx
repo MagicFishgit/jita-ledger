@@ -9,9 +9,9 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
-import { cloudAltRead, cloudSummary, getCloudStatus, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
+import { cloudAltRead, cloudSendsMail, cloudSummary, getCloudStatus, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
 import { refreshAlts, startAlts, useAltRoster, useRosterLive } from './lib/altStore';
-import { handOverAs, stoppedBy } from './lib/roster';
+import { handOverAs, stoppedBy, type Asked } from './lib/roster';
 import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
@@ -121,11 +121,15 @@ export function App() {
     const entry = sender ? roster.find((r) => r.charId === sender.characterId) : undefined;
     if (!sender || !entry) return;
     if (entry.sender) {
-      // The cloud sends the alert mail from it, and reads it with that login: this browser's own login for it is either
-      // stopped by EVE already (a different set of permissions) or not needed (the cloud sends the mail). Taken out here
-      // without revoking it at EVE, which isn't needed, and could touch the cloud's login for the same character.
+      // The cloud reads it with the sender's login, which has every permission: this browser's own login for it, with the
+      // sender's two, was stopped by EVE (a different set) or would stop the cloud's. Taken out here without revoking it at
+      // EVE, which isn't needed, and could touch the cloud's login for the same character. The words say the cloud sends the
+      // mail only when it does: with no login of the main's (watch stopped), it holds the sender but sends nothing.
       forgetMailer();
-      toast(`The cloud sends your alert mail from ${sender.characterName} and reads it as one of your characters, so this browser needs no login of its own for it. Its login here has been taken out.`, 'info');
+      const n = sender.characterName;
+      toast(cloudSendsMail()
+        ? `The cloud sends your alert mail from ${n} and reads it as one of your characters, so this browser needs no login of its own for it. Its login here has been taken out.`
+        : `The cloud reads ${n} as one of your characters with its own login. This browser’s login for ${n} was stopped by it, or would stop it (EVE allows a character one set of permissions), so it has been taken out here. If ${n}’s card on the Characters page says its login was refused, hand it over again there.`, 'info');
       return;
     }
     logoutMailer().catch(() => undefined);
@@ -162,8 +166,16 @@ export function App() {
         // This browser's own mail sender, picked on EVE's page while adding a character, is handed over as the sender,
         // saying it was an add: the cloud keeps it as the sender and puts it on the roster, reading it with that login
         // (one login does both: EVE allows a character one set of permissions). The cloud can't know this browser's
-        // sender otherwise. `adding` always goes: a Worker reads its absence (an app version behind) from the scopes.
-        const sent = handOverAs(asked, key.charId, getMailer()?.characterId);
+        // sender otherwise. Only while the cloud has no sender, or this character is its sender: with another in the cloud
+        // it goes as an alt, which keeps that sender and gives it a login of its own. The cloud's sender is read now (the
+        // status on disk may be older), else the one held. `adding` always goes: a Worker reads its absence (an app
+        // version behind) from the scopes.
+        const decide = async (): Promise<Asked> => {
+          const mine = getMailer()?.characterId;
+          if (asked !== 'alt' || mine !== key.charId) return asked;
+          const bg = (await cloudSummary().catch(() => null))?.background ?? getCloudStatus().background;
+          return handOverAs(asked, key.charId, mine, bg?.keys.find((x) => x.purpose === 'mailer')?.charId ?? null);
+        };
         const adding = asked === 'alt';
         const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
         const closed = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
@@ -181,7 +193,7 @@ export function App() {
             toast(`The cloud keeps ${k.name}’s login, but its first read failed: ${said(e)}`, 'err');
           }
         };
-        keepCloudLogin({ purpose: sent, refreshToken: key.refreshToken, adding })
+        decide().then((sent) => keepCloudLogin({ purpose: sent, refreshToken: key.refreshToken, adding })
           .then(async (k) => {
             // What it was kept as. EVE's page picks the character, so an alt's hand-over can come back as the main or
             // the sender; a Worker a version behind doesn't say, and keeps only what was sent. For the sender, `alt` says
@@ -239,9 +251,16 @@ export function App() {
               toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${slip || !lost ? said(e) : `${closed(said(e))}${lost}`}`, 'err');
             }
             await cloudSummary().catch(() => undefined);
-          })
-          .catch((e) => toast(
-            `The cloud couldn’t keep that login: ${mainLost(key.name) ? closed(said(e)) : said(e)}${asked === 'mailer' && /one of your characters/.test(said(e)) ? ' To send mail from that character, remove it on the Characters page first, let the cloud send alert mail from it under Settings → Your data, then add it again on the Characters page: the cloud reads it with the login it sends from.' : ''}${mainLost(key.name)}`, 'err'));
+          }))
+          .catch((e) => {
+            // A sender login with only the mail permissions for one of your characters. If it is already the cloud's sender,
+            // the Worker's words give the fix (hand it over again on Characters, which brings back both); if not, here is how
+            // to make it the sender.
+            const isSender = getCloudStatus().background?.keys.some((x) => x.purpose === 'mailer' && x.charId === key.charId);
+            const how = asked === 'mailer' && !isSender && /one of your characters/.test(said(e))
+              ? ' To send mail from that character, remove it on the Characters page first, keeping its data, let the cloud send alert mail from it under Settings → Your data, then add it again on the Characters page: the cloud reads it with the login it sends from.' : '';
+            toast(`The cloud couldn’t keep that login: ${mainLost(key.name) ? closed(said(e)) : said(e)}${how}${mainLost(key.name)}`, 'err');
+          });
       }
       // "Since your last visit" is measured from when the app was last open, not from this minute.
       const seen = getData().meta.lastSeenAt;
