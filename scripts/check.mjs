@@ -8494,7 +8494,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
     return { planetId: 40000001, systemId: 30004865, planetType: 'Barren', level: 4, lastUpdate: iso(T - H), pins: ps, links: [], routes };
   };
   // Nanites 10,000 a unit, every other P2 3,000, P1 400, P0 2, every one sold whole in Jita (the planner's own tests' prices).
-  const unitOf = (over = {}) => (id) => over[id] ?? (id === NANITES ? 10_000 : { P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
+  const unitOf = (over = {}) => (id) => id in over ? over[id] : (id === NANITES ? 10_000 : { P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
   const sellBy = (price) => (id, perDay) => {
     const u = price(id);
     if (u == null) return { isk: null, units: 0, where: [], why: 'No price read' };
@@ -8596,7 +8596,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const best = bestOf(A, sell);
   eq('  the planner lays this planet out as the colony is: Nanites, 2,741,760 a day', [best.kind, near(best.iskDay)], ['p2', 2_741_760]);
   eq('  already the best: no words', versusBest(A, best, ix), { gain: 0, said: '' });
-  eq('  within a cent of it, or above, is the best', [versusBest(A, { ...best, iskDay: A.iskDay + 0.01 }, ix), versusBest(A, { ...best, iskDay: A.iskDay - 5000 }, ix)], [{ gain: 0, said: '' }, { gain: 0, said: '' }]);
+  eq('  within a cent of it, or above, is the best; two cents short isn’t', [versusBest(A, { ...best, iskDay: A.iskDay + 0.005 }, ix), versusBest(A, { ...best, iskDay: A.iskDay - 5000 }, ix), versusBest(A, { ...best, iskDay: A.iskDay + 0.02 }, ix).said.length > 0], [{ gain: 0, said: '' }, { gain: 0, said: '' }, true]);
   const dearMech = sellBy(unitOf({ [MECH]: 12_000 }));
   const vs = versusBest(chainOf(nanites(), { sell: dearMech }), bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), ix);
   eq('  a better P2 here: its gain and its words', vs, { gain: 480_000, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day' });

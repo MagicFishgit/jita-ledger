@@ -77,8 +77,11 @@ export type Extractor = {
   unitsPerHour: number;
 };
 
+/** Hours before its end that a programme is ending soon: the colony panel, To do, the alerts and a colony's chain (colonyChain.ts). */
+export const ENDING_SOON_HOURS = 24;
+
 /** An extractor with no programme installed is idle, not merely expired: it never started. */
-export function readExtractor(pin: RawPin, now: number, soonHours = 24): Extractor {
+export function readExtractor(pin: RawPin, now: number, soonHours = ENDING_SOON_HOURS): Extractor {
   const d = pin.extractor_details ?? { heads: [] };
   const expiry = pin.expiry_time ? Date.parse(pin.expiry_time) : null;
   const qty = d.qty_per_cycle ?? 0;
@@ -142,7 +145,7 @@ export type Colony = {
   soonest: number;
 };
 
-export function readColony(head: PlanetHead, raw: RawColony, now: number, soonHours = 24): Colony {
+export function readColony(head: PlanetHead, raw: RawColony, now: number, soonHours = ENDING_SOON_HOURS): Colony {
   const extractors = raw.pins.filter((p) => classify(p) === 'extractor').map((p) => readExtractor(p, now, soonHours));
   const factories = raw.pins.filter((p) => classify(p) === 'factory').length;
   const stored = contentsOf(raw.pins);

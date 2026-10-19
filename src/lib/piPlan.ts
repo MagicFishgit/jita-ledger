@@ -246,10 +246,10 @@ export const NO_SKILLS = 'Skills not read';
 export const ALPHA_NO_PI = 'Alphas can’t do planetary industry';
 export const NO_PI_HERE = 'No planet here has planetary industry';
 
-/** Units an hour a schematic takes or makes per factory, from its cycle. */
-const anHour = (s: Schematic, qty: number) => (qty * 3600) / s.cycleSeconds;
+/** Units an hour a schematic takes or makes per factory, from its cycle (colonyChain.ts reads a real colony's factories by it). */
+export const anHour = (s: Schematic, qty: number) => (qty * 3600) / s.cycleSeconds;
 const atCcu = (level: number) => (level > 0 ? `at Command Center Upgrades ${ROMAN[level]}` : 'without Command Center Upgrades');
-const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+export const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 /** "1-day", or "47.5-hour" for a program that isn't whole days. */
 const programSaid = (h: number) => (h % 24 === 0 ? `${h / 24}-day` : `${plainNum(h)}-hour`);
 const chosenSaid = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${plainNum(h)} hours`);
@@ -362,9 +362,9 @@ function exportTax(input: PlanInput, p: Plan, exported: Ship[]): TaxRow[] {
   return taxRows(input.ix, exported, p.planet.tax.rate, 1);
 }
 
-/** Customs per tier: units × the tier's base × `factor` (1 to export, ½ to import), times the rate; null when it isn't known. */
-type TaxRow = { tier: Tier; base: number; perDay: number | null };
-function taxRows(ix: PiIndex, ships: Ship[], rate: number | null, factor: number): TaxRow[] {
+/** Customs per tier: units × the tier's base × `factor` (1 to export, ½ to import), times the rate; null when it isn't known. A real colony's chain is taxed by it too (colonyChain.ts). */
+export type TaxRow = { tier: Tier; base: number; perDay: number | null };
+export function taxRows(ix: PiIndex, ships: Ship[], rate: number | null, factor: number): TaxRow[] {
   const byTier = new Map<Tier, number>();
   for (const s of ships) {
     const c = ix.byId.get(s.id);
