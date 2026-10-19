@@ -8648,8 +8648,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
     const r = e ? { perHour: e.perHour, higher: e.higher } : extra[id] ?? null;
     return r && { ...r, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: false };
   };
-  const bestOf = (c, s, extra, ccLevel = 4) => {
-    const input = { ix, planets: [planet], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
+  const bestOf = (c, s, extra, ccLevel = 4, pl = planet) => {
+    const input = { ix, planets: [pl], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
     const [p1, p2] = [planSingle(input, 'p1'), planSingle(input, 'p2')];
     return (p2.iskDay ?? -Infinity) >= (p1.iskDay ?? -Infinity) ? p2 : p1;
   };
@@ -8681,6 +8681,27 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const vsU = versusBest(U, best, ix), vsN = versusBest(A, bestOf(A, () => ({ isk: null, units: 0, where: [], why: NOHUB })), ix), vsP = versusBest(P, best, ix);
   eq('  no valued ISK on either side: gain null, never 0, and why', [vsU.gain, vsU.said.length > 0, vsN.gain, vsN.said.includes('home hub'), vsP.gain, vsP.said.includes('off the planet')], [null, true, null, true, null, true]);
   eq('  before the customs tax, said', versusBest(chainOf(nanites(), { sell: dearMech, tax: { rate: null, from: 'none', npc: 0, interbus: false } }), { ...bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), before: ['tax'] }, ix).said.includes('before the customs tax'), true);
+  // A best whose fit isn't checked (the planet's size not known) is no better either: nothing said (the re-review's R5).
+  const noSize = bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }, 4, { ...planet, radiusKm: null });
+  eq('  a best whose fit isn’t checked (no radius) says nothing, though it pays more', [noSize.roles[0].fit, noSize.iskDay > A.iskDay + 1, versusBest(chainOf(nanites(), { sell: dearMech }), noSize, ix)], [null, true, { gain: 0, said: '' }]);
+
+  // The command centre is a route endpoint like storage (Ruling T15-6, the re-review's R2): a route into it and out of it is followed.
+  const viaCC = chainOf(nanites({ drop: [[10, 20, MICRO, 25000], [20, 41, MICRO, 3000], [20, 42, MICRO, 3000]], add: [[10, 1, MICRO, 25000], [1, 41, MICRO, 3000], [1, 42, MICRO, 3000]] }));
+  eq('  Microorganisms through the command centre: no flag, the same as through storage', [viaCC.flags, viaCC.makes.map((m) => near(m.perDay)), near(viaCC.iskDay)], [[], [1920, 2880, 240], 2_741_760]);
+  const ccEmpty = chainOf(nanites({ drop: [[20, 41, MICRO, 3000], [20, 42, MICRO, 3000]], add: [[1, 41, MICRO, 3000], [1, 42, MICRO, 3000]] }));
+  eq('  Basics drawing from a command centre nothing fills: each flagged, naming it', [flagsOf(ccEmpty), saidOf(ccEmpty)], [[['starving', MICRO, 41], ['starving', MICRO, 42]], 'A Basic factory making Bacteria draws Microorganisms from the command centre, which nothing on the planet routes it into: it runs only on what you bring in']);
+  // A factory drawing from a launchpad a good also made here, but routed elsewhere: it runs on what's brought in, said so (R3).
+  const topUp = chainOf(nanites({ drop: [[20, 52, BACTERIA, 40]], add: [[30, 52, BACTERIA, 40]] }));
+  eq('  an Advanced drawing Bacteria from a launchpad, Bacteria made here and stored: one flag, saying what’s true', [flagsOf(topUp), saidOf(topUp)], [[['starving', BACTERIA, 52]], 'An Advanced factory making Nanites draws Bacteria from a launchpad, which nothing on the planet routes it into: it runs only on what you bring in']);
+  eq('  never "so it makes none" for a factory drawing from a holder', built.flatMap((c) => c.flags).filter((f) => / from (a storage facility|a launchpad|the command centre)/.test(f.said) && f.said.includes('makes none')).map((f) => f.said), []);
+  // A factory with neither its input nor its output routed runs nothing: one flag, no building up (R4).
+  const loose = chainOf(nanites({ pins: [fac(46, BASIC, S_BACT)] }));
+  eq('  a factory with nothing routed in or out: one flag, nothing building up, the rest as before', [flagsOf(loose), saidOf(loose), near(loose.iskDay)], [[['starving', MICRO, 46]], 'Nothing routes Microorganisms into a Basic factory making Bacteria, so it makes none', 2_741_760]);
+  // An extractor with no product set explains only the P0s its routes carry, never another's real shortfall (R6).
+  const noProduct = chainOf(nanites({ base: 8000, swap: { 10: unset(10, null) } }), { checked: 'formula' });
+  eq('  an extractor with no product and a short Base Metals extractor: both flagged', flagsOf(noProduct), [['idle', null, 10], ['starving', BASE, null]]);
+  eq('  the idle one names what its routes would feed', [saidOf(noProduct).includes('Bacteria'), saidOf(noProduct).includes('Nanites')], [true, true]);
+  eq('  with no routes either, it explains nothing (and nothing here makes the Basics’ Microorganisms: imported)', flagsOf(chainOf(nanites({ base: 8000, swap: { 10: unset(10, null) }, drop: [[10, 20, MICRO, 25000]] }), { checked: 'formula' })), [['idle', null, 10], ['starving', BASE, null]]);
 
   // Never "100%" on a starving flag, in any chain worked out above.
   eq('  no starving flag says 100%', built.flatMap((c) => c.flags).filter((f) => f.flag === 'starving' && f.said.includes('100%')).map((f) => f.said), []);
