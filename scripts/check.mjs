@@ -882,6 +882,13 @@ console.log('\n--- the build guide follows the setup (pi.ts setupSteps) ---');
     [p1, p2, feed].map((st) => { const sv = at(st, /^Survey/); return sv >= 0 && sv < at(st, /extractor control unit/) && st[sv].title.includes('Base Metals and Microorganisms'); }), [true, true, true]);
   eq('  the routing step people miss is there in every setup', [p1, p2, feed, bought].map((st) => st.some((x) => /route/i.test(x.title))), [true, true, true, true]);
   eq('  the ratio that drives refining is stated', p1.some((x) => `${x.body} ${x.tip ?? ''}`.includes('150')), true);
+  // The hub pattern, said plainly (the re-review's C): extractors into the launchpad, its P0 to the Basics, their P1 back and on to the
+  // Advanced, the P2 to the launchpad; the user's own way (storage as the hub) works the same at a factory's room; no route picks out
+  // what's left over.
+  const routeOf = (st) => st.find((x) => /^Place a launchpad/.test(x.title)).body;
+  eq('  P0 → P2 routes through the launchpad, in order', ['route it into the launchpad', 'route each P0 to its Basics', 'route their P1 back to the launchpad, and from there to the Advanced', 'route the P2 to the launchpad'].map((w) => routeOf(p2).indexOf(w)).every((i, k, a) => i >= 0 && (k === 0 || i > a[k - 1])), true);
+  eq('  P0 → P1 routes its P1 back to the launchpad and stops there', [routeOf(p1).includes('route their P1 back to the launchpad.'), routeOf(p1).includes('Advanced')], [true, false]);
+  eq('  the storage-hub way is said, at a factory’s room, and no route takes what’s left over', [p1, p2].map((st) => [routeOf(st).includes('costs the room of a factory'), /can’t take|left over/.test(routeOf(st))]), [[true, false], [true, false]]);
   eq('  bought inputs: no survey and no extractor, and the inputs brought in by name', [at(bought, /^Survey/), at(bought, /extractor control unit|extraction program/i), bought.some((x) => x.title === 'Bring in Bacteria and Reactive Metals')], [-1, -1, true]);
   eq('  a factory planet fed by others: its factories and the carrying between them', [at(feed, /factory planet/i) >= 0, feed.some((x) => /half/.test(x.body))], [true, true]);
 }

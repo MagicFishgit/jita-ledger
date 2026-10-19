@@ -107,7 +107,8 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
     }
     : {
       title: 'Place a launchpad, link everything, then route it',
-      body: 'The launchpad holds the output and is what you export through. This layout keeps no storage facility: the launchpad holds the P0 and the goods in between. Link each extractor to its factories and the factories to the launchpad; links cost powergrid by their length, so keep the structures close. Then route: open each extractor, choose its product and route it to its factory, and the P0 its factories can’t take (the line says what’s left over) into the launchpad; then each factory’s output on. Without routes the colony moves nothing.',
+      // The hub pattern (the re-review's C): everything goes through the launchpad, so no route has to pick out what's left over.
+      body: `The launchpad is the hub: it holds the P0, ${kind === 'p2' ? 'the P1 in between and the P2' : 'and the P1'} (10,000 m³), and you export through it. This layout keeps no storage facility. Link each extractor and each factory to the launchpad; links cost powergrid by their length, so keep the structures close. Then route: open each extractor, choose its product and route it into the launchpad; from the launchpad, route each P0 to its Basics; route their P1 back to the launchpad${kind === 'p2' ? ', and from there to the Advanced; route the P2 to the launchpad' : ''}. P0 the Basics don’t use stays in the launchpad, and the line says what becomes of it. A storage facility as the hub, with the launchpad for export, works the same, but it costs the room of a factory. Without routes the colony moves nothing.`,
       tip: 'If a structure shows a warning triangle, it has an input or output with nowhere to go.',
     });
   if (fed) {
