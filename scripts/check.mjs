@@ -8542,13 +8542,13 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   eq('  F11: no price at the hub: valued at Jita’s after freight, wholly, marked', [fell.isk, fell.units, fell.where, fell.jitaUnits, fell.fallback], [100 * 1100, 100, ['jita'], 100, { hub: 'UALX-3', list: 1234, route: true }]);
   eq('  F11: and said, with Jita’s listing price', fallbackSaid(fell), 'No price at UALX-3: valued at Jita’s: 1,100 ISK after freight (Jita lists it at 1,234 ISK)');
   const fellBare = soldAtHome(300, { home: noHub, jita: bare }, 10, 'UALX-3', false);
-  eq('  F11: with no route, Jita’s before freight, said', [fellBare.isk, fellBare.fallback.route, fallbackSaid(fellBare)], [100 * 1180, false, 'No price at UALX-3: valued at Jita’s 1,180 ISK, before freight: no freight route picked (Jita lists it at 1,234 ISK)']);
+  eq('  F11: with no route, Jita’s before freight, said', [fellBare.isk, fellBare.fallback?.route ?? null, fallbackSaid(fellBare)], [100 * 1180, false, 'No price at UALX-3: valued at Jita’s 1,180 ISK, before freight: no freight route picked (Jita lists it at 1,234 ISK)']);
   eq('  F11: a good the hub prices stays the hub’s, unmarked', (({ isk, where, fallback }) => [isk, where, fallback ?? null])(soldAtHome(300, { home, jita: routed }, 10, 'UALX-3', true)), [5 * 10000, ['home'], null]);
   const neither = soldAtHome(300, { home: noHub, jita: sale('jita', null, null, 'No Jita book this morning') }, 10, 'UALX-3', true);
   eq('  F11: neither prices: unvalued, both reasons, unmarked', [neither.isk, neither.why, neither.fallback ?? null], [null, 'No price at UALX-3; Jita: No Jita book this morning', null]);
   // The contract on Sell: a good wholly at one place, a unit's net never rising as the amount grows.
-  const fellNets = [1, 50, 100, 300].map((n) => { const x = soldAtHome(n, { home: noHub, jita: routed }, 10, 'UALX-3', true); return x.isk / x.units; });
-  eq('  F11: a fallback keeps Sell’s contract', fellNets.every((x, i, a) => i === 0 || x <= a[i - 1] + 1e-9), true);
+  const fellNets = [1, 50, 100, 300].map((n) => { const x = soldAtHome(n, { home: noHub, jita: routed }, 10, 'UALX-3', true); return x.isk == null || !(x.units > 0) ? null : x.isk / x.units; });
+  eq('  F11: a fallback keeps Sell’s contract (valued at every amount, a unit never netting more)', fellNets.every((x, i, a) => x != null && (i === 0 || x <= a[i - 1] + 1e-9)), true);
 
   // The contract the planner's searches rely on: a unit's net never rises with the amount, and no fixed charge a call. The hook
   // works a Sale once a good (a week at your share, the freight minimum spread over it); a Sale worked out for each call's amount,
