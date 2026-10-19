@@ -1,5 +1,5 @@
 import type { PlanetType } from './pi';
-import { madeAlone, type Facility, type PiIndex, type Schematic, type Tier } from './piBundle';
+import { madeAlone, p0Of, type Facility, type PiIndex, type Schematic, type Tier } from './piBundle';
 import { fitOf, maxFactories, maxHeads, type Fit, type Layout } from './piFit';
 import type { Rate } from './piLearn';
 import type { Tax } from './planetsDoc';
@@ -268,6 +268,12 @@ export type PlanInput = {
   heads?: number | null;
   /** With `hold`: plan only the held layouts (`versusBest`'s own comparison, colonyChain.ts' `bestsFor`): no other product, no other planet. */
   heldOnly?: boolean;
+  /**
+   * Plan it (19 October 2026): every setup held to this good. P0 → P1 and P0 → P2 take only planets whose line or product is it, the
+   * feed, the chain and bought only factories making it; a setup that can't make it says why (`onlyWhy`). Absent: every product, as
+   * ranked before. Its candidates are a subset of the full search's, so every bound stays an upper bound.
+   */
+  only?: number;
 };
 /** Storage facilities and launchpads already standing on a planet (`PlanInput.reserve`). */
 export type Reserve = { storage: number; launchpads: number };
@@ -342,7 +348,31 @@ export type Setup = {
   why: string | null;
   /** The search ran out of its budget before it could rule out a better arrangement: this is the best of those tried. */
   cut?: true;
+  /** The same setup run by each of your characters doing planetary industry (`repeatOf`): absent for a chain, or with only one such character. */
+  repeat?: Repeat;
 };
+/**
+ * Plan it: a one-character setup repeated on each character doing planetary industry (the user, 19 October 2026: "i will rarely go
+ * cross character setups and mostly repeat the P3 setup on each character to make things simple to manage and scale"). Each runs
+ * this layout on the same planets (a character holds one colony a planet, so each has its own on every planet it uses). `chars`:
+ * every character whose skills are read and who isn't Alpha (a clone not read counts, `cloneUnknown`), the shown one first, with
+ * why this layout doesn't suit one (fewer planets than it takes, or a lower Command Center Upgrades level it doesn't fit at). `n`:
+ * how many it suits, the shown one among them. `iskDay`: what those `n` make together a day, valued as the setup values itself:
+ * each good summed over them and sold once, a unit shipped only while it pays (`keptWhy`), customs on what's exported (bought: their
+ * inputs summed and bought once, every colony sized together to its last paying unit). Null when not known. `caps`: what holds it
+ * under `n` times one's: a good sold less than `n` times one character's (`perDay` together, `one` one character's), because the
+ * market takes no more at your share (`market`), or, bought, because past it a unit costs more to make than it sells for; or an input
+ * its places supply less of (`at` where, `said` what holds them there).
+ */
+export type Repeat = {
+  chars: { charId: number; why: string | null; cloneUnknown: boolean }[];
+  n: number; iskDay: number | null;
+  caps: { id: number; side: 'sold' | 'bought'; perDay: number; one: number; market?: boolean; at?: string | null; said?: string | null }[];
+};
+/** One colony of a setup, for whether another character's level holds it: its planet's type and size (null: not checked) and its layout. */
+type Colony = { t: PlanetType; r: number | null; layout: Layout };
+/** A setup's worth with `n` characters running it: the ISK, and what sells of each good and is bought of each input (bought), together. */
+type AtN = { value: number | null; sold: Map<number, number>; bought?: Map<number, { perDay: number; b: Bought }>; paysOnly?: Set<number> };
 
 const EPS = 1e-9;
 const HOURS_A_WEEK = 168;
@@ -857,8 +887,7 @@ const better = (a: { value: number; unpriced: number }, b: { value: number; unpr
  * the setup so far (a good two planets make shares one market's cap), after the known tax; an output with no price adds
  * nothing to the ranking, never a figure; ties go to the planet listed first, then the first product. Then `improve`.
  */
-function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Seller): Plan[] {
-  const options = input.planets.map((p, at) => held(input, plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!, input.reserve?.[p.planetId])), input.hold?.[p.planetId]));
+function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Seller, options: Plan[][] = optionsOf(input, kind)): Plan[] {
   let chosen: Plan[] = [];
   const used = new Set<number>();
   while (chosen.length < allowed) {
@@ -875,6 +904,19 @@ function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Sell
     used.add(pick.at);
   }
   return improve(input, options, chosen, sold);
+}
+
+/**
+ * Each planet's plans a single-planet search may pick, by its place in `input.planets`: every way it can run at the character's level
+ * (a colony's own held, `held`), or, held to one good (`PlanInput.only`, Plan it), only those whose line (P0 → P1) or product (P0 → P2)
+ * is it. Worked out once a planet (`plansFor` keeps them), so asking again is cheap.
+ */
+function optionsOf(input: PlanInput, kind: 'p1' | 'p2'): Plan[][] {
+  const x = input.only;
+  return input.planets.map((p, at) => {
+    const all = held(input, plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!, input.reserve?.[p.planetId])), input.hold?.[p.planetId]);
+    return x == null ? all : all.filter((q) => (kind === 'p2' ? q.product === x : q.lines.some((l) => l.p1 === x)));
+  });
 }
 
 /** At most this many improving moves: each strictly gains, so the search ends anyway; the bound keeps a re-rank quick. */
@@ -1075,6 +1117,52 @@ export function charWhy(c: PlanChar): string | null {
 }
 
 /**
+ * A setup repeated on each character doing planetary industry (`Repeat`). Another character suits it when it has as many planets as
+ * the setup uses and, at a lower Command Center Upgrades level than the shown one, every colony's layout fits at its level on that
+ * planet's radius (one whose size isn't known isn't checked, and counts, as `placeFed` treats it); a higher level holds what a lower
+ * one does. `at(n)` values the setup with `n` characters running it. Undefined with fewer than two such characters.
+ */
+function repeatOf(input: PlanInput, colonies: readonly Colony[], at: (n: number) => AtN | null): Repeat | undefined {
+  const seen = new Set<number>();
+  const pi = [input.char, ...input.others].filter((c) => !seen.has(c.charId) && !!seen.add(c.charId) && charWhy(c) == null);
+  if (pi.length < 2) return undefined;
+  const cc = input.char.ccLevel!;
+  const chars = pi.map((c, i) => {
+    const why: string[] = [];
+    if (i > 0 && c.planets! < colonies.length) why.push(`${c.planets} planet${c.planets === 1 ? '' : 's'}: this takes ${colonies.length}`);
+    if (i > 0 && c.ccLevel! < cc && colonies.some((k) => k.r != null && k.r > 0 && !fitOf(input.ix, k.t, c.ccLevel!, k.layout, k.r).fits)) {
+      why.push(c.ccLevel! > 0 ? `Command Center Upgrades ${ROMAN[c.ccLevel!]}` : 'no Command Center Upgrades');
+    }
+    return { charId: c.charId, why: why.length ? why.join('; ') : null, cloneUnknown: c.alpha == null };
+  });
+  const n = chars.filter((c) => c.why == null).length;
+  const one = at(1), all = n === 1 ? one : at(n);
+  const caps: Repeat['caps'] = [];
+  if (one && all && n > 1) {
+    for (const [id, u] of one.sold) {
+      const got = all.sold.get(id) ?? 0;
+      if (u > 1e-6 && got < n * u * (1 - 1e-6)) caps.push({ id, side: 'sold', perDay: got, one: u, market: !all.paysOnly?.has(id) });
+    }
+    for (const [id, x] of one.bought ?? []) {
+      const got = all.bought?.get(id);
+      if (got && got.b.max != null && got.perDay < n * x.perDay * (1 - 1e-6) && got.perDay >= got.b.max * (1 - 1e-6)) {
+        caps.push({ id, side: 'bought', perDay: got.perDay, one: x.perDay, at: got.b.maxAt ?? null, said: got.b.maxSaid ?? null });
+      }
+    }
+    // The main products first (the highest tier), so the words name what binds before a P0 left over.
+    caps.sort((a, b) => tierRank(input.ix, a.id) - tierRank(input.ix, b.id) || a.id - b.id);
+  }
+  return { chars, n, iskDay: all?.value ?? null, caps };
+}
+/** A plan's layout as `fitted` filled its heads in (an extractor whose heads aren't known counts one), beside what stands there. */
+const layoutOf = (p: Plan, heads: readonly (number | null)[]): Layout => ({
+  ecus: p.lines.length, heads: heads.reduce<number>((n, h) => n + Math.max(1, h ?? 1), 0), basic: p.lines.reduce((n, l) => n + l.basics, 0),
+  advanced: p.advanced?.count ?? 0, hightech: 0, storage: p.fitAt?.storage ?? 0, launchpads: p.fitAt?.launchpads ?? 1,
+});
+/** What sells of each valued output, from a setup's assessment. */
+const soldMap = (outputs: readonly Output[]) => new Map(outputs.filter((o) => o.sold.isk != null).map((o) => [o.id, o.sold.units]));
+
+/**
  * The user's own setups, one planet at a time: P0 → P2 (each planet makes the best P2 it can alone) or P0 → P1 (each
  * planet refines the pair of P0s that pays most). Every planet of the system has a role; the ones not used say why.
  */
@@ -1085,21 +1173,30 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
   if (!input.planets.some((p) => p.type)) return blocked(input, kind, NO_PI_HERE, []);
   const cc = char.ccLevel!, allowed = char.planets!;
   const sold = seller(input.sell);
-  const now = assess(input, choose(input, kind, allowed, sold), sold);
+  const ow = onlyWhy(input, kind, sold);
+  if (ow) return blocked(input, kind, ow, []);
+  const options = optionsOf(input, kind);
+  const now = assess(input, choose(input, kind, allowed, sold, options), sold);
   const { plans, outputs } = now;
+  // Held to a good no planet here makes alone (canMake said one could): said, never a setup of no planets at 0 ISK.
+  if (!plans.length) return blocked(input, kind, input.only != null ? `No planet here makes ${goodName(input.ix, input.only)} alone` : NO_PI_HERE, []);
   // Nothing it makes is valued (no home hub picked, say): no figure, never one made of customs alone; the outputs' own reasons say why.
   if (outputs.length && !outputs.some(valuedOutput)) return blocked(input, kind, unvaluedWhy(outputs), []);
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
 
   const byPlanet = new Map(plans.map((p, k) => [p.planet.planetId, k]));
   const lacks = new Set<string>();
-  const roles = input.planets.map((planet): Role => {
+  const colonies: Colony[] = [];
+  const roles = input.planets.map((planet, at): Role => {
     if (!planet.type) return unusedRole(planet, char.charId, NO_PI);
     const k = byPlanet.get(planet.planetId);
-    if (k == null) return unusedRole(planet, char.charId, allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`);
+    // Held to one good, a planet that can't make it alone says so, not that the planets went to ones that pay more.
+    if (k == null) return unusedRole(planet, char.charId, input.only != null && !options[at].length ? `It can’t make ${goodName(input.ix, input.only)} alone`
+      : allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`);
     const p = plans[k], exported = now.exports[k];
     const f = fitted(input, p, cc);
     if (f.lacks) lacks.add(f.lacks);
+    colonies.push({ t: p.t, r: p.planet.radiusKm, layout: layoutOf(p, f.heads) });
     // What it keeps unoffered (Ruling T15-5) and what the market doesn't take stay on the planet, building up, and pay no export tax.
     const kept = now.kept[k];
     const over = p.ships
@@ -1164,8 +1261,14 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
     upkeep: upkeepOf(input, outputs, plans.length),
     perChar: [{ charId: char.charId, iskDay, lacks: [...lacks].sort() }],
     unvalued, why: null,
+    ...withRepeat(repeatOf(input, colonies, (n) => {
+      const a = n === 1 ? now : assess(input, Array.from({ length: n }, () => plans).flat(), sold);
+      return { value: a.value, sold: soldMap(a.outputs) };
+    })),
   };
 }
+/** A setup's `repeat`, only where there is one (the field stays absent otherwise, so a setup's shape is as before). */
+const withRepeat = (r: Repeat | undefined): { repeat?: Repeat } => (r ? { repeat: r } : {});
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The second half: factory planets. Extraction planets feeding one factory planet (feed), factory planets on bought
@@ -2217,6 +2320,8 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
   const lacks = who.map(() => new Set<string>());
   const colonies = who.map(() => 0);
   colonies[placed.factory.char]++;
+  // Each colony's layout, for whether another character's level holds it (`repeatOf`; the feed's only).
+  const layouts: Colony[] = [];
 
   const feederRoles: Role[] = placed.feeders.map((pl, k) => {
     const fd = ctx.feeders[pl.item];
@@ -2224,6 +2329,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     const fit = fitted(input, plan, who[pl.char].cc);
     if (fit.lacks) lacks[pl.char].add(fit.lacks);
     colonies[pl.char]++;
+    layouts.push({ t: plan.t, r: plan.planet.radiusKm, layout: layoutOf(plan, fit.heads) });
     const ships: Role['ships'] = [];
     // What it keeps unoffered (Ruling T15-5), with why, and what's offered and the market doesn't take.
     const kept: { id: number; perDay: number; why: string }[] = [], over: Ship[] = [];
@@ -2250,6 +2356,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
   });
 
   const r = fm.planet.radiusKm;
+  layouts.push({ t: fm.planet.type!, r, layout: v.layout });
   const fNotes: string[] = [];
   let fFit: Fit | null = null, fLacks: string | null = null;
   if (r == null || !(r > 0)) fNotes.push('this planet’s size isn’t known, so what fits isn’t checked');
@@ -2336,6 +2443,15 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     taxes, outputs, inputs: [], roles,
     upkeep: upkeepOf(input, outputs, placed.feeders.length, v.restocks),
     perChar, unvalued, why: null,
+    // Repeated on each character: `n` copies of the arrangement, valued together (the factories' run held to what their market takes).
+    ...(kind === 'feed' ? withRepeat(repeatOf(input, layouts, (n) => {
+      const cn = Int32Array.from(counts, (x) => x * n), Sn = sumShips(ctx, cn);
+      const w = n === 1 ? v : valueFed(ctx, cn, f, Sn, rateOfS(ctx, Sn));
+      const sold = new Map<number, number>();
+      if (w.soldX.isk != null) sold.set(tree.x, w.soldX.units);
+      for (const s of w.surplus) if (s.sold.isk != null) sold.set(goods[s.g], s.sold.units);
+      return { value: w.score.value, sold };
+    })) : {}),
   };
 }
 
@@ -2343,7 +2459,8 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
 function* fedTargets(input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier[], levels: readonly number[]): Steps<FedCtx[]> {
   const out: FedCtx[] = [];
   for (const c of input.ix.commodities) {
-    if (!tiers.includes(c.tier) || sold(c.id, 1).isk == null) continue;
+    // Held to one good (Plan it): only its factory.
+    if ((input.only != null && c.id !== input.only) || !tiers.includes(c.tier) || sold(c.id, 1).isk == null) continue;
     const ctx = fedCtx(input, sold, classes, c.id, levels);
     if (ctx) out.push(ctx);
     yield;
@@ -2366,15 +2483,18 @@ export function* planFeedSteps(input: PlanInput): Steps<Setup> {
   const allowed = char.planets!;
   if (allowed < 2) return blocked(input, 'feed', `A factory planet and one to feed it take 2 planets: you have ${allowed}`, []);
   const sold = seller(input.sell);
+  const ow = onlyWhy(input, 'feed', sold);
+  if (ow) return blocked(input, 'feed', ow, []);
   const ctxs = yield* fedTargets(input, sold, classesOf(input), ['P2', 'P3'], [char.ccLevel!]);
-  if (!ctxs.length) return blocked(input, 'feed', 'Nothing a factory here could make from this system’s planets is priced', []);
+  if (!ctxs.length) return blocked(input, 'feed', input.only != null ? noFeedWhy(input.ix, input.only) : 'Nothing a factory here could make from this system’s planets is priced', []);
   const who: Who[] = [{ c: char, cap: allowed, cc: char.ccLevel! }];
   const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
   const { b: best, tried, tooBig } = yield* bestFed(ctxs, who, budget);
   yield;
   if (!best) {
     if (budget.cut) return withCut(blocked(input, 'feed', RAN_OUT, []), budget);
-    return blocked(input, 'feed', tried && tooBig ? NO_FIT : `No factory planet here can be fed within your ${allowed} planets`, []);
+    return blocked(input, 'feed', tried && tooBig ? NO_FIT : input.only != null ? `A factory making ${goodName(input.ix, input.only)} can’t be fed within your ${allowed} planets`
+      : `No factory planet here can be fed within your ${allowed} planets`, []);
   }
   const used = best.placed.feeders.length + 1;
   return withCut(setupFed('feed', input, best, used >= allowed ? `Your ${allowed} planets go to ones that pay more` : 'Not needed by this setup'), budget);
@@ -2386,6 +2506,8 @@ export function* planFeedSteps(input: PlanInput): Steps<Setup> {
  */
 export const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
 export const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
+/** Held to one good whose P0s are all here (`onlyWhy` passed) and still no feeder ships every P1 it takes. */
+const noFeedWhy = (ix: PiIndex, x: number) => `No planet here can ship every P1 ${goodName(ix, x)} takes`;
 const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: true } : s);
 
 /**
@@ -2407,18 +2529,23 @@ export function* planChainSteps(input: PlanInput): Steps<Setup> {
   const usable: Who[] = [char, ...input.others].filter((c) => !seen.has(c.charId) && seen.add(c.charId) && charWhy(c) == null)
     .map((c) => ({ c, cap: c.planets!, cc: c.ccLevel! }));
   const sold = seller(input.sell);
+  const ow = onlyWhy(input, 'chain', sold);
+  if (ow) return blocked(input, 'chain', ow, []);
   const classes = classesOf(input);
   // Its extraction planets are sized at the lowest level of the characters it may use that holds them (Ruling F9, `feederFits`).
   const levels = usable.map((w) => w.cc);
   const p4 = yield* fedTargets(input, sold, classes, ['P4'], levels);
   const p3 = yield* fedTargets(input, sold, classes, ['P3'], levels);
-  if (!p4.length && !p3.length) return blocked(input, 'chain', 'Nothing a chain here could make from this system’s planets is priced', []);
+  if (!p4.length && !p3.length) return blocked(input, 'chain', input.only != null ? noFeedWhy(input.ix, input.only) : 'Nothing a chain here could make from this system’s planets is priced', []);
   // Which products one character can make alone: a covering search each, a step each.
   const alone = (ctxs: FedCtx[]) => ctxs.map((ctx) => () => coverable(ctx, usable.slice(0, 1)));
   const p3Many: FedCtx[] = [];
   for (const [k, covers] of alone(p3).entries()) { if (!covers()) p3Many.push(p3[k]); yield; }
   const many = [...p4, ...p3Many];
-  if (!many.length) return blocked(input, 'chain', `No P4 is priced here, and every P3 made here fits in your ${char.planets} planets (the feed plans those)`, []);
+  if (!many.length) {
+    return blocked(input, 'chain', input.only != null ? `${goodName(input.ix, input.only)} fits in your ${char.planets} planets, so the feed plans it: a chain makes a P3 only when one character’s planets can’t`
+      : `No P4 is priced here, and every P3 made here fits in your ${char.planets} planets (the feed plans those)`, []);
+  }
 
   const p4Alone: FedCtx[] = [];
   for (const [k, covers] of alone(p4).entries()) { if (covers()) p4Alone.push(p4[k]); yield; }
@@ -2819,7 +2946,8 @@ function boughtCtx(input: PlanInput): { ctx: BuyCtx; inputWhy: string | null; an
   classes.forEach((c, ci) => {
     const [adv, ht] = nOf(c.members[0].planet, c.t)!;
     for (const s of ix.schematics) {
-      if (!(s.tier === 'P2' || s.tier === 'P3' || s.tier === 'P4')) continue;
+      // Held to one good (Plan it): only factories making it.
+      if (!(s.tier === 'P2' || s.tier === 'P3' || s.tier === 'P4') || (input.only != null && s.out.id !== input.only)) continue;
       const n = s.facility === 'hightech' ? ht : adv;
       if (!(n > 0) || sold(s.out.id, 1).isk == null) continue;
       const unbought = s.inputs.map((i) => buy(i.id, 1)).find((b) => b.isk == null);
@@ -2862,6 +2990,8 @@ export function planBought(input: PlanInput): Setup {
   if (cw) return blocked(input, 'bought', cw, char.alpha === true ? ['Omega'] : []);
   if (!input.planets.some((p) => p.type)) return blocked(input, 'bought', NO_PI_HERE, []);
   const cc = char.ccLevel!, allowed = char.planets!;
+  const ow = onlyWhy(input, 'bought', seller(input.sell));
+  if (ow) return blocked(input, 'bought', ow, []);
   const { ctx, inputWhy, anyPriced } = boughtCtx(input);
   const { classes } = ctx;
   const sizeWhy = 'This planet’s size isn’t known, so how many factories fit isn’t known';
@@ -2881,15 +3011,17 @@ export function planBought(input: PlanInput): Setup {
   // Priced at one unit, an input can still be refused at the amount a planet's factories take (a hub too thin for a week's need):
   // when that is what stopped every product, it is the reason, never "nothing pays" (Task 10's re-review).
   const noneValued = ctx.opts.every((o) => o.alone === -Infinity);
+  const only = input.only != null ? goodName(ix, input.only) : null;
   const paysWhy = () => (noneValued && ctx.buyWhy ? `No input can be bought in the amount its factories need: ${ctx.buyWhy}`
-    : `No product here pays more than its inputs cost${ctx.buyWhy ? `, and some inputs can’t be bought in the amount needed: ${ctx.buyWhy}` : ''}`);
+    : `${only ? `${only} doesn’t pay` : 'No product here pays'} more than its inputs cost${ctx.buyWhy ? `, and some inputs can’t be bought in the amount needed: ${ctx.buyWhy}` : ''}`);
   const unsettledWhy = `No product here could be sized exactly: ${UNSETTLED}`;
   // Not one sized because the sizing never settled (and no input was refused): said as that, never "nothing pays". Asked again at
   // the end, after the search has met more sets.
   const onlyUnsettled = () => unsettled && !ctx.buyWhy;
   if (!byAlone.length) {
     const why = noneValued && onlyUnsettled() ? unsettledWhy
-      : anyPriced ? paysWhy() : inputWhy ? `No product here has every input priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
+      : anyPriced ? paysWhy() : inputWhy ? `${only ? `Not every input ${only} takes is` : 'No product here has every input'} priced to buy: ${inputWhy}`
+        : only ? `No factory making ${only} fits on these planets ${atCcu(cc)}` : 'Nothing a factory here could make is priced';
     return unsettled ? { ...blocked(input, 'bought', why, []), cut: true } : blocked(input, 'bought', why, []);
   }
   // Every assignment of products to planets, at most a class's planets each; the products in order of what they make alone.
@@ -2945,10 +3077,12 @@ export function planBought(input: PlanInput): Setup {
   const roleOf = new Map<number, Role>();
   const taxes: Setup['taxes'] = [];
   let perPctBase = 0;
+  const colonies: Colony[] = [];
   chosen.inst.forEach((o, k) => {
     const opt = ctx.opts[o], m = at[k];
     const count = factoriesFor(v.q[k], opt.perFactory / 24);
     const layout: Layout = { ecus: 0, heads: 0, basic: 0, storage: 0, launchpads: 1, advanced: opt.facility === 'advanced' ? count : 0, hightech: opt.facility === 'hightech' ? count : 0 };
+    colonies.push({ t: m.planet.type!, r: m.planet.radiusKm, layout });
     const lim = v.limit[k];
     const held = typeof lim === 'number' ? v.bought.get(lim) : null;
     const shared = typeof lim === 'number' && chosen.inst.some((o2, k2) => k2 !== k && ctx.opts[o2].inputs.some((i) => i.id === lim));
@@ -2989,7 +3123,113 @@ export function planBought(input: PlanInput): Setup {
     upkeep: upkeepOf(input, outputs, 0, v.restocks.reduce((n, x) => n + x, 0), inputs),
     perChar: [{ charId: char.charId, iskDay: v.score.value, lacks: [] }], unvalued: 0, why: null,
     ...(cut ? { cut: true as const } : {}),
+    ...withRepeat(repeatOf(input, colonies, (n) => repeatBought(ctx, chosen.inst, n))),
   };
+}
+
+/**
+ * The bought setup run by `n` characters: each class's planets once a character (so each has its own colonies on them), the same
+ * products on them, every colony sized together exactly as the setup sizes itself (`sizeSet`), so a market or a supply that can't take
+ * `n` times as much holds them at their last paying unit; a colony it sizes to nothing is left out (`liveOf`). Null when refused.
+ */
+function repeatBought(ctx: BuyCtx, inst: readonly number[], n: number): AtN | null {
+  const many: BuyCtx = { ...ctx, classes: ctx.classes.map((c) => ({ ...c, members: Array.from({ length: n }, () => c.members).flat() })), memo: undefined, buyWhy: null };
+  const all = Array.from({ length: n }, () => inst).flat();
+  const s = sizeSet(many, all);
+  const live = s.zeroed ? liveOf(many, all, s) : { inst: all, s };
+  const w = live && !live.s.refused ? valueBought(many, live.inst) : null;
+  if (!w) return null;
+  const sold = new Map([...w.sold].filter(([, x]) => x.isk != null).map(([id, x]) => [id, x.units]));
+  return {
+    value: w.score.value, sold,
+    bought: new Map([...w.need].map(([id, perDay]) => [id, { perDay, b: w.bought.get(id)! }])),
+    // A product the market would take more of: held where a unit stops paying (or by an input), not by the market.
+    paysOnly: new Set([...sold].filter(([id, u]) => many.sold(id, u + 1).units > u + 1e-6).map(([id]) => id)),
+  };
+}
+
+// ---- What a setup can make (the Chart's "Which setups can make it", and the planner held to one good) ----
+
+/** The P0s a system's planets have, from their types. */
+export function p0sOn(ix: PiIndex, types: Iterable<PlanetType>): Set<number> {
+  const out = new Set<number>();
+  for (const t of types) for (const p of ix.planetTypes[t]?.p0 ?? []) out.add(p);
+  return out;
+}
+
+/** The P0s a good is made from that none of these planet types has, sorted: none means the planets can supply all of it. */
+export function missingFor(ix: PiIndex, id: number, types: Iterable<PlanetType>): number[] {
+  const have = p0sOn(ix, types);
+  return p0Of(ix, id).filter((p) => !have.has(p));
+}
+
+/**
+ * Whether a kind of setup can make a good from these planets, by what the kind sells. `on`: the planet types here that would
+ * make it (made alone, for P0 → P1 and P0 → P2) or take its factory (a fed factory, a bought one, a chain's); `why`: why not;
+ * `when`: the condition a "can" holds under, said with it (a chain's P3).
+ */
+export type CanMake = { kind: SetupKind; can: boolean; on: PlanetType[]; why: string | null; when: string | null };
+/**
+ * The planner chains a P3 only when one character's planets can't make it, and plans the rest as a fed factory (planChain's
+ * own rule, above). Whether it can't depends on the character and the fit, which only the planner works out, so the
+ * chart says the condition with the "can" rather than a second copy of the rule that could drift from it.
+ */
+export const CHAIN_P3_WHEN = 'only when it needs more planets than one character has (a fed factory plans the rest)';
+
+/** What each kind of setup sells (the planner's own kinds): the tiers its product can be, and that said. */
+export const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
+  p1: { tiers: ['P1'], said: 'it sells P1 only' },
+  p2: { tiers: ['P2'], said: 'it sells P2 only' },
+  feed: { tiers: ['P2', 'P3'], said: 'its factory makes P2 and P3 only' },
+  bought: { tiers: ['P2', 'P3', 'P4'], said: 'its factory makes P2, P3 and P4 only' },
+  chain: { tiers: ['P3', 'P4'], said: 'it makes P3 and P4 only' },
+};
+const FACILITY_SAID = { basic: 'Basic Industry Facility', advanced: 'Advanced Industry Facility', hightech: 'High-Tech Production Plant' } as const;
+
+/** Each kind of setup, in the planner's order, and whether it can make the good from planets of these types. */
+export function canMake(ix: PiIndex, id: number, types: readonly PlanetType[]): CanMake[] {
+  const good = ix.byId.get(id);
+  const present = [...new Set(types)];
+  const missing = good ? missingFor(ix, id, present) : [];
+  const missingSaid = `${listSaid(missing.map((p) => ix.byId.get(p)?.name ?? `type ${p}`))} ${missing.length === 1 ? 'isn’t' : 'aren’t'} on any planet here`;
+  const s = ix.makes.get(id);
+  const hosts = s ? present.filter((t) => s.planetTypes.includes(t)) : [];
+  const hostWhy = s ? `only ${listSaid(s.planetTypes)} planets take its ${FACILITY_SAID[s.facility]}, and none is here` : 'nothing makes it';
+  return SETUP_KINDS.map((kind): CanMake => {
+    const no = (why: string): CanMake => ({ kind, can: false, on: [], why, when: null });
+    if (!good) return no('the bundle doesn’t know it');
+    if (!SELLS[kind].tiers.includes(good.tier)) return no(SELLS[kind].said);
+    if (kind === 'p1' || kind === 'p2') {
+      const on = present.filter((t) => madeAlone(ix, t)[good.tier].includes(id));
+      if (on.length) return { kind, can: true, on, why: null, when: null };
+      // Every P0 is here, on different planets: named, so it reads as what's missing ("Suspended Plasma and Aqueous Liquids").
+      return no(missing.length ? missingSaid : `no planet here gives ${listSaid(p0Of(ix, id).map((p) => ix.byId.get(p)?.name ?? `type ${p}`))} together`);
+    }
+    if (kind !== 'bought' && missing.length) return no(missingSaid);
+    return hosts.length ? { kind, can: true, on: hosts, why: null, when: kind === 'chain' && good.tier === 'P3' ? CHAIN_P3_WHEN : null } : no(hostWhy);
+  });
+}
+
+/** A good's name, for the planner's sentences. */
+const goodName = (ix: PiIndex, id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
+/**
+ * Plan it: why a kind of setup can't make the good it's held to (`PlanInput.only`) on these planets, as a sentence, or null when it
+ * may (and when no good is chosen). The kind sells another tier ("Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only"), the
+ * good's P0s aren't here or not on one planet, or no planet here takes its factory (`canMake`'s reasons, so the Chart and Plan say
+ * the same); or nothing prices the good, so there is nothing to rank it by.
+ */
+export function onlyWhy(input: PlanInput, kind: SetupKind, sold: (id: number, perDay: number) => Sold): string | null {
+  const x = input.only;
+  if (x == null) return null;
+  const { ix } = input;
+  const g = ix.byId.get(x);
+  if (!g) return 'The planets’ data doesn’t know this good';
+  const types = [...new Set(input.planets.map((p) => p.type).filter((t): t is PlanetType => !!t))];
+  const c = canMake(ix, x, types).find((k) => k.kind === kind)!;
+  if (!c.can) return `Can’t make ${g.name}${SELLS[kind].tiers.includes(g.tier) ? '' : `, a ${g.tier}`}: ${c.why}`;
+  const s = sold(x, SLIVER);
+  if (s.isk == null) return `${g.name} isn’t priced: ${low(s.why ?? 'no price read')}`;
+  return null;
 }
 
 // ---- The ranking ----

@@ -7,7 +7,7 @@
  * P4. Whether the ranked setup does make it is its roles' (`makingIn`), so the chart says both and agrees with the Plan section.
  */
 import type { PlanetType } from './pi';
-import { madeAlone, p0Of, type Commodity, type PiIndex, type Schematic, type Tier } from './piBundle';
+import type { Commodity, PiIndex, Schematic, Tier } from './piBundle';
 import { shippedOutput, type Setup, type SetupKind } from './piPlan';
 
 export const TIERS: readonly Tier[] = ['P0', 'P1', 'P2', 'P3', 'P4'];
@@ -54,65 +54,12 @@ export function recipeOf(ix: PiIndex, id: number): RecipeStep[] {
   return [step(id), ...below.map((c) => step(c.id))];
 }
 
-/** The P0s a system's planets have, from their types. */
-export function p0sOn(ix: PiIndex, types: Iterable<PlanetType>): Set<number> {
-  const out = new Set<number>();
-  for (const t of types) for (const p of ix.planetTypes[t]?.p0 ?? []) out.add(p);
-  return out;
-}
-
-/** The P0s a good is made from that none of these planet types has, sorted: none means the planets can supply all of it. */
-export function missingFor(ix: PiIndex, id: number, types: Iterable<PlanetType>): number[] {
-  const have = p0sOn(ix, types);
-  return p0Of(ix, id).filter((p) => !have.has(p));
-}
-
 /**
- * Whether a kind of setup can make a good from these planets, by what the kind sells. `on`: the planet types here that would
- * make it (made alone, for P0 → P1 and P0 → P2) or take its factory (a fed factory, a bought one, a chain's); `why`: why not;
- * `when`: the condition a "can" holds under, said with it (a chain's P3).
+ * What a system can supply and which kinds of setup can make a good from its planets (`p0sOn`, `missingFor`, `canMake`, `CanMake`,
+ * `CHAIN_P3_WHEN`) live in piPlan.ts, beside the setups whose rule they read: the planner held to one good says the same reasons
+ * (Plan it), and piPlan can't import this file, which imports it. Re-exported here for the Chart.
  */
-export type CanMake = { kind: SetupKind; can: boolean; on: PlanetType[]; why: string | null; when: string | null };
-/**
- * The planner chains a P3 only when one character's planets can't make it, and plans the rest as a fed factory (planChain's
- * own rule, in piPlan.ts). Whether it can't depends on the character and the fit, which only the planner works out, so the
- * chart says the condition with the "can" rather than a second copy of the rule that could drift from it.
- */
-export const CHAIN_P3_WHEN = 'only when it needs more planets than one character has (a fed factory plans the rest)';
-
-const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
-  p1: { tiers: ['P1'], said: 'it sells P1 only' },
-  p2: { tiers: ['P2'], said: 'it sells P2 only' },
-  feed: { tiers: ['P2', 'P3'], said: 'its factory makes P2 and P3 only' },
-  bought: { tiers: ['P2', 'P3', 'P4'], said: 'its factory makes P2, P3 and P4 only' },
-  chain: { tiers: ['P3', 'P4'], said: 'it makes P3 and P4 only' },
-};
-export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 'chain'];
-const FACILITY_SAID = { basic: 'Basic Industry Facility', advanced: 'Advanced Industry Facility', hightech: 'High-Tech Production Plant' } as const;
-const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-
-/** Each kind of setup, in the planner's order, and whether it can make the good from planets of these types. */
-export function canMake(ix: PiIndex, id: number, types: readonly PlanetType[]): CanMake[] {
-  const good = ix.byId.get(id);
-  const present = [...new Set(types)];
-  const missing = good ? missingFor(ix, id, present) : [];
-  const missingSaid = `${listSaid(missing.map((p) => ix.byId.get(p)?.name ?? `type ${p}`))} ${missing.length === 1 ? 'isn’t' : 'aren’t'} on any planet here`;
-  const s = ix.makes.get(id);
-  const hosts = s ? present.filter((t) => s.planetTypes.includes(t)) : [];
-  const hostWhy = s ? `only ${listSaid(s.planetTypes)} planets take its ${FACILITY_SAID[s.facility]}, and none is here` : 'nothing makes it';
-  return SETUP_KINDS.map((kind): CanMake => {
-    const no = (why: string): CanMake => ({ kind, can: false, on: [], why, when: null });
-    if (!good) return no('the bundle doesn’t know it');
-    if (!SELLS[kind].tiers.includes(good.tier)) return no(SELLS[kind].said);
-    if (kind === 'p1' || kind === 'p2') {
-      const on = present.filter((t) => madeAlone(ix, t)[good.tier].includes(id));
-      if (on.length) return { kind, can: true, on, why: null, when: null };
-      return no(missing.length ? missingSaid : 'no planet here has all its P0s: they are on different planets');
-    }
-    if (kind !== 'bought' && missing.length) return no(missingSaid);
-    return hosts.length ? { kind, can: true, on: hosts, why: null, when: kind === 'chain' && good.tier === 'P3' ? CHAIN_P3_WHEN : null } : no(hostWhy);
-  });
-}
+export { canMake, CHAIN_P3_WHEN, missingFor, p0sOn, type CanMake } from './piPlan';
 
 /** Where a ranked setup makes a good: its planets that make it (that extract it, for a P0), how many a day, and whether it sells it. */
 export type Making = { kind: SetupKind; planets: number[]; perDay: number; sold: boolean };

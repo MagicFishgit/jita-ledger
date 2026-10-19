@@ -7525,7 +7525,7 @@ console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down 
     [{ kind: 'chain', can: true, on: ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'], why: null, when: 'only when it needs more planets than one character has (a fed factory plans the rest)' }, null, [null, null, null, null]]);
   eq('  a P4 where no planet takes a High-Tech Production Plant; a P2 no planet makes alone; a P1 whose P0 isn’t here; a P0',
     [can('Broadcast Node', ['Gas'])[3], can('Microfiber Shielding', NZNW)[1], can('Silicon', UALX)[0], can('Microorganisms', NZNW).map((c) => c[1])],
-    [['bought', false, 'only Barren and Temperate planets take its High-Tech Production Plant, and none is here'], ['p2', false, 'no planet here has all its P0s: they are on different planets'],
+    [['bought', false, 'only Barren and Temperate planets take its High-Tech Production Plant, and none is here'], ['p2', false, 'no planet here gives Autotrophs and Felsic Magma together'],
       ['p1', false, 'Felsic Magma isn’t on any planet here'], [false, false, false, false, false]]);
   // Where a ranking makes a good: its used planets' factories that make some, or extractors pulling it (a P0); a blocked setup, an
   // unused planet and a factory line that makes none don't count; sold when it's among the setup's outputs.
@@ -8523,6 +8523,100 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
     const chainSteps = runs.find((r) => r.name === 'two characters (the chain cut)' && r.k === 'chain').steps;
     eq('  sliced at all: the chain of two characters takes hundreds of steps, P0 → P2 none (one call)', [chainSteps > 200, runs.find((r) => r.k === 'p2').steps], [true, 0]);
   }
+}
+
+console.log('\n--- Planets: Plan it, the planner held to one good and repeated on each character (piPlan.ts only, onlyWhy, repeatOf) ---');
+{
+  // The user (19 October 2026): "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go to PLAN I don't
+  // think it is showing how to build it on which planet to make that item", and "mostly repeat the P3 setup on each character". The
+  // "planner in steps" case's 5-NZNW, its books and its learned Barren rate: every setup held to one good, then repeated.
+  const fsP = await import('node:fs');
+  const PP = await import('../src/lib/piPlan.ts');
+  const { indexPlanets, decodeRadii, planetTypeOf } = await import('../src/lib/piBundle.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const FX = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
+  const radii = new Map(decodeRadii(JSON.parse(fsP.readFileSync(new URL('../src/data/planetRadii.json', import.meta.url)))[String(FX.system.system_id)]));
+  const planets = FX.planets.map((p) => { const t = planetTypeOf(ix, p.type_id); return { planetId: p.planet_id, name: p.name, type: t, radiusKm: radii.get(p.planet_id) ?? null,
+    tax: { rate: t === 'Barren' || t === 'Temperate' ? 0.02 : 0.05, from: 'brave', npc: 0, interbus: false } }; });
+  const TAX = 0.03375, BROKER = 0.0155, SHARE = 10;
+  const goods = new Map(FX.goods.filter((g) => g.bid != null && g.ask != null && g.perDay > 0).map((g) => [g.id, g]));
+  const sell = (id, perDay) => { const g = goods.get(id); return PP.soldOf(perDay, { jita: g ? { place: 'jita', list: g.ask, listNet: g.ask * (1 - TAX - BROKER), bid: g.bid, bidNet: g.bid * (1 - TAX), pace: g.perDay, listPace: g.perDay / 2, bidPace: g.perDay / 2 } : null, home: null }, 'jita', SHARE); };
+  const buy = (id, perDay) => { const g = goods.get(id); if (!g) return { isk: null, where: null, why: 'none listed' }; const off = PP.jitaSteps([{ price: g.ask, volume: g.perDay * 5 }], g.perDay, SHARE);
+    return PP.boughtOf(perDay, [{ place: 'jita', at: 'Jita', steps: off.steps, maxSaid: off.maxSaid, why: null }]); };
+  const rate = { perHour: 3000, higher: 9000, from: 'learned', programHours: 47.5, heads: 10, otherP0: false, checked: false };
+  const owner = { charId: 1, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, alt = { charId: 2, name: 'Alt', planets: 5, ccLevel: 4, alpha: false };
+  const base = { ix, planets, char: owner, others: [], rateOf: (t, p0) => (t === 'Barren' && (p0 === 2267 || p0 === 2073) ? rate : null), heads: 10, sell, buy, programHours: 72 };
+  const GEL = 2348, NANITES = 2463, SUPERCON = 9838, WATER = 2268, BROADCAST = 2867;
+  const nm = (x) => ix.byId.get(x).name;
+  const of = (ss, k) => ss.find((s) => s.kind === k);
+  const makes = (s) => [...new Set(s.roles.filter((r) => r.does !== 'unused').flatMap((r) => r.makes.map((m) => m.id)))];
+  const held = PP.planSystem({ ...base, only: GEL });
+  eq('  Gel-Matrix Biopaste at 5-NZNW: P0 → P1 and P0 → P2 say why they can’t, the chain that the feed plans it',
+    ['p1', 'p2', 'chain'].map((k) => of(held, k).why),
+    ['Can’t make Gel-Matrix Biopaste, a P3: it sells P1 only', 'Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only',
+      'Gel-Matrix Biopaste fits in your 5 planets, so the feed plans it: a chain makes a P3 only when one character’s planets can’t']);
+  // The feed: its factory planet makes Gel-Matrix Biopaste from Oxides, Biocells and Superconductors its four planets feed it; bought,
+  // every factory makes it on bought inputs. Pinned (read from this run): 11,532,535 and 79,512,359 ISK a day.
+  const feed = of(held, 'feed'), bought = of(held, 'bought');
+  eq('  held to it: the feed’s factory and every bought factory make Gel-Matrix Biopaste, and their figures',
+    [feed.roles.filter((r) => r.does === 'factory').map((r) => r.makes.map((m) => nm(m.id))), feed.roles.filter((r) => r.does === 'extract').length,
+      [...new Set(bought.roles.filter((r) => r.does === 'factory').flatMap((r) => r.makes.map((m) => nm(m.id))))], Math.round(feed.iskDay), Math.round(bought.iskDay), held.map((s) => s.kind)],
+    [[['Oxides', 'Biocells', 'Superconductors', 'Gel-Matrix Biopaste']], 4, ['Gel-Matrix Biopaste'], 11_532_535, 79_512_359, ['bought', 'feed', 'p1', 'p2', 'chain']]);
+  // A P2 held: P0 → P2 makes only it, on every planet that makes it alone (5-NZNW's four Barren), and the planet that can't says so.
+  const nan = of(PP.planSystem({ ...base, only: NANITES }), 'p2');
+  eq('  Nanites: every planet P0 → P2 uses makes it, the one left can’t make it alone', [makes(nan).filter((x) => ix.byId.get(x).tier === 'P2').map(nm), nan.roles.filter((r) => r.does === 'unused' && r.why === 'It can’t make Nanites alone').length > 0],
+    [['Nanites'], true]);
+  // The dispatch's own example: no planet here has both of Superconductors' P0s.
+  eq('  Superconductors: P0 → P2 names the P0s no planet has together', of(PP.planSystem({ ...base, only: SUPERCON }), 'p2').why, 'Can’t make Superconductors: no planet here gives Aqueous Liquids and Suspended Plasma together');
+  // A P1: every planet P0 → P1 uses has a line making it.
+  const w = of(PP.planSystem({ ...base, only: 2390 }), 'p1');
+  eq('  a P1 (Electrolytes): every planet P0 → P1 uses refines it', w.roles.filter((r) => r.does !== 'unused').every((r) => r.makes.some((m) => m.id === 2390)) && w.iskDay > 0, true);
+  // A good nobody prices is said, never ranked on what else the setup makes.
+  const unp = PP.planSystem({ ...base, sell: (id, q) => (id === GEL ? { isk: null, units: 0, where: [], why: 'none listed in Jita' } : sell(id, q)), only: GEL });
+  eq('  a good with no price: every setup that could make it says so', ['feed', 'bought'].map((k) => of(unp, k).why), ['Gel-Matrix Biopaste isn’t priced: none listed in Jita', 'Gel-Matrix Biopaste isn’t priced: none listed in Jita']);
+  eq('  a P4 at a system with no Barren or Temperate planet: bought says no planet takes its plant',
+    of(PP.planSystem({ ...base, planets: planets.filter((p) => p.type === 'Gas'), only: BROADCAST }), 'bought').why, 'Can’t make Broadcast Node: only Barren and Temperate planets take its High-Tech Production Plant, and none is here');
+  // Held to a subset of the candidates, a setup's best can't be over every product's best, where neither search was cut (a held
+  // search spends its whole budget on one product, so it can find more than a full one that ran out). Every good, one character and two.
+  for (const [label, input] of [['one character', base], ['two characters', { ...base, others: [alt] }]]) {
+    const all = PP.planSystem(input);
+    const best = all.find((s) => s.iskDay != null);
+    const over = ix.commodities.filter((c) => c.tier !== 'P0').flatMap((c) => {
+      const ss = PP.planSystem({ ...input, only: c.id });
+      const b = ss.find((s) => s.iskDay != null);
+      return b && b.iskDay > best.iskDay + 0.01 && !ss.some((s) => s.cut) && !all.some((s) => s.cut) ? [`${c.name} ${b.kind} ${b.iskDay} over ${best.iskDay}`] : [];
+    });
+    eq(`  ${label}: no good held is over every product’s best`, over, []);
+    // And the filter holds: what each setup makes as its own product is the good (a P0 → P1 line, a P0 → P2 Advanced, a factory).
+    const strays = ix.commodities.filter((c) => c.tier !== 'P0').flatMap((c) => PP.planSystem({ ...input, only: c.id }).filter((s) => s.why == null && s.iskDay != null).flatMap((s) => {
+      const top = s.kind === 'p1' ? s.roles.filter((r) => r.does !== 'unused').map((r) => r.makes.map((m) => m.id))
+        : s.kind === 'p2' ? s.roles.filter((r) => r.does !== 'unused').map((r) => r.makes.filter((m) => m.facility !== 'basic').map((m) => m.id))
+          : s.roles.filter((r) => r.does === 'factory').map((r) => [r.makes[r.makes.length - 1].id]);
+      return top.every((ids) => ids.includes(c.id)) ? [] : [`${c.name}: ${s.kind}`];
+    }));
+    eq(`  ${label}: every setup held to a good makes it as its own product`, strays, []);
+  }
+  // Repeated on each character: every character whose skills are read and who isn't Alpha, the shown one first; one with fewer
+  // planets than the setup uses or a lower level its layout doesn't fit isn't counted, and says why; a clone not read counts.
+  const others = [{ ...alt, alpha: null }, { charId: 3, name: 'Low', planets: 5, ccLevel: 2, alpha: false }, { charId: 4, name: 'Few', planets: 3, ccLevel: 5, alpha: false },
+    { charId: 5, name: 'Alph', planets: 6, ccLevel: 5, alpha: true }, { charId: 6, name: 'Unread', planets: null, ccLevel: null, alpha: null }];
+  const rep = PP.planSystem({ ...base, others, only: GEL });
+  const rf = of(rep, 'feed').repeat;
+  eq('  repeated: who it suits and why not, counted, and the feed’s two together on the summed output (no market binds)',
+    [rf.chars.map((c) => [c.charId, c.why, c.cloneUnknown]), rf.n, Math.round(rf.iskDay), rf.caps],
+    [[[1, null, false], [2, null, true], [3, 'Command Center Upgrades II', false], [4, '3 planets: this takes 5', false]], 2, 2 * 11_532_535, []]);
+  // Bought: one character already buys all of Jita's 10% share of Oxides, so two make no more than one, and the words name the input.
+  const rb = of(rep, 'bought').repeat;
+  eq('  repeated bought: two characters buy no more Oxides than Jita supplies at your share, so no more than one makes',
+    [Math.round(rb.iskDay), rb.caps.filter((c) => c.side === 'bought').map((c) => [nm(c.id), c.at, c.said])],
+    [79_512_359, [['Oxides', 'Jita', 'your 10% share of the 249,535 traded a day in The Forge']]]);
+  eq('  no repeat for a chain, nor with one character doing planetary industry', [of(PP.planSystem({ ...base, others: [alt] }), 'chain').repeat, of(held, 'feed').repeat], [undefined, undefined]);
+  // A market that can't take twice as much: Gel-Matrix Biopaste capped at 100 a day, so two feeds (72 a day each) sell 100, said.
+  const capped = (id, q) => (id === GEL ? (() => { const s = sell(id, Math.min(q, 100)); return { ...s, units: Math.min(q, 100) }; })() : sell(id, q));
+  const rc = of(PP.planSystem({ ...base, sell: capped, others: [alt], only: GEL }), 'feed').repeat;
+  eq('  repeated where the market takes less than twice: the cap named, the figure under twice one’s',
+    [rc.caps.map((c) => [nm(c.id), Math.round(c.perDay), Math.round(c.one), c.market]), rc.iskDay < 2 * of(PP.planSystem({ ...base, sell: capped, only: GEL }), 'feed').iskDay - 1],
+    [[['Gel-Matrix Biopaste', 100, 72, true]], true]);
 }
 
 console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---');
