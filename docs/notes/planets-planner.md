@@ -27,7 +27,8 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
   extractors' median is 10, and no more fit beside its factories"); when even one head a line leaves none, and with nothing
   learned, the most that fit, said ("at the most heads that fit beside its factories", Ruling T8-1). **A line on another P0's
   learned rate or a typed one whose known heads leave no room for the least layout** (a Basic a line, an Advanced for P0 → P2) is
-  set aside as unknown (Ruling T15b-12, `setAsideBorrowed`): the assumed 12,000 an hour on the capped median, said ("another P0's
+  set aside as unknown (Ruling T15b-12, `setAsideBorrowed`; one at a time, the most heads first, only while their heads are the
+  cause, the review of Task 15c): the assumed 12,000 an hour on the capped median, said ("another P0's
   rate is at 10 heads, more than fit here, so …"), never scaled and never ranked unbuildable for it; a line on its own learned
   rate keeps its heads (its colony had them). A rate from programmes of another length says "rates from N-day
   programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
@@ -61,6 +62,7 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
   heads uncapped, every unrated planet fit at no level (T15b-8): the page case now asserts none does, and the planner-in-steps check
   that every planet of P0 → P1, P0 → P2 and the feed fits. T15b-12 moved them at 10 heads (P0 → P1 12.16 M, P0 → P2 13.97 M, feed
   14.32 M): Barren planets borrowing the 10-head rate had been ranked on a layout that fit at no level; at 5 heads unchanged.
+  Setting aside one borrowed line at a time (Task 15c's fix round) left the other's 16,617 an hour: P0 → P1 12.70 M, feed 14.44 M.
 - **Moved to notes of their own on 19 October 2026** (Task 15c; the notes budget: Planets.tsx loaded 138,720 of 140,000): what a
   good is valued and bought at, the bought setup's exact sizing and the upkeep are in `planets-market.md`; the feed, the chain and the
   searches' budget and steps in `planets-searches.md`.

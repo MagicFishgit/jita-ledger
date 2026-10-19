@@ -7784,6 +7784,20 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
     eq('  T15b-8: beside storage, capped where the rates’ layout still fits, said so', at({ heads: 5, ...STORE }).slice(0, 3).concat([at({ heads: 5, ...STORE })[3].startsWith(`${SAID}at 3 heads: your extractors’ median is 5, and no more fit beside its factories`)]), [[5, 3], [3, 2, 2], true, true]);
     eq('  T15b-8: with nothing learned, the most that fit (T8-1), as before, and said', at(STORE).slice(0, 3).concat([at(STORE)[3].startsWith(`${SAID}at the most heads that fit beside its factories`)]), [[5, 3], [3, 2, 2], true, true]);
   }
+  // The review of Task 15c: a borrowed line is set aside only where its heads are the cause, one at a time, the most heads first.
+  // Barren at 3,750 km, Nanites from Microorganisms and Base Metals: at CCU II even 11 heads leave no room for the least layout, so
+  // a 3-head borrowed line beside the planet's own 10-head one isn't set aside (the own line is the cause, said as that); at CCU III
+  // 13 heads don't fit and 11 do, so of two borrowed lines at 10 and 3 only the 10 is set aside.
+  {
+    const MICRO = idOf('Microorganisms');
+    const one = (cc, micro, base) => role(planSingle({ ...input, planets: [planets[0]], char: { ...char, planets: 1, ccLevel: cc }, heads: 5, rateOf: (t, p0) => (p0 === MICRO ? micro : base) }, 'p2'), A);
+    const own10 = rate({ heads: 10 }), lent = (h) => rate({ heads: h, otherP0: true });
+    const ii = one(2, own10, lent(3)), iii = one(3, lent(10), lent(3));
+    // A line with no rate and nothing learned on a layout that fits at no level: said as no head fitting, never "the most that fit".
+    const over = role(planSingle({ ...input, planets: [planets[0]], char: { ...char, planets: 1, ccLevel: 0 }, rateOf: () => null }, 'p2'), A);
+    eq('  heads not known on a layout that fits nowhere: said as none fitting', [over.fit.fits, /with no head fitting beside its factories/.test(over.why ?? ''), /at the most heads that fit/.test(over.why ?? '')], [false, true, false]);
+    eq('  T15b-12: not the cause, not set aside; of two, only the one whose heads are', [ii.extracts.map((e) => !!e.setAside), /more than fit here/.test(ii.why ?? ''), iii.extracts.map((e) => e.setAside?.heads ?? null)], [[false, false], false, [10, null]]);
+  }
   const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
   eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
   has('  a rate learned on another P0 of the type: said', role(planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ otherP0: true }) : rateOf(t)) }, 'p2'), A).why ?? '', 'at the rate learned for another P0 of Barren planets');
@@ -7971,7 +7985,9 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     const was = mixedOf(rate({ heads: 6, from: 'typed' }));
     eq('  F9: the shape that fit only at V before now fits at IV with fewer factories, and nothing is lacking for it', [[role(was, II).fit.fits, role(was, II).lacks], was.perChar[0].lacks], [[true, null], []]);
     const typed9 = mixedOf(rate({ perHour: 6000, heads: 9, from: 'typed' })), t9 = role(typed9, II);
-    eq('  T15b-12: the same 9 heads typed are set aside: it fits at IV, said', [t9.fit.fits, t9.lacks, t9.extracts.map((e) => [e.rate, e.setAside?.heads ?? null]), /your typed rate is at 9 heads, more than fit here/.test(t9.why ?? '')], [true, null, [[null, 9], [null, 9]], true]);
+    // Set aside one at a time, only while the heads are the cause (the review of Task 15c): one typed line at 9 heads set aside
+    // leaves room for the least layout beside the other's 9.
+    eq('  T15b-12: the same 9 heads typed: one set aside, enough for it to fit at IV, said', [t9.fit.fits, t9.lacks, t9.extracts.map((e) => (e.setAside ? `aside ${e.setAside.heads}` : `${e.rate?.from} ${e.heads}`)), /your typed rate is at 9 heads, more than fit here/.test(t9.why ?? '')], [true, null, ['aside 9', 'typed 9'], true]);
   }
   eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
   eq('  big’s chain is searched to the end: not cut', chain.cut, undefined);
@@ -8468,7 +8484,9 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
     const bar = planets.find((p) => p.type === 'Barren');
     const borrowed = { perHour: 16617, higher: null, from: 'learned', programHours: 72, heads: 10, otherP0: true, checked: true };
     const r = PP.planSingle({ ...base, planets: [bar], char: { ...owner, planets: 1 }, rateOf: () => borrowed }, 'p2').roles[0];
-    eq('  T15b-12: two lines borrowing a 10-head rate: set aside, the role fits, under 10 heads each', [r.fit.fits, r.lacks, r.extracts.map((e) => [e.rate, e.setAside?.heads ?? null, e.heads < 10])], [true, null, [[null, 10, true], [null, 10, true]]]);
+    // One set aside is enough for the least layout (the review of Task 15c: only while the heads are the cause); the other keeps its
+    // borrowed rate and heads.
+    eq('  T15b-12: two lines borrowing a 10-head rate: the first set aside, under 10 heads, the other kept; the role fits', [r.fit.fits, r.lacks, r.extracts.map((e) => (e.setAside ? `aside ${e.setAside.heads}, ${e.heads < 10 ? 'under 10' : e.heads}` : `kept ${e.heads}`))], [true, null, ['aside 10, under 10', 'kept 10']]);
     has('  T15b-12: and its line says why', r.why ?? '', 'another P0’s rate is at 10 heads, more than fit here, so ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, at ');
     const own = PP.planSingle({ ...base, planets: [bar], char: { ...owner, planets: 1 }, rateOf: () => ({ ...borrowed, otherP0: false }) }, 'p2').roles[0];
     eq('  T15b-12: its own learned rate keeps its heads (its colony had them)', [own.extracts.map((e) => [e.setAside ?? null, e.heads]), /more than fit here/.test(own.why ?? '')], [[[null, 10], [null, 10]], false]);
@@ -8528,7 +8546,7 @@ console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---
 
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
 {
-  const { soldOf, soldAtHome, fallbackSaid, boughtAtHome } = await import('../src/lib/piPlan.ts');
+  const { soldOf, soldAtHome, fallbackSaid, boughtAtHome, boughtFallbackSaid } = await import('../src/lib/piPlan.ts');
   const { sellAt, slotDay } = await import('../src/lib/industryRank.ts');
   const sale = (place, listNet, listPace, why = null) => ({ place, list: listNet, listNet, bid: null, bidNet: null, pace: listPace, listPace, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why });
   const jita = sale('jita', 9000, 1000), home = sale('home', 10000, 50);
@@ -8548,8 +8566,13 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   const noHub = sale('home', null, null, 'No price at UALX-3');
   const routed = { ...sale('jita', 1100, 1000), list: 1234 }, bare = { ...sale('jita', 1180, 1000), list: 1234 };
   const fell = soldAtHome(300, { home: noHub, jita: routed }, 10, 'UALX-3', true);
-  eq('  F11: no price at the hub: valued at Jita’s after freight, wholly, marked', [fell.isk, fell.units, fell.where, fell.jitaUnits, fell.fallback], [100 * 1100, 100, ['jita'], 100, { hub: 'UALX-3', list: 1234, route: true }]);
+  eq('  F11: no price at the hub: valued at Jita’s after freight, wholly, marked', [fell.isk, fell.units, fell.where, fell.jitaUnits, fell.fallback], [100 * 1100, 100, ['jita'], 100, { hub: 'UALX-3', list: 1234, route: true, carried: false, hubWhy: 'No price at UALX-3' }]);
   eq('  F11: and said, with Jita’s listing price', fallbackSaid(fell), 'No price at UALX-3: valued at Jita’s: 1,100 ISK after freight (Jita lists it at 1,234 ISK)');
+  // The review of Task 15c: the words lead with the hub's own reason, never a blanket "no price". A good the hub lists whose pace
+  // isn't known (every listed good at a hub Goonmetrics doesn't track) says so; carried yourself, not "after freight".
+  const paceless = soldAtHome(300, { home: sale('home', null, null, 'Nothing says how fast it sells at UALX-3'), jita: routed }, 10, 'UALX-3', true);
+  eq('  F11: a good the hub lists with no pace known says so, not "no price"', [paceless.fallback.hubWhy, fallbackSaid(paceless)], ['Nothing says how fast it sells at UALX-3', 'Nothing says how fast it sells at UALX-3: valued at Jita’s: 1,100 ISK after freight (Jita lists it at 1,234 ISK)']);
+  eq('  F11: carried yourself to Jita, said so', fallbackSaid(soldAtHome(300, { home: noHub, jita: routed }, 10, 'UALX-3', true, true)), 'No price at UALX-3: valued at Jita’s: 1,100 ISK carried yourself (Jita lists it at 1,234 ISK)');
   const fellBare = soldAtHome(300, { home: noHub, jita: bare }, 10, 'UALX-3', false);
   eq('  F11: with no route, Jita’s before freight, said', [fellBare.isk, fellBare.fallback?.route ?? null, fallbackSaid(fellBare)], [100 * 1180, false, 'No price at UALX-3: valued at Jita’s 1,180 ISK, before freight: no freight route picked (Jita lists it at 1,234 ISK)']);
   eq('  F11: a good the hub prices stays the hub’s, unmarked', (({ isk, where, fallback }) => [isk, where, fallback ?? null])(soldAtHome(300, { home, jita: routed }, 10, 'UALX-3', true)), [5 * 10000, ['home'], null]);
@@ -8566,8 +8589,12 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   const jitaIn = { place: 'jita', at: 'Jita', steps: [{ units: 100, unit: 1000 }, { units: 200, unit: 1300 }], maxSaid: 'your share', why: null };
   const jitaNoRoute = { place: 'jita', at: 'Jita', steps: [], maxSaid: null, why: 'No freight route between the hub and Jita is picked' };
   const b150 = boughtAtHome(150, { home: hubNone, jita: jitaIn }, 'UALX-3');
-  eq('  F11b: the hub doesn’t sell it: bought at Jita’s asks with the freight in, wholly, marked', [b150.isk, b150.where, b150.jitaUnits, b150.max, b150.fallback], [100 * 1000 + 50 * 1300, ['jita'], 150, 300, { hub: 'UALX-3', list: null, route: true }]);
+  eq('  F11b: the hub doesn’t sell it: bought at Jita’s asks with the freight in, wholly, marked', [b150.isk, b150.where, b150.jitaUnits, b150.max, b150.fallback], [100 * 1000 + 50 * 1300, ['jita'], 150, 300, { hub: 'UALX-3', list: null, route: true, hubWhy: 'No price at UALX-3' }]);
   eq('  F11b: one the hub sells stays the hub’s, unmarked, though Jita is cheaper', (({ isk, where, fallback }) => [isk, where, fallback ?? null])(boughtAtHome(150, { home: hubSells, jita: jitaIn }, 'UALX-3')), [150 * 1500, ['home'], null]);
+  // The hub's own reason on the input's line: a Goonmetrics hub with a price but no weekly movement isn't "doesn't sell it".
+  const unknownDepth = { ...hubNone, why: 'UALX-3’s weekly movement isn’t known, so its depth can’t be judged' };
+  eq('  F11b: said with the hub’s own reason', [boughtFallbackSaid(b150), boughtFallbackSaid(boughtAtHome(150, { home: unknownDepth, jita: jitaIn }, 'UALX-3'))],
+    ['with the freight in (no price at UALX-3)', 'with the freight in (UALX-3’s weekly movement isn’t known, so its depth can’t be judged)']);
   const bNo = boughtAtHome(150, { home: hubNone, jita: jitaNoRoute }, 'UALX-3');
   eq('  F11b: with no route, unpriced, both reasons, unmarked', [bNo.isk, bNo.why, bNo.fallback ?? null], [null, 'No price at UALX-3; Jita: No freight route between the hub and Jita is picked', null]);
   const marginals = [50, 100, 150, 250, 300].map((n, i, a) => { const c = (m) => boughtAtHome(m, { home: hubNone, jita: jitaIn }, 'UALX-3').isk ?? NaN; return i === 0 ? c(n) / n : (c(n) - c(a[i - 1])) / (n - a[i - 1]); });
@@ -8988,7 +9015,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  F11: III’s fault at UALX-3 gets its ISK figure, and names what’s valued at Jita’s', [UL3u.outputs.filter((o) => o.sold.fallback).map((o) => o.id), versusBest(UL3u, u3.best, ix, u3.own)],
     // 120 Nanites more at 6,500 (780,000) for the 1,920 P1 no longer sold at Jita's 350 (672,000), less 17,280 more P2 tax and plus
     // 15,360 less P1 tax: 106,080. Without the fallback the surplus P1 had no price and the fault was said in counts alone (T15b-11).
-    [[BACTERIA, REACTIVE], { gain: 106_080, said: 'Makes Nanites; the planner’s own layout for it here pays 106,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why); valued at Jita’s where UALX-3 has no price: Bacteria and Reactive Metals' }]);
+    [[BACTERIA, REACTIVE], { gain: 106_080, said: 'Makes Nanites; the planner’s own layout for it here pays 106,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why); valued at Jita’s for want of a UALX-3 figure: Bacteria and Reactive Metals' }]);
   // Only the layouts the words speak of add their clauses: a best whose figure is before the customs tax says so only when it speaks.
   const ul3 = bestsFor(UL3, UL3c, ix, inputOf(UL3c, cheapNan));
   eq('  a best that isn’t said lends the words no clause of its own', versusBest(UL3c, { ...ul3.best, before: ['tax'] }, ix, ul3.own).said.includes('before the customs tax'), false);

@@ -4044,17 +4044,17 @@ try {
       await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (Sell at UALX-3): ${e.message.split('\n')[0]}`));
       await settled();
       const fell = await page.locator('[data-planets="fallback-goods"]').allInnerTexts();
-      if (!fell.some((t) => /^Valued at Jita’s where UALX-3 has no price: .+\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, no setup names the goods valued at Jita's: ${JSON.stringify(fell)}`);
+      if (!fell.some((t) => /^Valued at Jita’s for want of a UALX-3 figure: .+ \(each line says why\)\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, no setup names the goods valued at Jita's: ${JSON.stringify(fell)}`);
       const lines = (await page.locator('[data-planets="fallback"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!lines.some((t) => /No price at UALX-3: valued at Jita’s: [\d,.]+ (K |M )?ISK after freight \(Jita lists it at [\d,.]+ (K |M )?ISK\)/.test(t))) problems.push(`with Sell at UALX-3, no output says it's valued at Jita's: ${JSON.stringify(lines.slice(0, 3))}`);
       // Ruling F11b: the inputs UALX-3 doesn't sell are bought at Jita with the freight in, named on the setup and said on each line.
       const fellIn = await page.locator('[data-planets="setup:bought"] [data-planets="fallback-inputs"]').allInnerTexts();
-      if (!fellIn.some((t) => /^Bought at Jita, with the freight in, because UALX-3 doesn’t sell (it|them): .+\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, bought doesn't name the inputs it buys at Jita: ${JSON.stringify(fellIn)}`);
+      if (!fellIn.some((t) => /^Bought at Jita, with the freight in, for want of UALX-3: .+ \(each line says why\)\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, bought doesn't name the inputs it buys at Jita: ${JSON.stringify(fellIn)}`);
       const boughtOpen = page.locator('[data-planets="setup:bought"] button[aria-expanded="false"]', { hasText: 'What it makes' });
       if (await boughtOpen.count()) await boughtOpen.click().catch(() => undefined);
       await page.waitForTimeout(300);
       const inLines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
-      if (!inLines.some((t) => /a day at Jita with the freight in \(UALX-3 doesn’t sell it\)/.test(t))) problems.push(`with Sell at UALX-3, no bought input says it's bought at Jita for want of UALX-3: ${JSON.stringify(inLines.slice(0, 3))}`);
+      if (!inLines.some((t) => /a day at Jita with the freight in \((no price at UALX-3|UALX-3’s weekly movement isn’t known, so its depth can’t be judged|not read at UALX-3 yet)\)/.test(t))) problems.push(`with Sell at UALX-3, no bought input says it's bought at Jita for want of UALX-3: ${JSON.stringify(inLines.slice(0, 3))}`);
       if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with Sell at UALX-3');
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (Sell at UALX-3): ${o}`);
       if (SHOTS) { await page.locator('[data-planets="fallback-goods"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-fallback.png` }); }
