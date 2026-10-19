@@ -112,9 +112,12 @@ export const STORAGE_FULL = 0.95;
 /** Within a hundredth of an ISK is the same (piPlan's SAME_ISK). */
 const SAME_ISK = 0.01;
 const TIERS: Tier[] = ['P0', 'P1', 'P2', 'P3', 'P4'];
+/** What holds goods a route can go into and out of: storage, a launchpad and the command centre (Ruling T15-6). */
+type Holder = 'storage' | 'launchpad' | 'command';
+const isHolder = (kd: PinKind | null | undefined): kd is Holder => kd === 'storage' || kd === 'launchpad' || kd === 'command';
 const FACTORY: Record<Facility, string> = { basic: 'a Basic', advanced: 'an Advanced', hightech: 'a High-Tech' };
 const HOLDS: Record<'storage' | 'launchpad', string> = { storage: 'Storage', launchpad: 'Launchpad' };
-const A_HOLD: Record<'storage' | 'launchpad', string> = { storage: 'a storage facility', launchpad: 'a launchpad' };
+const A_HOLD: Record<Holder, string> = { storage: 'a storage facility', launchpad: 'a launchpad', command: 'the command centre' };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
@@ -134,7 +137,10 @@ type Net = {
   exts: Ext[]; facs: Fac[];
   /** Each pin's routes out, by good: the pins it sends that good to. */
   to: Map<number, Map<number, number[]>>;
-  /** Storage and launchpads: what's routed into one is drawn by the factories routed from it, and what's left is exported. */
+  /**
+   * Storage, launchpads and the command centre: what's routed into one is drawn by the factories routed from it, and what's left
+   * is exported.
+   */
   buffer: Set<number>;
   /** Factories every input of which reaches them, or is imported: the others make nothing and draw nothing. */
   runs: Set<number>;
@@ -166,8 +172,9 @@ type Flow = {
  * and P4: every input is a lower tier). What a pin makes goes first to the factories it's routed straight to, up to what they take
  * at full rate (shared by it when short), and the rest into the storage or launchpads it's routed to (split evenly), or nowhere. What
  * reaches a storage or launchpad goes to the factories routed from it the same way, and what's left there is exported; its contents
- * are stock, never a rate. A factory runs at the least share of its inputs (fewer cycles when short, as the planner's), an imported
- * input counting as kept stocked; what it drew beyond what it uses goes back to storage when it came from there.
+ * are stock, never a rate. The command centre is followed as storage is (Ruling T15-6), here and wherever storage is said below.
+ * A factory runs at the least share of its inputs (fewer cycles when short, as the planner's), an imported input counting as kept
+ * stocked; what it drew beyond what it uses goes back to storage when it came from there.
  */
 function flowOf(net: Net, rate: (x: Ext) => number): Flow {
   const ratio = new Map<number, number>(), recv = new Map<number, Map<number, number>>(), made = new Map<number, number>();
@@ -294,13 +301,15 @@ function valuedOf(ix: PiIndex, flow: Flow, sell: Sell, tax: Tax): Valued {
  * Each factory input is decided from the routes before anything flows: it reaches the factory (routed from a pin that makes it, or
  * from storage or a launchpad such a pin routes it into), it's imported (nothing on the planet makes it, and it's routed in from
  * storage or a launchpad: kept stocked, never starving, and the planet's ISK a day isn't known, Ruling T15-2), or it doesn't
- * reach: `starving` at that factory, which makes nothing.
+ * reach: `starving` at that factory, which makes nothing (drawn from storage, a launchpad or the command centre that nothing on the
+ * planet routes it into, it runs only on what you bring in, and is said so). The command centre is storage here (Ruling T15-6).
  *
  * The flags, only at the root of what's wrong (Ruling T15-3): an input reaching its factories at under `STARVING_BELOW` of what they
  * take (`starving`, judged on the lower reading and saying when the higher one gives enough, its words naming the factories after it
- * that it holds back), never one explained by a flag before it (an extractor with no programme, a maker routed nowhere, factories
- * short of their own inputs); a pin's product routed nowhere, or more of it than the factories it's routed to take with no route to
- * storage or a launchpad (`buildingUp`); storage or a launchpad at `STORAGE_FULL` of its capacity as of the colony's last update in
+ * that it holds back), never one explained by a flag before it (an extractor with no programme, for the P0 it's set on or, with
+ * none set, those its routes carry; a maker routed nowhere; factories short of their own inputs); an extractor's or a running
+ * factory's product routed nowhere, or more of it than the factories it's routed to take with no route to storage or a launchpad
+ * (`buildingUp`: a factory that doesn't run makes nothing to build up); storage or a launchpad at `STORAGE_FULL` of its capacity as of the colony's last update in
  * game (`storageFull`); a programme ended (`expired`) or ending within a day (`endingSoon`), the figures staying at the rate it ran
  * at; a factory with no schematic or an extractor with no programme (`idle`).
  */
@@ -367,7 +376,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     if (!xs.includes(b)) x.set(g, [...xs, b].sort((p, q) => p - q));
   };
   for (const [src, dst, g] of k.routes) { link(to, src, g, dst); link(from, dst, g, src); }
-  const buffer = new Set(k.pins.filter((p) => { const kd = PIN_OF.get(p.typeId)?.kind; return kd === 'storage' || kd === 'launchpad'; }).map((p) => p.id));
+  // The command centre holds goods too, and a route into or out of it is followed as storage's is (Ruling T15-6).
+  const buffer = new Set(k.pins.filter((p) => isHolder(PIN_OF.get(p.typeId)?.kind)).map((p) => p.id));
   const facAt = new Map(facs.map((f) => [f.pin.id, f]));
   // A pin makes a good when it's a factory whose schematic does, or an extractor set on it or routing it out.
   const makes = (pinId: number, g: number) => facAt.get(pinId)?.s.out.id === g || (extPins.has(pinId) && (extPins.get(pinId) === g || !!to.get(pinId)?.has(g)));
@@ -380,7 +390,7 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   const routeFlags: ChainFlagRow[] = [];
   for (const f of facs) {
     // The inputs that don't reach it, by why: one flag a factory for each why, naming its inputs together.
-    const misses = new Map<'none' | 'notMaker' | 'storage' | 'launchpad', number[]>();
+    const misses = new Map<'none' | 'notMaker' | Holder, number[]>();
     for (const i of f.s.inputs) {
       const srcs = from.get(f.pin.id)?.get(i.id) ?? [];
       const stores = srcs.filter((s) => buffer.has(s));
@@ -391,7 +401,7 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
         continue;
       }
       const kd = stores.length ? kindOf(stores[0]) : null;
-      push(misses, kd === 'storage' || kd === 'launchpad' ? kd : srcs.length ? 'notMaker' : 'none', i.id);
+      push(misses, isHolder(kd) ? kd : srcs.length ? 'notMaker' : 'none', i.id);
     }
     if (!misses.size) { runs.add(f.pin.id); continue; }
     const where = `${FACTORY[f.s.facility]} factory making ${name(f.s.out.id)}`;
@@ -399,7 +409,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
       const goods = listSaid(ids.map(name)), them = ids.length > 1 ? 'them' : 'it';
       routeFlags.push({
         flag: 'starving', id: ids[0], pinId: f.pin.id,
-        said: why === 'storage' || why === 'launchpad' ? `${cap(where)} draws ${goods} from ${A_HOLD[why]} nothing routes ${them} into, so it makes none`
+        said: why !== 'none' && why !== 'notMaker'
+          ? `${cap(where)} draws ${goods} from ${A_HOLD[why]}, which nothing on the planet routes ${them} into: it runs only on what you bring in`
           : why === 'notMaker' ? `Nothing that makes ${goods} routes ${them} into ${where}, so it makes none`
             : `Nothing routes ${goods} into ${where}, so it makes none`,
       });
@@ -407,12 +418,14 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   }
   const net: Net = { exts, facs, to, buffer, runs, imported, stored };
 
-  // What a pin makes and routes nowhere.
+  // What a pin makes and routes nowhere. A factory that doesn't run makes nothing to build up: its own flag is the one said (R4).
   const pinFlags: ChainFlagRow[] = [];
   const unroutedMaker = new Set<number>();
   for (const x of exts) if (!to.get(x.pin.id)?.has(x.p0)) { unroutedMaker.add(x.p0); pinFlags.push({ flag: 'buildingUp', id: x.p0, pinId: x.pin.id, said: `${name(x.p0)} from its extractor isn’t routed anywhere` }); }
   for (const f of facs) {
-    if (!to.get(f.pin.id)?.has(f.s.out.id)) { unroutedMaker.add(f.s.out.id); pinFlags.push({ flag: 'buildingUp', id: f.s.out.id, pinId: f.pin.id, said: `${name(f.s.out.id)} from ${FACTORY[f.s.facility]} factory isn’t routed anywhere` }); }
+    if (!runs.has(f.pin.id) || to.get(f.pin.id)?.has(f.s.out.id)) continue;
+    unroutedMaker.add(f.s.out.id);
+    pinFlags.push({ flag: 'buildingUp', id: f.s.out.id, pinId: f.pin.id, said: `${name(f.s.out.id)} from ${FACTORY[f.s.facility]} factory isn’t routed anywhere` });
   }
 
   const known = exts.every((x) => x.perHour != null);
@@ -431,6 +444,10 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   const takersSaid = (g: number) => `the ${listSaid([...new Set((takers.get(g) ?? []).map((f) => name(f.s.out.id)))])} factories`;
   const runSaid = (share: number) => (share * 100 < 1 ? 'make nothing' : `run ${Math.floor(share * 100)}% of the time`);
 
+  // What an extractor with no programme stands for: the P0 it's set on, or with none set, only the goods its routes carry (R6), so it
+  // never explains another extractor's real shortfall.
+  const idleGoods = (x: (typeof idle)[number]): number[] =>
+    x.fac != null || !extPins.has(x.pin.id) ? [] : x.p0 != null ? [x.p0] : [...(to.get(x.pin.id)?.keys() ?? [])].sort((a, b) => a - b);
   const goodFlags: ChainFlagRow[] = [], idleFlags: ChainFlagRow[] = [];
   if (flow) {
     // Short: under the band. A root is said; a shortfall a flag before it explains (an extractor with no programme, a maker routed
@@ -440,7 +457,7 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     for (const g of [...need.keys()].sort((a, b) => tierAt(a) - tierAt(b) || a - b)) {
       if (!short(g)) continue;
       const n = need.get(g)!, made = flow.made.get(g) ?? 0, p0 = tierAt(g) === 0;
-      if ((p0 && idle.some((x) => x.fac == null && extPins.has(x.pin.id) && (x.p0 == null || x.p0 === g))) || unroutedMaker.has(g)) explained.add(g);
+      if ((p0 && idle.some((x) => idleGoods(x).includes(g))) || unroutedMaker.has(g)) explained.add(g);
       else if (made >= STARVING_BELOW * n) roots.push({ g, kind: 'routes' });
       else if (!p0 && fullOf(g) >= STARVING_BELOW * n) explained.add(g);
       else roots.push({ g, kind: 'short' });
@@ -482,7 +499,7 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
       if (left > MIN_FLOW) goodFlags.push({ flag: 'buildingUp', id: g, pinId: null, said: `${dayCount(left * 24)} ${name(g)} a day is more than the factories it’s routed to take, and none of it is routed to storage or a launchpad` });
     }
     for (const x of idle) {
-      const down = x.fac == null && x.p0 != null && need.has(x.p0) ? downstream(x.p0, true) : [];
+      const down = [...new Set(idleGoods(x).filter((g) => need.has(g)).flatMap((g) => downstream(g, true)))];
       idleFlags.push({ flag: 'idle', id: null, pinId: x.pin.id, said: x.said + (down.length ? `; with it, ${listSaid(down)}` : '') });
     }
   } else {
@@ -561,11 +578,11 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
 /**
  * Whether a best's layout for the planet fits at the colony's own Command Center Upgrades level. The planner fits it at the level
  * it was given (`fit`, `lacks`); its CPU and powergrid don't move with the level, so they're set against the colony's own budget.
- * With no fit checked (the planet's size not known), nothing says it doesn't.
+ * With no fit checked (the planet's size not known), it isn't known to fit: no better either (Ruling T15-6, the re-review's R5).
  */
 function fitsHere(ix: PiIndex, chain: Chain, role: Role | undefined): boolean {
   const fit = role?.fit;
-  if (!fit) return true;
+  if (!fit) return false;
   const cc = chain.planetType ? ix.planetTypes[chain.planetType]?.cc[chain.level] : undefined;
   return cc ? fit.cpu <= cc.cpu && fit.pg <= cc.pg : fit.fits && !role!.lacks;
 }
@@ -574,8 +591,8 @@ function fitsHere(ix: PiIndex, chain: Chain, role: Role | undefined): boolean {
  * The real planet against the best single-planet setup the planner gives that planet alone: the better of `planSingle`'s P0 → P1
  * and P0 → P2 with `planets` holding only it, at the same rates and at the colony's own level (the caller makes that call: its
  * `char.ccLevel` the chain's `level`). `gain` is what the best makes a day more; within a cent of it, or above, the colony is
- * already the best and nothing is said (gain 0). A best that doesn't fit at the colony's own level is no better: nothing said,
- * never a suggestion to train (Ruling T15-1). With no valued ISK on either side, or an output unpriced on either side, gain is
+ * already the best and nothing is said (gain 0). A best that doesn't fit at the colony's own level, or whose fit isn't checked, is
+ * no better: nothing said, never a suggestion to train (Ruling T15-1). With no valued ISK on either side, or an output unpriced on either side, gain is
  * null and the words say why: never a gain against 0. A best resting on a rate the planner assumes (a P0 no colony has shown)
  * says so, and so does one before the customs tax. The planet's name isn't in the chain: the page puts it in front.
  */
