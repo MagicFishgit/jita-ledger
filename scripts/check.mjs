@@ -8536,7 +8536,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { planSingle } = await import('../src/lib/piPlan.ts');
   const { readings } = await import('../src/lib/piExtraction.ts');
-  const { colonyChain, versusBest, pinKindOf, reserveFor, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
+  const { colonyChain, versusBest, bestsFor, pinKindOf, reserveFor, holdFor, STARVING_BELOW } = await import('../src/lib/colonyChain.ts');
+  const { learnedRates, rateFor } = await import('../src/lib/piLearn.ts');
   const { fitOf } = await import('../src/lib/piFit.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
   const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
@@ -8588,10 +8589,11 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const sell = sellBy(unitOf());
   // Every chain is worked out on a stated reading, never PI_READING's value, so the block holds whichever reading the code ships
   // with: null is the reading unchecked (the lower ranked, the other beside it), 'formula' the in-game check's answer.
-  const built = [];
+  const built = [], kOf = new Map();
   const chainOf = (k, over = {}) => {
     const c = colonyChain(k, ix, over.sell ?? sell, over.now ?? T, over.tax ?? brave, 'checked' in over ? over.checked : null);
     built.push(c);
+    kOf.set(c, k);
     return c;
   };
   const near = (x) => Math.round(x * 100) / 100;
@@ -8748,33 +8750,58 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
 
   // Against the planner's best single-planet setup for that planet alone, at the colony's own rates and its own level.
   const planet = { planetId: 40000001, name: 'Test I', type: 'Barren', radiusKm: 3750, tax: brave };
-  const rateFrom = (c, extra = {}) => (t, id) => {
-    const e = c.extracts.find((x) => x.p0 === id) ?? null;
-    const r = e ? { perHour: e.perHour, higher: e.higher } : extra[id] ?? null;
-    return r && { ...r, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: false };
+  // Every best is planned as Plan plans it (fix round 2's ruling): rateFor's rates, its fallbacks included, from the colony's own
+  // extractors as learnedRates reads them, plus `extra` as if another colony of yours had shown them, and `typed` as typed; `learned`
+  // stands in for all of that. versusBest's caller (`bestsFor`) keeps the colony's storage and launchpads (Ruling T15b-1) and holds
+  // its own products to its own factories (Ruling T15b-4), at the colony's own level.
+  const learnedOf = (c, extra = {}) => {
+    const L = learnedRates([{ colonies: [kOf.get(c)] }], ix, null);
+    for (const [id, r] of Object.entries(extra)) (L.Barren ??= {})[id] = { perHour: r.perHour, higher: r.higher ?? null, which: 'perCycle', programHours: 72, heads: 5, extractors: 1, systems: [], checked: false };
+    return L;
   };
+  const rateFrom = (c, { extra = {}, typed = {}, learned } = {}) => {
+    const L = learned ?? learnedOf(c, extra);
+    return (t, id) => rateFor(L, typed[id], t, id);
+  };
+  const inputOf = (c, s, rates = {}, ccLevel = 4, pl = planet) => ({ ix, planets: [pl], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, rates), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 });
+  // The planner's own best, free: no reserve, no hold, unless one is given.
   const bestOf = (c, s, extra, ccLevel = 4, pl = planet, reserve) => {
-    const input = { ix, planets: [pl], char: { charId: 1, name: 'Owner', planets: 1, ccLevel, alpha: false }, others: [], rateOf: rateFrom(c, extra), sell: s, buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72, ...(reserve ? { reserve } : {}) };
+    const input = { ...inputOf(c, s, { extra }, ccLevel, pl), ...(reserve ? { reserve } : {}) };
     const [p1, p2] = [planSingle(input, 'p1'), planSingle(input, 'p2')];
     return (p2.iskDay ?? -Infinity) >= (p1.iskDay ?? -Infinity) ? p2 : p1;
   };
+  // versusBest as its caller makes it (`bestsFor`).
+  const vsOf = (c, s = sell, rates = {}, pl = planet) => {
+    const { best, own } = bestsFor(kOf.get(c), ix, inputOf(c, s, rates, 4, pl));
+    return versusBest(c, best, ix, own);
+  };
   const best = bestOf(A, sell);
   eq('  the planner lays this planet out as the colony is: Nanites, 2,741,760 a day', [best.kind, near(best.iskDay)], ['p2', 2_741_760]);
-  eq('  already the best: no words', versusBest(A, best, ix), { gain: 0, said: '' });
+  eq('  already the best: no words', [versusBest(A, best, ix), vsOf(A)], [{ gain: 0, said: '' }, { gain: 0, said: '' }]);
   eq('  within a cent of it, or above, is the best; two cents short isn’t', [versusBest(A, { ...best, iskDay: A.iskDay + 0.005 }, ix), versusBest(A, { ...best, iskDay: A.iskDay - 5000 }, ix), versusBest(A, { ...best, iskDay: A.iskDay + 0.02 }, ix).said.length > 0], [{ gain: 0, said: '' }, { gain: 0, said: '' }, true]);
+  // The colony's own products are held to its own factories (`holdFor`): what the planner plans for them is the colony's counts.
+  eq('  holdFor: the colony’s factories by what they make', holdFor(nanites(), ix), { 40000001: { [BACTERIA]: 2, [REACTIVE]: 3, [NANITES]: 2 } });
   const dearMech = sellBy(unitOf({ [MECH]: 12_000 }));
-  const vs = versusBest(chainOf(nanites(), { sell: dearMech }), bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), ix);
-  eq('  a better P2 here: its gain and its words', vs, { gain: 480_000, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day' });
-  const vsGuess = versusBest(chainOf(nanites(), { sell: dearMech }), bestOf(A, dearMech), ix);
-  eq('  a best on a rate the planner assumes says so, never claims it', vsGuess, { gain: 480_000, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day, if it gets 12,000 Noble Metals an hour, a rate no colony of yours has shown' });
+  const Ad = chainOf(nanites(), { sell: dearMech });
+  // Beside the colony's storage (Ruling T15b-1), Mechanical Parts fit on 2 + 2 Basics and 2 Advanced at IV: 377,280 more than the
+  // colony (480,000 when the best could spend the storage's room on a fifth Basic, before the reserve).
+  eq('  a better P2 here: its gain and its words', vsOf(Ad, dearMech, { extra: { [NOBLE]: { perHour: 12000, higher: null } } }), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day' });
+  // A rate the colony hasn't shown is said, each kind in its own words (Ruling T15b-5): Plan's rateFor gives Noble Metals, which
+  // the colony doesn't extract, the rate learned for another P0 of Barren planets (Microorganisms', 12,000 an hour); typed, the
+  // typed one; with nothing learned (no programme of yours readable), none: the planner assumes what two Basics take.
+  eq('  another P0’s learned rate: said as that', vsOf(Ad, dearMech), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate learned for another P0' });
+  eq('  a typed rate: said as that', vsOf(Ad, dearMech, { typed: { [NOBLE]: { perHour: 12000, programHours: 72, heads: 5 } } }), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate you typed' });
+  eq('  no rate at all: the assumed figure, said as one no colony of yours has shown', vsOf(Ad, dearMech, { learned: {} }), { gain: 103_680, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 103,680 ISK more a day, if it gets 12,000 Base Metals and Noble Metals an hour each, a rate no colony of yours has shown' });
+  // Another mix of factories for the colony's own product says nothing (Ruling T15b-4), whichever way it trades: one Advanced where
+  // two could be fed, here. Free, the planner would run 2 (and the first fix round said so).
   const one = nanites({ drop: [[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [52, 30, NANITES, 5]] });
   one.pins = one.pins.filter((p) => p.id !== 52);
   const oneC = chainOf(one);
-  // Never a bare "pays more" for the colony's own product: what differs is said (Ruling T15b-1).
-  eq('  the same product on a thinner layout: the planner’s own pays more, and says what differs', versusBest(oneC, bestOf(oneC, sell), ix), { gain: 430_080, said: 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day, with another mix of factories: 2 Advanced on Nanites where you run 1' });
-  // Ruling T15b-1 (the user's own): the best is planned beside the colony's own storage and launchpad (`reserveFor`), so it can't win by
-  // spending the storage facility's room on a factory. A colony as the user's run, 4 Basics and 2 Advanced with storage and a
-  // launchpad, at its own heads (5 an extractor) and real-sized rates (16,600 an hour each), at CCU IV.
+  eq('  the same product on a thinner layout: the free best runs 2 Advanced, and nothing is said', [bestOf(oneC, sell).roles[0].makes.map((m) => m.count), vsOf(oneC)], [[2, 3, 2], { gain: 0, said: '' }]);
+  // Ruling T15b-4 on the user's own colonies: 4 Basics and 2 Advanced beside a storage facility and a launchpad, at their heads (5
+  // an extractor) and real-sized rates (16,600 an hour each), at CCU IV. With Nanites at 6,500, a fifth Basic selling Reactive Metals
+  // in place of the second Advanced pays a little more (the free best, 5-NZNW IV's and VI's case), and so does selling both P1s with
+  // no Advanced at all: other mixes of its own factories, so nothing is said.
   const userLike = (over = []) => colony([
     pin(1, CC), ecu(10, MICRO, 16600), ecu(11, BASE, 16600), pin(20, STORE), pin(30, PAD),
     fac(41, BASIC, S_BACT), fac(42, BASIC, S_BACT), fac(43, BASIC, S_REACT), fac(44, BASIC, S_REACT), fac(51, ADV, S_NAN), fac(52, ADV, S_NAN),
@@ -8784,27 +8811,35 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
     [41, 20, BACTERIA, 20], [42, 20, BACTERIA, 20], [43, 20, REACTIVE, 20], [44, 20, REACTIVE, 20],
     [20, 51, BACTERIA, 40], [20, 51, REACTIVE, 40], [20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [51, 30, NANITES, 5], [52, 30, NANITES, 5],
   ].filter((r) => !over.some((d) => d.every((x, i) => x === r[i]))));
-  const UL = userLike(), ULc = chainOf(UL), ulBest = bestOf(ULc, sell, undefined, 4, planet, reserveFor(UL));
-  const ulMakes = ulBest.roles[0].makes, ulBasics = ulMakes.filter((m) => m.facility === 'basic').reduce((n, m) => n + m.count, 0), ulAdv = ulMakes.filter((m) => m.facility === 'advanced').reduce((n, m) => n + m.count, 0);
-  const vsUL = versusBest(ULc, ulBest, ix);
-  eq('  T15b-1: the colony’s storage and launchpad are kept: the best fits beside them, and says nothing or only another factory mix',
-    [reserveFor(UL), fitOf(ix, 'Barren', 4, { ecus: 2, heads: 10, basic: ulBasics, advanced: ulAdv, hightech: 0, storage: 1, launchpads: 1 }, 3750).fits, vsUL.gain === 0 ? '' : /^Makes Nanites; the planner’s own layout for it here pays .+ more a day, with another mix of factories: /.test(vsUL.said)],
-    [{ 40000001: { storage: 1, launchpads: 1 } }, true, vsUL.gain === 0 ? '' : true]);
-  // The colony 5-NZNW III is like: its second Advanced has nothing routed in. That still speaks, saying what differs.
-  const UL3 = userLike([[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]]), UL3c = chainOf(UL3);
-  const vsUL3 = versusBest(UL3c, bestOf(UL3c, sell, undefined, 4, planet, reserveFor(UL3)), ix);
-  eq('  T15b-1: a factory the colony has but doesn’t feed still speaks, saying so', [vsUL3.gain > 0, vsUL3.said === 'Makes Nanites; the planner’s own layout for it here pays 430,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)'], [true, true]);
+  const cheapNan = sellBy(unitOf({ [NANITES]: 6_500 }));
+  const UL = userLike(), ULc = chainOf(UL, { sell: cheapNan });
+  const ulFree = bestOf(ULc, cheapNan, undefined, 4, planet, reserveFor(UL));
+  const ulFit = (b) => { const m = b.roles[0].makes, n = (f) => m.filter((x) => x.facility === f).reduce((k, x) => k + x.count, 0); return fitOf(ix, 'Barren', 4, { ecus: 2, heads: 10, basic: n('basic'), advanced: n('advanced'), hightech: 0, storage: 1, launchpads: 1 }, 3750).fits; };
+  eq('  T15b-4: the premise: free, beside the storage, the best is 5 Basics and 1 Advanced, fitting, and pays more than the colony',
+    [reserveFor(UL), ulFree.roles[0].makes.map((m) => [m.id, m.count]), ulFit(ulFree), ulFree.iskDay > ULc.iskDay + 1], [{ 40000001: { storage: 1, launchpads: 1 } }, [[BACTERIA, 2], [REACTIVE, 3], [NANITES, 1]], true, true]);
+  const ulBests = bestsFor(UL, ix, inputOf(ULc, cheapNan));
+  eq('  T15b-4: held, the planner makes the colony’s own products on its own 2 + 2 Basics and 2 Advanced, and nothing else on them',
+    [ulBests.own.roles[0].makes.map((m) => [m.id, m.count]), ulBests.best.roles[0].makes.map((m) => [m.id, m.count])], [[[BACTERIA, 2], [REACTIVE, 2], [NANITES, 2]], [[BACTERIA, 2], [REACTIVE, 3]]]);
+  eq('  T15b-4: another mix of factories for the colony’s own products says nothing', vsOf(ULc, cheapNan), { gain: 0, said: '' });
+  // 5-NZNW III's case: its second Advanced has nothing routed in. Its own factories fed make more: that is said, as the fault's,
+  // with the flags' pointer, never as a mix, though the free best there is the same 5 Basics and 1 Advanced.
+  const UL3 = userLike([[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]]), UL3c = chainOf(UL3, { sell: cheapNan });
+  eq('  T15b-4: the premise: free, the best for III is the same other mix', bestOf(UL3c, cheapNan, undefined, 4, planet, reserveFor(UL3)).roles[0].makes.map((m) => [m.id, m.count]), [[BACTERIA, 2], [REACTIVE, 3], [NANITES, 1]]);
+  eq('  T15b-4: a factory the colony has but doesn’t feed is said as the fault, with its own figure', vsOf(UL3c, cheapNan), { gain: 10_080, said: 'Makes Nanites; the planner’s own layout for it here pays 10,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)' });
+  // The same factories, every one making what it can, with what one makes routed nowhere (the colony's second Advanced's Nanites):
+  // the third of differsSaid's words, which a real colony's routing fault can reach as III's did.
+  const nowhere = chainOf(userLike([[52, 30, NANITES, 5]]), { sell: cheapNan });
+  eq('  the same factories with an output routed nowhere: all they make shipped, pointing at the flag', vsOf(nowhere, cheapNan), { gain: 762_720, said: 'Makes Nanites; the planner’s own layout for it here pays 762,720 ISK more a day, with the same factories, all they make shipped (a flag above says what holds yours back)' });
   // A best that doesn't fit at the colony's own level is no better: nothing said, never a suggestion to train (Ruling T15-1). Since
   // Ruling F9 the planner plans at a level only what fits there, so such a best is one planned at a higher level than the colony's:
-  // planned at V, 3 + 3 Basics and 3 Advanced; planned at IV, the most that fit there, 2 + 3 and 2, as the colony is laid out.
-  const C15 = chainOf(nanites({ micro: 15000 }));
-  const at4 = bestOf(C15, sell), at5 = bestOf(C15, sell, undefined, 5);
+  // Mechanical Parts at 18,000 and 15,000 an hour planned at V, 3 + 3 Basics and 3 Advanced, which fits only at V.
+  const C15 = chainOf(nanites({ micro: 15000 }), { sell: dearMech }), C15v = chainOf(nanites({ micro: 15000, level: 5 }), { sell: dearMech });
+  const at5 = bestOf(C15, dearMech, { [NOBLE]: { perHour: 15000, higher: null } }, 5);
   const countsOf = (b) => b.roles[0].makes.map((m) => m.count);
-  eq('  planned at V the planner’s best is 3 + 3 Basics and 3 Advanced, which fits only at V; planned at IV, the most that fit there (F9)', [at4.roles[0].fit.fits, at4.roles[0].lacks, countsOf(at4), at5.roles[0].fit.fits, countsOf(at5), at5.iskDay > C15.iskDay + 1], [true, null, [2, 3, 2], true, [3, 3, 3], true]);
-  eq('  a best that fits only at V against a colony at IV says nothing, planned at IV or at V', [versusBest(C15, at4, ix), versusBest(C15, at5, ix)], [{ gain: 0, said: '' }, { gain: 0, said: '' }]);
-  const C15v = chainOf(nanites({ micro: 15000, level: 5 }));
+  eq('  planned at V the planner’s best is Mechanical Parts on 3 + 3 Basics and 3 Advanced, which fits only at V', [at5.roles[0].makes.map((m) => m.id).includes(MECH), countsOf(at5), fitOf(ix, 'Barren', 4, { ecus: 2, heads: 10, basic: 6, advanced: 3, hightech: 0, storage: 0, launchpads: 1 }, 3750).fits], [true, [3, 3, 3], false]);
+  eq('  a best that fits only at V against a colony at IV says nothing', versusBest(C15, at5, ix), { gain: 0, said: '' });
   const vsV = versusBest(C15v, at5, ix);
-  eq('  the same best against a colony at V does speak', [near(vsV.gain), vsV.said.length > 0], [near(at5.iskDay - C15v.iskDay), true]);
+  eq('  the same best against a colony at V does speak', [near(vsV.gain), vsV.said], [near(at5.iskDay - C15v.iskDay), 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 866,400 ISK more a day']);
   // A P0 left over with no price, on either side, counts as nothing on both and no longer withholds the comparison (Ruling T15-5),
   // said when the words speak. The colony keeps 3,000 Microorganisms an hour; the planner's best keeps the P0 its layout can't take.
   const noP0 = sellBy(unitOf({ [MICRO]: null, [BASE]: null, [NOBLE]: null, [MECH]: 12_000 }));

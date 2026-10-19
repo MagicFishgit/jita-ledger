@@ -179,9 +179,20 @@ export type PlanInput = {
    * for like. Absent everywhere else, Plan included: one launchpad, no storage.
    */
   reserve?: Record<number, Reserve>;
+  /**
+   * The factories a planet already runs, by what they make (by planet ID; Ruling T15b-4): `versusBest`'s planet only, from the
+   * colony's pins (colonyChain.ts' `holdFor`). A single-planet layout making exactly those products is held to those counts, so the
+   * colony's own products are compared on its own factories, never on another mix of them; any other product is planned as ever.
+   * Absent everywhere else, Plan included.
+   */
+  hold?: Record<number, Hold>;
+  /** With `hold`: plan only the held layouts (`versusBest`'s own comparison, colonyChain.ts' `bestsFor`): no other product, no other planet. */
+  heldOnly?: boolean;
 };
 /** Storage facilities and launchpads already standing on a planet (`PlanInput.reserve`). */
 export type Reserve = { storage: number; launchpads: number };
+/** The factories a planet already runs (`PlanInput.hold`): by product ID (a P1 on Basics, a P2 on Advanced), how many make it. */
+export type Hold = Record<number, number>;
 export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
 /**
  * One planet's part. `extracts` is one line an extractor: its P0, the P0 an hour it's worked out at (its rate's lower
@@ -360,14 +371,15 @@ type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: numb
 /**
  * One planet's arrangement before it's fitted: its extractors, its factories and what it ships. `sized`: 'rate', every extractor's
  * P0 refined (it fits where `fitAt` says, or nothing says where it must); 'fit', fewer factories than the rates feed, the most that fit
- * (Ruling F9); 'over', the rates' layout though the least layout of its kind doesn't fit either (today's: said, with what it lacks).
+ * (Ruling F9); 'over', the rates' layout though the least layout of its kind doesn't fit either (today's: said, with what it lacks);
+ * 'held', the factories a colony already runs (`PlanInput.hold`; Ruling T15b-4), as many as its rates feed, fitting or not.
  */
 type Plan = {
   planet: PlanPlanet; at: number; t: PlanetType; product: number;
   lines: Line[];
   advanced: { id: number; count: number; perHour: number } | null;
   ships: { id: number; perDay: number }[];
-  fitAt: FitAt | null; sized: 'rate' | 'fit' | 'over';
+  fitAt: FitAt | null; sized: 'rate' | 'fit' | 'over' | 'held';
 };
 /** How many factories a plan takes: the Basics on each line and the Advanced; absent, each rate's worth. */
 type Counts = { basics: number[]; advanced: number };
@@ -501,6 +513,30 @@ function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' |
   memo.set(key, out);
   return out;
 }
+/** A plan's factories as a colony runs them (`PlanInput.hold`): each line's Basics and the Advanced, by what they make. */
+const holdCounts = (p: Plan, hold: Hold): Counts => ({ basics: p.lines.map((l) => hold[l.p1] ?? 0), advanced: p.advanced ? hold[p.advanced.id] ?? 0 : 0 });
+/**
+ * A planet's plans with the layout making exactly the products it already runs held to its own factories (`PlanInput.hold`; Ruling
+ * T15b-4): the user runs 2 Basics, one for each P1, for each Advanced ("there is no point to it … i would just be overproducing one of
+ * the p1's", on a third Basic selling P1), so every F9 way of making those products gives way to one, the colony's own counts (as
+ * many as the rates feed), fitted where the others must fit; whether it fits there is `fitted`'s to say. Plans of any other product
+ * stand, unless `heldOnly` asks for the held layout alone.
+ */
+function held(input: PlanInput, plans: Plan[], hold: Hold | undefined): Plan[] {
+  if (!hold) return input.heldOnly ? [] : plans;
+  const want = Object.keys(hold).map(Number).sort((a, b) => a - b).join(',');
+  const productsOf = (p: Plan) => [...new Set([...p.lines.map((l) => l.p1), ...(p.advanced ? [p.advanced.id] : [])])].sort((a, b) => a - b).join(',');
+  let done = false;
+  const out: Plan[] = [];
+  for (const p of plans) {
+    if (productsOf(p) !== want) { if (!input.heldOnly) out.push(p); continue; }
+    if (done) continue;
+    done = true;
+    const q = withCounts(input, p, false, holdCounts(p, hold));
+    if (q) out.push({ ...q, fitAt: p.fitAt, sized: 'held' });
+  }
+  return out;
+}
 /**
  * Where a planet's single-character layout must fit: the character's level on the planet's own radius, beside what `reserve` says
  * already stands there (a launchpad at least); none when its size isn't known (what fits isn't checked).
@@ -513,6 +549,12 @@ const fitFor = (planet: PlanPlanet, cc: number, reserve?: Reserve): FitAt[] => (
  * factories (they fit), with the P0 they can't take left over.
  */
 function replan(input: PlanInput, p: Plan, kind: 'p1' | 'p2', high: boolean): Plan {
+  // A colony's own factories stay its own on the other reading too (Ruling T15b-4).
+  const hold = p.sized === 'held' ? input.hold?.[p.planet.planetId] : undefined;
+  if (hold) {
+    const q = withCounts(input, p, high, holdCounts(p, hold));
+    return q ? { ...q, fitAt: p.fitAt, sized: 'held' } : p;
+  }
   const again = kind === 'p2'
     ? planP2(input, p.planet, p.at, p.t, p.product, high)
     : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high);
@@ -667,7 +709,7 @@ const better = (a: { value: number; unpriced: number }, b: { value: number; unpr
  * nothing to the ranking, never a figure; ties go to the planet listed first, then the first product. Then `improve`.
  */
 function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Seller): Plan[] {
-  const options = input.planets.map((p, at) => plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!, input.reserve?.[p.planetId])));
+  const options = input.planets.map((p, at) => held(input, plansFor(input, p, at, kind, false, fitFor(p, input.char.ccLevel!, input.reserve?.[p.planetId])), input.hold?.[p.planetId]));
   let chosen: Plan[] = [];
   const used = new Set<number>();
   while (chosen.length < allowed) {
@@ -933,7 +975,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
     let worth = assess(input, high, sold);
     plans.forEach((p, i) => {
       const again = kind === 'p2' ? planP2(input, p.planet, p.at, p.t, p.product, true) : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], true);
-      if (!again || p.sized === 'over' || !p.fitAt) return;
+      if (!again || p.sized === 'over' || p.sized === 'held' || !p.fitAt) return;
       for (const q of fittedPlans(input, again, p.fitAt, true)) {
         const next = high.slice();
         next[i] = q;
