@@ -49,7 +49,7 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   what's already sold, less its tax), then `improve`: re-pick a chosen planet, swap in an unused one, and re-pick a planet sharing
   a good jointly, until nothing gains (`MAX_MOVES` 50). The greedy alone read 2,605,440 on the review's case where 4,525,440 was
   there (Test Cultures capped at 240 a day on Temperate). Measured 3–6 ms (P0 → P2) and 32 ms (P0 → P1) on 12 planets. With F9's
-  candidates the searches compare by `scoreOf` (assess's figure alone) and pair planets only on goods offered: 5–8 and 30–34 ms
+  candidates the searches compare by `scoreOf` (assess's figure alone) and pair planets only on goods offered: 5–7 and 25–27 ms
   warm on 5-NZNW at the real rates (Task 15b; 61 and 124 before).
 - **Feed** (`planFeed`): extraction planets make P1 (or a P2 alone) and ship to one factory planet making a P2 or P3, the three P2s
   no planet makes alone among them; export tax at each feeder, import at half and export at the factory.
