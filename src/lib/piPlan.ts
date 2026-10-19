@@ -273,8 +273,20 @@ const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * what's exported. Null when it ships; else why it stays.
  */
 export function keptWhy(ix: PiIndex, sold: (id: number, perDay: number) => Sold, id: number, rate: number | null): { why: string; noPrice: boolean } | null {
+  // Asked for every planet and good of every arrangement a search values: worked out once a seller, good and rate (a `Sell` is pure).
+  let memo = keptMemo.get(sold);
+  if (!memo) keptMemo.set(sold, memo = new Map());
+  let byRate = memo.get(id);
+  if (!byRate) memo.set(id, byRate = new Map());
+  if (byRate.has(rate)) return byRate.get(rate)!;
+  const kept = keptOf(ix, sold, id, rate);
+  byRate.set(rate, kept);
+  return kept;
+}
+const keptMemo = new WeakMap<(id: number, perDay: number) => Sold, Map<number, Map<number | null, { why: string; noPrice: boolean } | null>>>();
+function keptOf(ix: PiIndex, sold: (id: number, perDay: number) => Sold, id: number, rate: number | null): { why: string; noPrice: boolean } | null {
   const s = sold(id, SLIVER);
-  if (s.isk == null) return ix.byId.get(id)?.tier === 'P0' ? { why: `it has no price: ${low(s.why ?? 'no price read')}`, noPrice: true } : null;
+  if (s.isk == null) return ix.byId.get(id)?.tier === 'P0' ? { why: low(s.why ?? 'no price read'), noPrice: true } : null;
   if (!(s.units > 0)) return null;
   const net = s.isk / s.units, tax = (ix.byId.get(id)?.taxBase ?? 0) * (rate ?? 0);
   if (net - tax > 0) return null;
@@ -517,11 +529,12 @@ export function taxRows(ix: PiIndex, ships: Ship[], rate: number | null, factor:
 
 /** One `sell` per good and amount: the search asks again for amounts it has already asked about. */
 function seller(sell: Sell) {
-  const cache = new Map<string, Sold>();
+  const cache = new Map<number, Map<number, Sold>>();
   return (id: number, perDay: number): Sold => {
-    const k = `${id}:${perDay}`;
-    let s = cache.get(k);
-    if (!s) cache.set(k, s = sell(id, perDay));
+    let byAmount = cache.get(id);
+    if (!byAmount) cache.set(id, byAmount = new Map());
+    let s = byAmount.get(perDay);
+    if (!s) byAmount.set(perDay, s = sell(id, perDay));
     return s;
   };
 }
@@ -587,9 +600,50 @@ function assess(input: PlanInput, plansIn: Plan[], sold: Seller): Assessed {
   return { plans, outputs, exports, taxed, kept, value, unpriced: outputs.length - valued.size };
 }
 
+/**
+ * `assess`'s figure alone, for the searches' many comparisons (`choose`, `improve`): the same rule, nothing built for the page. Its
+ * sums run in another order than `assess`'s, so it can differ from it by rounding, which `better` reads as the same (`SAME_ISK`).
+ */
+type Scored = { plans: Plan[]; value: number; unpriced: number };
+function scoreOf(input: PlanInput, plansIn: Plan[], sold: Seller): Scored {
+  const { ix } = input;
+  const plans = bySlot(plansIn);
+  const order = plans.map((p, k) => k).sort((a, b) => {
+    const ra = plans[a].planet.tax.rate, rb = plans[b].planet.tax.rate;
+    return (ra ?? Infinity) - (rb ?? Infinity) || plans[a].at - plans[b].at;
+  });
+  const ids: number[] = [];
+  for (const p of plans) for (const x of p.ships) if (!ids.includes(x.id)) ids.push(x.id);
+  let value = 0, unpriced = 0;
+  for (const id of ids) {
+    let offered = 0;
+    for (const k of order) {
+      const made = plans[k].ships.find((x) => x.id === id)?.perDay ?? 0;
+      if (made > 0 && !keptWhy(ix, sold, id, plans[k].planet.tax.rate)) offered += made;
+    }
+    // Kept whole: a known nothing, untaxed.
+    if (!(offered > 0)) continue;
+    const s = sold(id, offered);
+    if (s.isk == null) { unpriced++; continue; }
+    value += s.isk;
+    const base = ix.byId.get(id)?.taxBase ?? 0;
+    let left = s.units;
+    for (const k of order) {
+      if (!(left > 0)) break;
+      const rate = plans[k].planet.tax.rate;
+      const made = plans[k].ships.find((x) => x.id === id)?.perDay ?? 0;
+      if (!(made > 0) || keptWhy(ix, sold, id, rate)) continue;
+      const out = Math.min(made, left);
+      left -= out;
+      if (rate != null) value -= out * base * rate;
+    }
+  }
+  return { plans, value, unpriced };
+}
+
 /** Within a hundredth of an ISK is the same: sums of the same figures in another order differ by rounding. */
 const SAME_ISK = 0.01;
-const better = (a: Assessed, b: Assessed | null) =>
+const better = (a: { value: number; unpriced: number }, b: { value: number; unpriced: number } | null) =>
   !b || a.value > b.value + SAME_ISK || (Math.abs(a.value - b.value) <= SAME_ISK && a.unpriced < b.unpriced);
 
 /**
@@ -602,11 +656,11 @@ function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Sell
   let chosen: Plan[] = [];
   const used = new Set<number>();
   while (chosen.length < allowed) {
-    let best: Assessed | null = null, pick: Plan | null = null;
+    let best: Scored | null = null, pick: Plan | null = null;
     for (let at = 0; at < options.length; at++) {
       if (used.has(at)) continue;
       for (const p of options[at]) {
-        const a = assess(input, [...chosen, p], sold);
+        const a = scoreOf(input, [...chosen, p], sold);
         if (better(a, best)) { best = a; pick = p; }
       }
     }
@@ -628,8 +682,8 @@ const MAX_MOVES = 50;
  * it. The first move that gains is taken, until none does.
  */
 function improve(input: PlanInput, options: Plan[][], start: Plan[], sold: Seller): Plan[] {
-  let now = assess(input, start, sold);
-  const tryMove = (): Assessed | null => {
+  let now = scoreOf(input, start, sold);
+  const tryMove = (): Scored | null => {
     const cur = now.plans;
     const usedAt = new Set(cur.map((p) => p.at));
     for (let i = 0; i < cur.length; i++) {
@@ -639,16 +693,17 @@ function improve(input: PlanInput, options: Plan[][], start: Plan[], sold: Selle
           if (q === cur[i]) continue;
           const next = cur.slice();
           next[i] = q;
-          const a = assess(input, next, sold);
+          const a = scoreOf(input, next, sold);
           if (better(a, now)) return a;
-          const goods = new Set(q.ships.map((s) => s.id));
+          // The goods it shares a market with: what it offers, never what it keeps (Ruling T15-5), which sells nowhere.
+          const goods = new Set(q.ships.filter((s) => !keptWhy(input.ix, sold, s.id, q.planet.tax.rate)).map((s) => s.id));
           for (let j = 0; j < cur.length; j++) {
             if (j === i || !cur[j].ships.some((s) => goods.has(s.id))) continue;
             for (const r of options[cur[j].at]) {
               if (r === cur[j]) continue;
               const both = next.slice();
               both[j] = r;
-              const b = assess(input, both, sold);
+              const b = scoreOf(input, both, sold);
               if (better(b, now)) return b;
             }
           }
