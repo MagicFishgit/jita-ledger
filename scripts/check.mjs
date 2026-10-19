@@ -8854,6 +8854,9 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const UL3 = userLike([[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]]), UL3c = chainOf(UL3, { sell: cheapNan });
   eq('  T15b-4: the premise: free, the best for III is the same other mix', bestOf(UL3c, cheapNan, undefined, 4, planet, reserveFor(UL3)).roles[0].makes.map((m) => [m.id, m.count]), [[BACTERIA, 2], [REACTIVE, 3], [NANITES, 1]]);
   eq('  T15b-4: a factory the colony has but doesn’t feed is said as the fault, with its own figure', vsOf(UL3c, cheapNan), { gain: 10_080, said: 'Makes Nanites; the planner’s own layout for it here pays 10,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)' });
+  // Only the layouts the words speak of add their clauses: a best whose figure is before the customs tax says so only when it speaks.
+  const ul3 = bestsFor(UL3, ix, inputOf(UL3c, cheapNan));
+  eq('  a best that isn’t said lends the words no clause of its own', versusBest(UL3c, { ...ul3.best, before: ['tax'] }, ix, ul3.own).said.includes('before the customs tax'), false);
   // The same factories, every one making what it can, with what one makes routed nowhere (the colony's second Advanced's Nanites):
   // the third of differsSaid's words, which a real colony's routing fault can reach as III's did.
   const nowhere = chainOf(userLike([[52, 30, NANITES, 5]]), { sell: cheapNan });

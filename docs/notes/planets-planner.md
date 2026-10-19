@@ -166,7 +166,9 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   itself out again without end. The page case writes `meta` alone on the settled plan: nothing may be worked out within a second.
 - **On the page case's 5-NZNW** (seeded colony, the research's prices): bought first at 71.86 M ISK a day (one Broadcast Node
   planet at 96 a day on 5 of its 15 High-Tech plants, held by Jita's supply of High-Tech Transmitters); P0 → P2 second at
-  14.78 M, 57.08 M under it. The whole planner 148–240 ms with one character doing PI (task-11-rereview-4.md).
+  14.78 M, 57.08 M under it. The whole planner 148–240 ms with one character doing PI (task-11-rereview-4.md). Since F9 (read off
+  the page on 19 October 2026, the same with and without the median heads of T15b-5): P0 → P2 16.94 M (14.82 M with the colony at 5
+  heads an extractor), feed 15.02 M, P0 → P1 13.72 M, bought 71.86 M.
 
 ## Limits
 

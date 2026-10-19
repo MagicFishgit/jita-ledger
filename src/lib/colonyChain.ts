@@ -785,7 +785,8 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
 
   const what = tops.length ? `Makes ${listSaid(tops.map(name))}`
     : chain.extracts.length ? `Extracts ${listSaid([...new Set(chain.extracts.map((x) => x.p0))].map(name))}` : 'Makes nothing';
-  const used = [best, ...(ownSaid && mine ? [mine] : [])];
+  // Only the layouts the words speak of say their tax and their P0 left over.
+  const used = [...(otherSaid ? [best] : []), ...(ownSaid && mine ? [mine] : [])];
   const beforeTax = chain.before.includes('tax') || used.some((s) => s.before.includes('tax')) ? ', before the customs tax' : '';
   // A P0 left over with no price counts as nothing on both sides (Ruling T15-5), and is said.
   const left = [...new Set([...chain.outputs, ...used.flatMap((s) => s.outputs)].filter((o) => o.stays?.noPrice).map((o) => name(o.id)))];
