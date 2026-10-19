@@ -4379,7 +4379,7 @@ try {
     const FULL = ['esi-wallet.read_character_wallet.v1', 'esi-skills.read_skills.v1', 'esi-planets.manage_planets.v1', ...MAIL];
     const jwt = (char, name, scopes) => `h.${Buffer.from(JSON.stringify({ sub: `CHARACTER:EVE:${char}`, name, scp: scopes, exp: Math.floor((now + 1200_000) / 1000) })).toString('base64url')}.s`;
     let refused = false, kept = false;
-    const keysBodies = [], revokes = [], authorizes = [];
+    const keysBodies = [], revokes = [];
     const entry = () => ({ charId: SENDER, name: NAME, addedAt: now - 60_000, scopes: FULL, at: now - 60_000, refusedAt: refused ? now - 3600_000 : null, refused: refused ? 'invalid_grant' : null,
       rev: 1, ship: null, shipAt: null, jobs: [], sender: true });
     const status = () => ({ character: { charId: MAIN, name: 'Owner', scopes: [] }, rev: 1, kinds: [], docs: [], background: { jobs: [], keys: [
@@ -4394,7 +4394,6 @@ try {
       if (url.hostname === 'login.eveonline.com') {
         if (url.pathname === '/v2/oauth/token') return json({ access_token: jwt(SENDER, NAME, FULL), refresh_token: 'cloud-refresh', expires_in: 1199 });
         if (url.pathname === '/v2/oauth/revoke') { revokes.push(req.postData() ?? ''); return json({}); }
-        if (url.pathname === '/v2/oauth/authorize') { authorizes.push(url.searchParams.get('scope') ?? ''); return route.abort(); }
       }
       if (url.host === '127.0.0.1:9') {
         if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS' } });
@@ -4449,9 +4448,12 @@ try {
     if (!sent || sent.purpose !== 'mailer' || sent.adding !== true) problems.push(`the login went to the cloud as ${JSON.stringify(sent ? { purpose: sent.purpose, adding: sent.adding } : null)}, not as the sender with adding`);
     if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('this browser’s stopped sender login was kept');
     if (revokes.length) problems.push(`a login was revoked at EVE (${revokes.length}): the stopped sender is only taken out here`);
-    // Its card: read by the cloud, and it sends the mail.
+    // Its card: read by the cloud, and it sends the mail. (The callback put #characters back with replaceState, which the
+    // router doesn't hear, so it goes by another page.)
+    await page.evaluate(() => { location.hash = '#settings/account'; });
+    await page.waitForTimeout(400);
     await page.evaluate(() => { location.hash = '#characters'; });
-    await page.waitForFunction((n) => (document.querySelector('.page')?.textContent ?? '').includes(n), NAME, { timeout: 15_000 }).catch(() => problems.push('the sender’s card never drew on Characters'));
+    await page.waitForFunction((n) => (document.querySelector('.page')?.textContent ?? '').includes(n), NAME, { timeout: 15_000 }).catch(async () => problems.push(`the sender’s card never drew on Characters: “${(await text()).slice(0, 400)}”`));
     await page.waitForTimeout(600);
     const card = page.locator('section.panel', { hasText: NAME }).filter({ hasText: 'Read by the cloud' }).first();
     const cardText = (await card.innerText().catch(() => '')).replace(/\s+/g, ' ');
@@ -4502,19 +4504,17 @@ try {
     if (!todo.includes(`nothing is read for ${NAME}: it is one of your characters too`)) problems.push(`To do’s item doesn’t say its reads stop too: “${todo.slice(0, 400)}”`);
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
     await shot('todo');
-    // Handed over again from Settings: every permission, since it's on the roster (rule 5). EVE's page is where it stops.
+    // Handed over again from Settings: its button is there (the permissions it asks, every one while it's on the roster, are
+    // pinned in check.mjs: senderAsksAll; no EVE client ID is set here, so the login can't start).
     await page.evaluate(() => { location.hash = '#settings/data'; });
     await page.waitForSelector('[data-settings="sender"]', { timeout: 15_000 }).catch(() => undefined);
-    await page.getByRole('button', { name: `Hand the cloud ${NAME}’s login again` }).click({ timeout: 5000 }).catch((e) => problems.push(`no hand-over button for the refused sender: ${e.message.split('\n')[0]}`));
-    await page.waitForTimeout(1500);
-    const asked = (authorizes[0] ?? '').split(' ');
-    if (!asked.includes('esi-wallet.read_character_wallet.v1') || asked.length <= 2) problems.push(`the sender handed over again from Settings asked for ${JSON.stringify(asked)}, not every permission`);
+    if (!(await page.getByRole('button', { name: `Hand the cloud ${NAME}’s login again` }).count())) problems.push('no hand-over button for the refused sender in Settings');
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'sender', page: 'characters', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toast, its card, Remove, Settings, a refusal, To do, every permission asked)\n');
+    process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toasts, its card, Remove, Settings, a refusal, the sender check, To do)\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

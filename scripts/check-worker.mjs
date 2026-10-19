@@ -982,6 +982,14 @@ console.log('\n--- the mail sender as one of your characters (19 October 2026) -
     eq(`  removing the sender from Characters (${data} its data): off the roster`, [r.status, rosterIds(db), (await ask(env, 'GET', '/v1/alts')).body.map((a) => a.charId)], [200, [ALT], [ALT]]);
     eq('    the sender\'s login stays, and nothing was revoked', [keysOf(db), revoked(f)], [[`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`], false]);
     eq('    and nothing reads it any more', [(await altReaders(db)).map((x) => x.char), await stillKept(db, senderReader(MAIN, SENDER))], [[ALT], false]);
+    // Added again: the roster's own rules for a stay (after "keep" the same stay, after "delete" a new one).
+    const was = db.rows('SELECT added_at AS t FROM alts WHERE char_id = ?', SENDER)[0]?.t ?? null;
+    const g = stubFetch(eve(SENDER, 'Postmaster'));
+    const again = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'z', adding: true });
+    g.restore();
+    const stay = db.rows('SELECT added_at AS t, removed_at AS gone FROM alts WHERE char_id = ?', SENDER)[0];
+    eq(`    added again: on the roster, read with the sender's login, ${data === 'keep' ? 'the same stay' : 'a new stay'}`,
+      [again.body.kept.alt, stay.gone, data === 'keep' ? stay.t === was : was === null && stay.t > 0, (await altReaders(db)).map((x) => [x.char, x.purpose])], [true, null, true, [[ALT, `alt:${ALT}`], [SENDER, 'mailer']]]);
   }
 
   // A different sender later: the old one stays a character, with no login; handed over on Characters it gets its own.

@@ -165,8 +165,6 @@ export function App() {
         // sender otherwise. `adding` always goes: a Worker reads its absence (an app version behind) from the scopes.
         const sent = handOverAs(asked, key.charId, getMailer()?.characterId);
         const adding = asked === 'alt';
-        // The cloud's sender before this one: replaced while on the roster, it stays one of your characters, with no login.
-        const before = getCloudStatus().background?.keys.find((x) => x.purpose === 'mailer');
         const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
         const closed = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
         // EVE stops a character's earlier logins that carry a different set of permissions, at its own login page
@@ -198,7 +196,9 @@ export function App() {
                 forgetMailer();
                 dropped = ' Its own login in this browser was stopped by EVE, so it’s been taken out here; the cloud sends your alert mail from it.';
               }
-              // The cloud's sender before, replaced by another character while on the roster: it stays, with no login.
+              // The cloud's sender before (its status is read again only below), replaced by another character while on the
+              // roster: it stays one of your characters, with no login.
+              const before = getCloudStatus().background?.keys.find((x) => x.purpose === 'mailer');
               const left = before && before.charId !== k.charId && before.alt ? ` ${before.name} stays one of your characters, with no login now: hand it over again on the Characters page.` : '';
               if (k.alt) {
                 // The sender is one of your characters too, read with the login it sends from: say both.
