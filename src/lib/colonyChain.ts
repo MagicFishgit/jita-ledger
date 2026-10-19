@@ -348,7 +348,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
  * The real planet against the best single-planet setup the planner gives that planet alone: the better of `planSingle`'s P0 → P1
  * and P0 → P2 with `planets` holding only it, at the same rates (the caller makes that call). `gain` is what the best makes a day
  * more; within a cent of it, or above, the colony is already the best and nothing is said (gain 0). With no valued ISK on either
- * side, gain is null and the words say why: never 0. The planet's name isn't in the chain: the page puts it in front.
+ * side, gain is null and the words say why: never 0. A best resting on a rate the planner assumes (a P0 no colony has shown) says
+ * so, and so does one before the customs tax. The planet's name isn't in the chain: the page puts it in front.
  */
 export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex): { gain: number | null; said: string } {
   const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
@@ -373,6 +374,10 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex): { gai
     rest = adv && tops.length === 1 && tops[0] === adv.id ? `the planner’s own layout for it here pays ${pays}`
       : `the best P2 it can make alone here${adv ? `, ${name(adv.id)},` : ''} pays ${pays}`;
   }
+  // The best on a rate the planner assumes (a P0 the colonies haven't shown) is said as that, never claimed.
+  const assumed = (role?.extracts ?? []).filter((x) => !x.rate);
+  const names = [...new Set(assumed.map((x) => name(x.p0)))];
+  const guess = names.length ? `, if it gets ${unitsSaid(assumed[0].perHour)} ${listSaid(names)} an hour${names.length > 1 ? ' each' : ''}, a rate no colony of yours has shown` : '';
   const beforeTax = chain.before.includes('tax') || best.before.includes('tax') ? ', before the customs tax' : '';
-  return { gain, said: `${what}; ${rest}${beforeTax}` };
+  return { gain, said: `${what}; ${rest}${guess}${beforeTax}` };
 }

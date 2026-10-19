@@ -8600,6 +8600,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const dearMech = sellBy(unitOf({ [MECH]: 12_000 }));
   const vs = versusBest(chainOf(nanites(), { sell: dearMech }), bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), ix);
   eq('  a better P2 here: its gain and its words', vs, { gain: 480_000, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day' });
+  const vsGuess = versusBest(chainOf(nanites(), { sell: dearMech }), bestOf(A, dearMech), ix);
+  eq('  a best on a rate the planner assumes says so, never claims it', vsGuess, { gain: 480_000, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 480,000 ISK more a day, if it gets 12,000 Noble Metals an hour, a rate no colony of yours has shown' });
   const one = nanites({ drop: [[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40], [52, 30, NANITES, 5]] });
   one.pins = one.pins.filter((p) => p.id !== 52);
   const oneC = chainOf(one);
