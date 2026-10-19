@@ -461,8 +461,17 @@ export function Todo() {
     for (const x of listing) {
       out.push(planListItem({ planId: x.plan.id, planName: x.plan.name, horizonDays: x.plan.horizonDays, patient: x.plan.patient, typeId: x.item.typeId, units: x.units, unitCost: x.unitCost ?? 0, reading: !x.read }, x.priced, name(x.item.typeId)));
     }
-    // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
-    for (const k of cloud.background?.keys ?? []) {
+    // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings. The sender read as one
+    // of your characters is one login: the roster (read every minute) shows its refusal before the status (every ten) does, so
+    // until the status catches up its item is built from the roster's entry, the same row: one item, the same key and version.
+    const statusKeys = cloud.background?.keys ?? [];
+    const senderAlt = roster.find((a) => a.sender && a.refusedAt != null);
+    const refusedKeys = [
+      ...statusKeys,
+      ...(senderAlt && !statusKeys.some((k) => k.purpose === 'mailer' && k.refusedAt)
+        ? [{ purpose: 'mailer' as const, name: senderAlt.name ?? `Character ${senderAlt.charId}`, refusedAt: senderAlt.refusedAt, refused: senderAlt.refused, alt: true }] : []),
+    ];
+    for (const k of refusedKeys) {
       if (!k.refusedAt) continue;
       const main = k.purpose === 'main';
       out.push({

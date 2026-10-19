@@ -4378,13 +4378,13 @@ try {
     const MAIL = ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1'];
     const FULL = ['esi-wallet.read_character_wallet.v1', 'esi-skills.read_skills.v1', 'esi-planets.manage_planets.v1', ...MAIL];
     const jwt = (char, name, scopes) => `h.${Buffer.from(JSON.stringify({ sub: `CHARACTER:EVE:${char}`, name, scp: scopes, exp: Math.floor((now + 1200_000) / 1000) })).toString('base64url')}.s`;
-    let refused = false, kept = false;
+    let rosterRefused = false, statusRefused = false, senderFlag = true, noMain = false, kept = false;
     const keysBodies = [], revokes = [];
-    const entry = () => ({ charId: SENDER, name: NAME, addedAt: now - 60_000, scopes: FULL, at: now - 60_000, refusedAt: refused ? now - 3600_000 : null, refused: refused ? 'invalid_grant' : null,
-      rev: 1, ship: null, shipAt: null, jobs: [], sender: true });
+    const entry = () => ({ charId: SENDER, name: NAME, addedAt: now - 60_000, scopes: FULL, at: now - 60_000, refusedAt: rosterRefused ? now - 3600_000 : null, refused: rosterRefused ? 'invalid_grant' : null,
+      rev: 1, ship: null, shipAt: null, jobs: [], sender: senderFlag });
     const status = () => ({ character: { charId: MAIN, name: 'Owner', scopes: [] }, rev: 1, kinds: [], docs: [], background: { jobs: [], keys: [
-      { purpose: 'main', charId: MAIN, name: 'Owner', scopes: 20, scopeNames: [], at: now - 60_000, refusedAt: null, refused: null, alt: false },
-      { purpose: 'mailer', charId: SENDER, name: NAME, scopes: FULL.length, scopeNames: FULL, at: now - 60_000, refusedAt: refused ? now - 3600_000 : null, refused: refused ? 'invalid_grant' : null, alt: true },
+      ...(noMain ? [] : [{ purpose: 'main', charId: MAIN, name: 'Owner', scopes: 20, scopeNames: [], at: now - 60_000, refusedAt: null, refused: null, alt: false }]),
+      { purpose: 'mailer', charId: SENDER, name: NAME, scopes: FULL.length, scopeNames: FULL, at: now - 60_000, refusedAt: statusRefused ? now - 3600_000 : null, refused: statusRefused ? 'invalid_grant' : null, alt: true },
     ] } });
     const page = await browser.newPage(VIEW);
     await page.route('**/*', (route) => {
@@ -4478,43 +4478,88 @@ try {
     if (!senderSaid.includes(`${NAME} is also one of your characters: the cloud reads it with this login`)) problems.push(`the sender section doesn’t say it’s one of your characters: “${senderSaid}”`);
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Settings → Your data: ${o}`);
     await shot('settings');
-    // EVE refuses that login: mail and its reads stop together. This browser holds the sender's login again (a stale tab, say):
-    // the cloud reads it and sends from it, so it's taken out here without asking EVE, and said.
-    refused = true;
-    await page.evaluate(([s]) => { localStorage.setItem('jita-ledger:mailer', JSON.stringify(s)); location.hash = '#settings/data'; },
+    // EVE refuses that login: mail and its reads stop together, and To do says it once, by key. The roster is read every minute and
+    // the cloud's status every ten, so the roster shows the refusal first.
+    const todoKeys = async () => page.evaluate(() => [...document.querySelectorAll('[data-todo-key]')].map((e) => e.getAttribute('data-todo-key')));
+    const loginItems = async (label) => {
+      const keys = (await todoKeys()).filter((k) => k.startsWith('cloudLogin:'));
+      const said = ((await text()).match(new RegExp(`Hand the cloud ${NAME}’s login again`, 'g')) ?? []).length;
+      return { keys, said, label };
+    };
+    // First an older roster: the sender refused but not yet flagged as the sender (a Worker a version behind, or a read from before
+    // it was added as the sender). To do lists the alt's own item.
+    rosterRefused = true; senderFlag = false;
+    await page.reload();
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.evaluate(() => { location.hash = '#todo'; });
+    await page.waitForFunction(() => document.querySelector('[data-todo-key^="cloudLogin:"]'), null, { timeout: 15_000 }).catch(() => undefined);
+    let li = await loginItems('the roster not yet flagging the sender');
+    if (JSON.stringify(li.keys) !== JSON.stringify([`cloudLogin:alt:${SENDER}`])) problems.push(`${li.label}: To do lists ${JSON.stringify(li.keys)}, not the alt's own item`);
+    // Then the roster flags it as the sender (refused), the status not yet refused, and this browser holds the sender's login again (a
+    // stale tab, say): the sender check takes it out without asking EVE, and says the cloud sends the mail (it holds the main's login).
+    senderFlag = true;
+    await page.evaluate(([s]) => { localStorage.setItem('jita-ledger:mailer', JSON.stringify(s)); location.hash = '#todo'; },
       [{ accessToken: 'mail', refreshToken: 'mail-refresh-2', expiresAt: now + 86400_000, characterId: SENDER, characterName: NAME, scopes: MAIL }]);
     await page.reload();
-    await page.waitForSelector('[data-settings="sender"]', { timeout: 20_000 }).catch(() => problems.push('Settings → Your data never drew the sender section after the reload'));
+    await page.waitForSelector('.page', { timeout: 20_000 });
     toasts.length = 0;
     await readToasts([`The cloud sends your alert mail from ${NAME} and reads it as one of your characters, so this browser needs no login of its own for it.`]);
     if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('the sender check left this browser’s sender login in place');
     if (revokes.length) problems.push('the sender check revoked the login at EVE');
     if (await page.locator('.notice.err', { hasText: 'can’t also be logged in here as the mail sender' }).count()) problems.push('the sender check said the old words for a sender the cloud sends mail from');
+    await page.evaluate(() => { location.hash = '#settings/account'; });
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { location.hash = '#todo'; });
+    await page.waitForTimeout(1500);
+    li = await loginItems('the roster refused, the status not yet');
+    if (JSON.stringify(li.keys) !== JSON.stringify(['cloudLogin:mailer']) || li.said !== 1) problems.push(`${li.label}: To do lists ${JSON.stringify(li.keys)}, said ${li.said} times, not the sender's one item`);
+    // Then the status catches up: still the one item, the same key.
+    statusRefused = true;
+    await page.evaluate(() => { location.hash = '#settings/data'; });
     await page.waitForFunction(() => /EVE has refused/.test(document.querySelector('[data-settings="sender"]')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => undefined);
     const refusedSaid = await text('[data-settings="sender"]');
     if (!refusedSaid.includes(`so no alert mail can be sent, and nothing is read for ${NAME}, until you hand it over again.`)) problems.push(`a refused sender that is one of your characters: “${refusedSaid}”`);
+    // Handed over again from Settings: its button is there (the permissions it asks, every one while it's on the roster, are
+    // pinned in check.mjs: senderAsksAll; no EVE client ID is set here, so the login can't start).
+    if (!(await page.getByRole('button', { name: `Hand the cloud ${NAME}’s login again` }).count())) problems.push('no hand-over button for the refused sender in Settings');
     await shot('refused');
-    // To do: one item for the one login, saying both.
     await page.evaluate(() => { location.hash = '#todo'; });
     await page.waitForTimeout(1500);
-    const items = await page.locator('.page li, .page [data-todo], .page .todo-item').filter({ hasText: `Hand the cloud ${NAME}’s login again` }).count();
+    li = await loginItems('the roster and the status refused');
+    if (JSON.stringify(li.keys) !== JSON.stringify(['cloudLogin:mailer']) || li.said !== 1) problems.push(`${li.label}: To do lists ${JSON.stringify(li.keys)}, said ${li.said} times, not the sender's one item`);
     const todo = await text();
-    if (!todo.includes(`Hand the cloud ${NAME}’s login again`)) problems.push('To do has no item for the refused sender');
-    if ((todo.match(new RegExp(`Hand the cloud ${NAME}’s login again`, 'g')) ?? []).length !== 1) problems.push(`To do lists the refused sender ${(todo.match(new RegExp(`Hand the cloud ${NAME}’s login again`, 'g')) ?? []).length} times (items ${items}), not once`);
     if (!todo.includes(`nothing is read for ${NAME}: it is one of your characters too`)) problems.push(`To do’s item doesn’t say its reads stop too: “${todo.slice(0, 400)}”`);
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
     await shot('todo');
-    // Handed over again from Settings: its button is there (the permissions it asks, every one while it's on the roster, are
-    // pinned in check.mjs: senderAsksAll; no EVE client ID is set here, so the login can't start).
+    // Watch stopped: the cloud holds the sender's login (every permission) and reads it, but no main's, so it sends no mail. Settings
+    // never offers a sender login here for it (one with the sender's two would stop the cloud's), and the sender check doesn't say
+    // the cloud sends the mail.
+    rosterRefused = false; statusRefused = false; noMain = true;
     await page.evaluate(() => { location.hash = '#settings/data'; });
-    await page.waitForSelector('[data-settings="sender"]', { timeout: 15_000 }).catch(() => undefined);
-    if (!(await page.getByRole('button', { name: `Hand the cloud ${NAME}’s login again` }).count())) problems.push('no hand-over button for the refused sender in Settings');
+    await page.waitForTimeout(2000);
+    await page.evaluate(([s]) => { localStorage.setItem('jita-ledger:mailer', JSON.stringify(s)); location.hash = '#settings/alerts'; },
+      [{ accessToken: 'mail', refreshToken: 'mail-refresh-3', expiresAt: now + 86400_000, characterId: SENDER, characterName: NAME, scopes: MAIL }]);
+    await page.reload();
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    toasts.length = 0;
+    await readToasts([`The cloud reads ${NAME} as one of your characters with its own login. This browser’s login for ${NAME} was stopped by it, or would stop it`]);
+    if (toasts.some((t) => t.includes('sends your alert mail'))) problems.push(`with no main's login in the cloud, the sender check says the cloud sends the mail: ${JSON.stringify(toasts)}`);
+    if (await page.evaluate(() => localStorage.getItem('jita-ledger:mailer'))) problems.push('with no main’s cloud login, the sender check left this browser’s sender login in place');
+    if (revokes.length) problems.push('with no main’s cloud login, the sender check revoked the login at EVE');
+    await page.waitForSelector('[data-settings="mail-held"]', { timeout: 15_000 }).catch(() => undefined);
+    const held = await text('[data-settings="mail-held"]');
+    if (!held.includes(`The cloud holds ${NAME}’s login and reads it as one of your characters, so logging ${NAME} in here would stop it`)) problems.push(`Settings → Alerts with the cloud holding the sender but not the main: “${held}”`);
+    if (await page.getByRole('button', { name: 'Log in a character to send from' }).count()) problems.push('Settings → Alerts offers a sender login while the cloud holds the sender-alt’s');
+    if (!(await page.getByRole('button', { name: 'Log in another character to send from' }).count())) problems.push('Settings → Alerts doesn’t offer another character to send from');
+    if (!(await text()).includes(`Pick the other one, not Owner or ${NAME}.`)) problems.push('Settings → Alerts doesn’t say which characters not to pick');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Settings → Alerts: ${o}`);
+    await shot('held');
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'sender', page: 'characters', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toasts, its card, Remove, Settings, a refusal, the sender check, To do)\n');
+    process.stdout.write(unique.length ? `  FAIL sender #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (the sender added as a character: the toasts, its card, Remove, Settings, a refusal seen by the roster first, the sender check, To do’s one item by key, the cloud holding the sender with no main)\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

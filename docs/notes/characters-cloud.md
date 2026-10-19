@@ -37,9 +37,11 @@ logs in to the app) and the browser's side.
   sender on another set: that login is dead, so it is taken out here and the toast says so (`forgetMailer` since 19
   October 2026, not revoked: the cloud now holds that character's login).
 - **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`), with
-  `adding: true`. With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer). It went as an alt
-  when already in `chars`, because the Worker refused a sender on the roster; it keeps one now, so that exception went
-  (19 October 2026), and the rule above takes out the stopped browser sender.
+  `adding: true`. With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer). Only while the cloud
+  has no sender or it is this character (read fresh at the callback): with another, it goes as an alt, keeping the cloud's
+  sender (the review, 19 October 2026: a stale browser sender replaced it). It went as an alt when already in `chars`,
+  because the Worker refused a sender on the roster; it keeps one now, so that exception went, and the rule above takes
+  out the stopped browser sender.
 - **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in
   the alt store). A sender logged in to this browser that the cloud reads as an alt is logged out, which revokes it at
   EVE, with a message. It reads the roster as the cloud has it, never `chars`, which keeps characters taken off the
@@ -68,7 +70,17 @@ logs in to the app) and the browser's side.
     roster with no login; handed over on Characters, it gets an `alt:` row. Settings' Stop drops the sender's login, so
     its reads stop too (the confirm says so).
   - **A refused sender row** reads as that alt refused; the watchdog has one refusal (the sender's, which can't be mailed)
-    and quiets that alt's login-looking job mails; To do lists one item, saying its reads stop too.
+    and quiets that alt's login-looking job mails. To do lists one item, by key, saying its reads stop too: the roster (read
+    every minute) shows it before the status (every ten), so the sender's item is built from the roster's entry until the
+    status catches up, the roster's own item is skipped on its `sender` flag, and one remembered from before goes.
+  - **Watch stopped** (no main's login): the cloud still reads the sender-alt with its login but sends no mail. Settings →
+    Alerts never offers a browser sender login for it (the sender's two would stop the cloud's), and the sender check
+    says the cloud sends the mail only when it does (`cloudSendsMail`).
+  - **Version skew, for a deploy's minutes.** A new app on an old Worker sends a browser sender that is on the roster as
+    the sender; the old Worker refuses it, marks the alt's working `alt:` row refused and revokes the new login (its effect
+    on the character's other logins unknown). It heals at the next refresh, within about 20 minutes; home markets skip that
+    reader meanwhile. An old app on the new Worker says "Nothing was added" for a sender the Worker added, revokes a browser
+    sender EVE already stopped, and its mail-only Settings hand-over of a sender-alt is refused and revoked.
   - **Handed over again from Settings or To do** it asks the full set while `/v1/status` marks the sender's key `alt` (on
     the roster: `senderAsksAll`), else the two mail permissions. No new permission anywhere.
   - On 19 October 2026 the cloud's sender row was Messenger from God with the full set (handed over when the add was
