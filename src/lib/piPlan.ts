@@ -442,14 +442,19 @@ function fittedPlans(input: PlanInput, p: Plan, at: FitAt | null, high: boolean)
   return out.length ? out : [{ ...p, fitAt: at, sized: 'over' }];
 }
 
-/** Plans per planet, kind, reading and where they must fit, worked out once for an input: the feed and the chain ask again for every product. */
+/**
+ * Plans per planet, kind, reading and where they must fit, worked out once for an input: the feed and the chain ask again for every
+ * product. `fits`: the levels a plan may be sized at, lowest first (one for a single character; the chain's characters' levels): each
+ * plan at the lowest that holds it as fewer factories, or its rates' layout, said with what it lacks, when none does. None: what fits
+ * isn't checked.
+ */
 const plansMemo = new WeakMap<PlanInput, Map<string, Plan[]>>();
-function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' | 'p2', high: boolean, fit: FitAt | null): Plan[] {
+function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' | 'p2', high: boolean, fits: readonly FitAt[]): Plan[] {
   const t = planet.type;
   if (!t) return [];
   let memo = plansMemo.get(input);
   if (!memo) plansMemo.set(input, memo = new Map());
-  const key = `${at}|${kind}|${high ? 1 : 0}|${fit ? `${fit.cc}|${fit.radiusKm}` : '-'}`;
+  const key = `${at}|${kind}|${high ? 1 : 0}|${fits.map((f) => `${f.cc}:${f.radiusKm}`).join(',')}`;
   const held = memo.get(key);
   if (held) return held;
   const base: Plan[] = [];
@@ -463,12 +468,18 @@ function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' |
       if (p) base.push(p);
     }
   }
-  const out = base.flatMap((p) => fittedPlans(input, p, fit, high));
+  const out = base.flatMap((p) => {
+    for (const f of fits) {
+      const r = fittedPlans(input, p, f, high);
+      if (r[0].sized !== 'over') return r;
+    }
+    return fittedPlans(input, p, fits[0] ?? null, high);
+  });
   memo.set(key, out);
   return out;
 }
 /** Where a planet's single-character layout must fit: the character's level on the planet's own radius; none when its size isn't known (what fits isn't checked). */
-const fitFor = (planet: PlanPlanet, cc: number): FitAt | null => (planet.radiusKm != null && planet.radiusKm > 0 ? { cc, radiusKm: planet.radiusKm } : null);
+const fitFor = (planet: PlanPlanet, cc: number): FitAt[] => (planet.radiusKm != null && planet.radiusKm > 0 ? [{ cc, radiusKm: planet.radiusKm }] : []);
 
 /**
  * The same planet and product on the other reading of its rates: sized to it when that fits where the plan must, else the plan's own
@@ -1047,22 +1058,23 @@ function lineNet(ix: PiIndex, sold: Seller, l: Line, rate: number | null): numbe
 }
 
 /**
- * Where a class's feeders must fit (Ruling F9): at `cc`, the lowest level among the characters the setup may use, on the class's
- * largest planet, so a feeder fits wherever it's placed (a placement can't move what the search valued); none when no planet of it
- * has a known size (what fits isn't checked).
+ * Where a class's feeders must fit (Ruling F9): on the class's largest planet, at the levels of the characters the setup may use,
+ * lowest first, so a feeder sized at the lowest that holds it fits wherever it's placed with that character or one above (a placement
+ * can't move what the search valued, and placement puts a colony with a character it fits at first). None when no planet of it has a
+ * known size (what fits isn't checked).
  */
-function feederFit(c: Cls, cc: number | null): FitAt | null {
+function feederFits(c: Cls, levels: readonly number[]): FitAt[] {
   const radii = c.members.map((m) => m.planet.radiusKm).filter((r): r is number => r != null && r > 0);
-  return cc == null || !radii.length ? null : { cc, radiusKm: Math.max(...radii) };
+  return radii.length ? [...new Set(levels)].sort((a, b) => a - b).map((cc) => ({ cc, radiusKm: Math.max(...radii) })) : [];
 }
 
 /**
  * The feeders that can make X here. Each is one of a class's P0 → P1 plans with an extractor on a P1 X takes, or a P2 X takes
- * made alone, at what fits at `cc` (`feederFit`; the shown character's level when not given). A planet's second extractor is on a
+ * made alone, at what fits at the levels given (`feederFits`; the shown character's when not given). A planet's second extractor is on a
  * P0 the factory doesn't take only when that's all it has left, and then on the one that pays most alone (plans alike for the
  * factory differ only in that). Null when some P1 X takes no planet ships.
  */
-function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number, cc: number | null = input.char.ccLevel): FedCtx | null {
+function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number, levels: readonly number[] = input.char.ccLevel == null ? [] : [input.char.ccLevel]): FedCtx | null {
   const { ix } = input;
   const tree = treeOf(ix, x);
   if (!tree) return null;
@@ -1071,7 +1083,7 @@ function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number, cc: n
   const kinds = new Set(tree.kinds);
   const raw: { cls: number; plan: Plan }[] = [];
   classes.forEach((c, ci) => {
-    const m = c.members[0], fit = feederFit(c, cc);
+    const m = c.members[0], fit = feederFits(c, levels);
     const keep = new Map<string, { plan: Plan; other: number }>();
     for (const p of plansFor(input, m.planet, m.at, 'p1', false, fit)) {
       const useful = p.lines.filter((l) => kinds.has(l.p1));
@@ -1863,7 +1875,7 @@ function coverable(ctx: FedCtx, who: Who[]): boolean {
 }
 
 /**
- * A feeder's plan on the planet it was placed on: the same lines and factories (what the search valued; `feederFit` sized it to fit
+ * A feeder's plan on the planet it was placed on: the same lines and factories (what the search valued; `feederFits` sized it to fit
  * on any planet of its class), that planet's name and place.
  */
 const remake = (p: Plan, m: Member): Plan => ({ ...p, planet: m.planet, at: m.at });
@@ -2031,11 +2043,11 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
 }
 
 /** Each product of these tiers that's priced, as a search's context: a step each, since a context walks every class's plans. */
-function* fedTargets(input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier[], cc: number | null): Steps<FedCtx[]> {
+function* fedTargets(input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier[], levels: readonly number[]): Steps<FedCtx[]> {
   const out: FedCtx[] = [];
   for (const c of input.ix.commodities) {
     if (!tiers.includes(c.tier) || sold(c.id, 1).isk == null) continue;
-    const ctx = fedCtx(input, sold, classes, c.id, cc);
+    const ctx = fedCtx(input, sold, classes, c.id, levels);
     if (ctx) out.push(ctx);
     yield;
   }
@@ -2057,7 +2069,7 @@ export function* planFeedSteps(input: PlanInput): Steps<Setup> {
   const allowed = char.planets!;
   if (allowed < 2) return blocked(input, 'feed', `A factory planet and one to feed it take 2 planets: you have ${allowed}`, []);
   const sold = seller(input.sell);
-  const ctxs = yield* fedTargets(input, sold, classesOf(input), ['P2', 'P3'], char.ccLevel);
+  const ctxs = yield* fedTargets(input, sold, classesOf(input), ['P2', 'P3'], [char.ccLevel!]);
   if (!ctxs.length) return blocked(input, 'feed', 'Nothing a factory here could make from this system’s planets is priced', []);
   const who: Who[] = [{ c: char, cap: allowed, cc: char.ccLevel! }];
   const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
@@ -2099,10 +2111,10 @@ export function* planChainSteps(input: PlanInput): Steps<Setup> {
     .map((c) => ({ c, cap: c.planets!, cc: c.ccLevel! }));
   const sold = seller(input.sell);
   const classes = classesOf(input);
-  // Its extraction planets fit at the lowest level of the characters it may use, wherever they're placed (Ruling F9, `feederFit`).
-  const cc = Math.min(...usable.map((w) => w.cc));
-  const p4 = yield* fedTargets(input, sold, classes, ['P4'], cc);
-  const p3 = yield* fedTargets(input, sold, classes, ['P3'], cc);
+  // Its extraction planets are sized at the lowest level of the characters it may use that holds them (Ruling F9, `feederFits`).
+  const levels = usable.map((w) => w.cc);
+  const p4 = yield* fedTargets(input, sold, classes, ['P4'], levels);
+  const p3 = yield* fedTargets(input, sold, classes, ['P3'], levels);
   if (!p4.length && !p3.length) return blocked(input, 'chain', 'Nothing a chain here could make from this system’s planets is priced', []);
   // Which products one character can make alone: a covering search each, a step each.
   const alone = (ctxs: FedCtx[]) => ctxs.map((ctx) => () => coverable(ctx, usable.slice(0, 1)));

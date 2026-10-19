@@ -7902,6 +7902,14 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const chain = planChain(big);
   eq('  a Broadcast Node chain across two characters', [chain.outputs.some((o) => o.id === BROADCAST_NODE), chain.perChar.length], [true, 2]);
   eq('  ranked per character used', chain.iskDay, chain.perChar.reduce((t, c) => t + c.iskDay, 0) / chain.perChar.length);
+  // Ruling F9 in the chain: its extraction planets are sized at the lowest level among its characters that holds them, so each fits
+  // with whichever character it's placed. At 24,000 an hour (4 + 4 Basics), with the second at CCU III: 4 Basics a planet, never the
+  // 6 the owner's IV holds, which the second couldn't build.
+  const chain24 = planChain({ ...big, rateOf: () => rate({ perHour: 24000 }), others: [{ ...second, ccLevel: 3 }, unread] });
+  const extracts24 = chain24.roles.filter((r) => r.does === 'extract');
+  eq('  F9 (chain): every extraction planet fits at its own character’s level, each the most the lowest level holds',
+    [extracts24.length > 0, extracts24.every((r) => r.fit?.fits && !r.lacks), [...new Set(extracts24.map((r) => r.makes.filter((m) => m.facility === 'basic').reduce((n, m) => n + m.count, 0)))].sort()],
+    [true, true, [4]]);
   eq('  the CCU II character lacks the level its roles need', chain.perChar[1].lacks.some((x) => x.startsWith('Command Center Upgrades')), true);
   // Ruling T11-2: what a planet lacks is its own. Each character's lacks are exactly what its planets that don't fit lack, and a
   // planet that fits carries none.
@@ -8653,12 +8661,12 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // tax, isn't shipped. It stays, building up, untaxed, and the colony's ISK a day doesn't fall for it.
   const p0Loss = chainOf(nanites({ base: 20000 }), { sell: sellBy(unitOf({ [BASE]: -1.5 })) });
   const bl = p0Loss.outputs.find((o) => o.id === BASE);
-  eq('  a P0 that doesn’t pay to ship stays: none sold or taxed, ISK a day as without it', [[near(bl.perDay), bl.sold.units, near(bl.buildingUp), near(bl.stays.perDay), bl.stays.noPrice], p0Loss.taxes.map((t) => t.tier), near(p0Loss.iskDay)],
+  eq('  a P0 that doesn’t pay to ship stays: none sold or taxed, ISK a day as without it', [[near(bl.perDay), bl.sold.units, near(bl.buildingUp), near(bl.stays?.perDay ?? 0), bl.stays?.noPrice], p0Loss.taxes.map((t) => t.tier), near(p0Loss.iskDay)],
     [[48_000, 0, 48_000, 48_000, false], ['P2', 'P1'], 2_741_760]);
-  has('  and says why', bl.stays.why, 'a unit nets −1.50 ISK after freight and fees, so it doesn’t pay to ship');
+  has('  and says why', bl.stays?.why ?? '', 'a unit nets −1.50 ISK after freight and fees, so it doesn’t pay to ship');
   // A P0 with no price stays too, a known nothing: never an unvalued output, nor a reason for no figure.
   const p0None = chainOf(nanites({ base: 20000 }), { sell: sellBy(unitOf({ [BASE]: null })) });
-  eq('  a P0 with no price stays, counted as nothing, the colony still valued', [p0None.unvalued, p0None.before, near(p0None.iskDay), p0None.outputs.find((o) => o.id === BASE).stays.noPrice], [0, [], 2_741_760, true]);
+  eq('  a P0 with no price stays, counted as nothing, the colony still valued', [p0None.unvalued, p0None.before, near(p0None.iskDay), p0None.outputs.find((o) => o.id === BASE).stays?.noPrice], [0, [], 2_741_760, true]);
 
   // An output not routed onward and not to storage or a launchpad: the first Advanced's Nanites go nowhere.
   const stuck = chainOf(nanites({ drop: [[51, 30, NANITES, 5]] }));
