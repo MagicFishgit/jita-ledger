@@ -20,7 +20,9 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   layout stays, said with what it lacks. Heads stay the rate's. At the real rates (16,000–20,000 an extractor) every 5-NZNW planet's layout wanted 7–10 factories beside 10 heads,
   where 6 fit at IV, and read "train V" or fit at no level. With no rate, two Basics' worth, 12,000 P0 an hour an extractor, said as "if
   your extractors deliver 12,000 P0 an hour each" and listed in `before`, never claimed. Heads are the rate's (`ceil` of its
-  median); 0 heads means the colony didn't say and the layout takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
+  median); a line whose heads aren't known (no rate, or 0: the colony didn't say) sits on the median of your learned rates' heads
+  (Ruling T15b-5, `assumedHeads`, `PlanInput.heads`: "at 5 heads, the median of your extractors' learned rates"), and only with
+  nothing learned takes the most that fit, said (Ruling T8-1). A rate from programmes of another length says "rates from N-day
   programs". Every output is valued, a surplus P1 too; a price nobody reads leaves it unvalued and counted (`unvalued`), never 0.
 - **An unvalued good is neither credited nor taxed** (the final review's I1; `assess`, `valueFed`). It is still shipped (nothing says
   how much would build up), but its export tax goes with its sale: with no hub picked, P0 → P1 and P0 → P2 ranked first on a loss
@@ -175,9 +177,12 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   holds it**, so a character at a higher level could run more there (T15b-2: with a second character at III, the owner's IV planets
   run 4 Basics where 6 fit). **The export rule judges a good's first unit**: a later side `soldOf` takes at a unit over nothing
   before the tax, so one netting under its tax sells at a small loss (never seen).
-- **A rate whose heads aren't known** (every extractor of that type and P0 said none) reserves one head a line while F9 sizes the
-  factories; `fitted` fills in the most heads that fit after, and the whole learned rate is credited to them, said only as "the
-  most that fit".
+- **A line whose heads aren't known** (no rate, or every extractor of that type and P0 said none) sits on the median of your
+  learned rates' heads (Ruling T15b-5): a learned rate is credited whole to them, and an assumed 12,000 an hour is two Basics' worth
+  set on a head count your own extractors run; what that planet gives at that count isn't known. It moves Plan's layouts for such planets: beside a colony's storage, an unrated Base Metals line went from 3 heads (one
+  reserved while F9 fitted the most factories, the room left filled in after) to 5, with a Basic fewer. **With nothing learned**
+  it reserves one head a line while F9 sizes the factories, and `fitted` fills in the most heads that fit after, said only as "the
+  most that fit" (T8-1).
 - **The feed's and chain's factory planet must fit at CCU V** (T9-3), not at the character's own level: placed with someone it
   doesn't fit, it's ranked and said with what it lacks.
 

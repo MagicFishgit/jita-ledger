@@ -7591,7 +7591,7 @@ console.log('\n--- Planets: extraction (piExtraction.ts, CCP\'s developer guide)
 console.log('\n--- Planets: the settings document and the rates learned from your colonies (planetsDoc.ts, piLearn.ts) ---');
 {
   const { sanitizePlanets, customsRate, DEFAULT_PLANETS } = await import('../src/lib/planetsDoc.ts');
-  const { learnedRates, rateFor, PI_READING } = await import('../src/lib/piLearn.ts');
+  const { learnedRates, rateFor, assumedHeads, PI_READING } = await import('../src/lib/piLearn.ts');
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { DOC_KEYS, refusedDoc } = await import('../src/lib/cloudSync.ts');
   const fsP = await import('node:fs');
@@ -7631,6 +7631,11 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   eq('  not learned from: qty null, no expiry, no planet type', learnedRates([{ colonies: [
     col('Barren', 1, [ext({ extractor: { qty: null } })]), col('Barren', 2, [ext({ pin: { expiry: null } })]), col(null, 3, [ext()])] }], ix, null), {});
   const typed = { perHour: 5000, programHours: 72, heads: 4 };
+  // Ruling T15b-5: a line whose heads aren't known sits on the median of the learned rates' heads (those that said), up to a whole
+  // head; with none said, none (the most that fit, T8-1).
+  const lh = (h) => ({ perHour: 1, higher: null, which: 'formula', programHours: 72, heads: h, extractors: 1, systems: [], checked: true });
+  eq('  assumedHeads: the median of the learned rates’ heads that said, up to a whole head; none said, null',
+    [assumedHeads({ Barren: { 1: lh(5), 2: lh(0), 3: lh(4) }, Gas: { 4: lh(10) } }), assumedHeads({ Barren: { 1: lh(4), 2: lh(5) } }), assumedHeads({ Barren: { 1: lh(0) } }), assumedHeads({})], [5, 5, null, null]);
   eq('  rateFor: learned beats typed', rateFor(L, typed, 'Barren', 2267).from, 'learned');
   eq('  rateFor: typed when nothing learned for it', rateFor({}, typed, 'Barren', 2267), { perHour: 5000, higher: null, from: 'typed', programHours: 72, heads: 4, otherP0: false, checked: false });
   const other = rateFor(L, undefined, 'Barren', 2268);
@@ -7761,6 +7766,20 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   eq('  still ranked, never a silent zero', eight.iskDay, 2_999_040);
   const noHeads = planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ heads: 0 }) : rateOf(t)) }, 'p2');
   eq('  heads not read (0): the most that fit, said', [role(noHeads, A).extracts.reduce((h, e) => h + e.heads, 0), role(noHeads, A).fit.fits, /heads/i.test(role(noHeads, A).why ?? '')], [11, true, true]);
+  const noHeads5 = planSingle({ ...input, heads: 5, rateOf: (t) => (t === 'Barren' ? rate({ heads: 0 }) : rateOf(t)) }, 'p2');
+  eq('  heads not read (0), with learned rates’ median 5: at 5 heads an extractor, said', [role(noHeads5, A).extracts.map((e) => e.heads), role(noHeads5, A).fit.fits], [[5, 5], true]);
+  has('  and said so on the line', role(noHeads5, A).why ?? '', 'The colony didn’t say how many heads its extractors had: at 5 heads, the median of your extractors’ learned rates');
+  // The re-review's B2: beside a colony's storage facility, an extractor with no rate (12,000 an hour assumed) was given one head as
+  // F9 fitted the most factories, and the room left (3 heads) after: Barren with Microorganisms learned at 18,000 an hour (5 heads)
+  // and Base Metals not. At the median of your learned rates' heads (Ruling T15b-5) it runs 5, and F9 fits the factories around it.
+  {
+    const MICRO = idOf('Microorganisms');
+    const lone = { ...input, planets: [planets[0]], char: { ...char, planets: 1 }, reserve: { [A]: { storage: 1, launchpads: 1 } }, rateOf: (t, p0) => (p0 === MICRO ? rate({ perHour: 18000 }) : null) };
+    const at = (heads) => { const r = role(planSingle({ ...lone, ...(heads ? { heads } : {}) }, 'p2'), A); return [r.extracts.map((e) => e.heads), r.makes.map((m) => m.count), r.fit.fits]; };
+    eq('  T15b-5: an unrated line beside storage ran on 3 heads; at the median, 5, with the factories that fit beside them', [at(null), at(5)], [[[5, 3], [3, 2, 2], true], [[5, 5], [2, 2, 2], true]]);
+    const r5 = role(planSingle({ ...lone, heads: 5 }, 'p2'), A);
+    has('  T15b-5: the unrated line says its heads', r5.why ?? '', 'No rate for Base Metals: ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, at 5 heads, the median of your extractors’ learned rates');
+  }
   const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
   eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
   has('  a rate learned on another P0 of the type: said', role(planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ otherP0: true }) : rateOf(t)) }, 'p2'), A).why ?? '', 'at the rate learned for another P0 of Barren planets');
@@ -8401,7 +8420,9 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
     return PP.boughtOf(perDay, [{ place: 'jita', at: 'Jita', steps: off.steps, maxSaid: off.maxSaid, why: null }]); };
   const rate = { perHour: 3000, higher: 9000, from: 'learned', programHours: 47.5, heads: 10, otherP0: false, checked: false };
   const owner = { charId: 1, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, alt = { charId: 2, name: 'Alt', planets: 5, ccLevel: 4, alpha: false };
-  const base = { ix, planets, char: owner, others: [], rateOf: (t, p0) => (t === 'Barren' && (p0 === 2267 || p0 === 2073) ? rate : null), sell, buy, programHours: 72 };
+  // `heads` as Plan passes it (Ruling T15b-5: piLearn's assumedHeads, the median of the learned rates' heads, 10 here): the P0s with
+  // no rate sit on 10 heads, not the most that fit.
+  const base = { ix, planets, char: owner, others: [], rateOf: (t, p0) => (t === 'Barren' && (p0 === 2267 || p0 === 2073) ? rate : null), heads: 10, sell, buy, programHours: 72 };
   const CASES = {
     'one character': base,
     'two characters (the chain cut)': { ...base, others: [alt] },
