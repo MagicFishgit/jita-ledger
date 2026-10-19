@@ -887,7 +887,7 @@ console.log('\n--- the build guide follows the setup (pi.ts setupSteps) ---');
   // what's left over.
   const routeOf = (st) => st.find((x) => /^Place a launchpad/.test(x.title)).body;
   eq('  P0 → P2 routes through the launchpad, in order', ['route it into the launchpad', 'route each P0 to its Basics', 'route their P1 back to the launchpad, and from there to the Advanced', 'route the P2 to the launchpad'].map((w) => routeOf(p2).indexOf(w)).every((i, k, a) => i >= 0 && (k === 0 || i > a[k - 1])), true);
-  eq('  P0 → P1 routes its P1 back to the launchpad and stops there', [routeOf(p1).includes('route their P1 back to the launchpad.'), routeOf(p1).includes('Advanced')], [true, false]);
+  eq('  P0 → P1 routes its P1 back to the launchpad and stops there', [routeOf(p1).includes('route their P1 back to the launchpad.'), routeOf(p1).includes('Advanced'), routeOf(p1).startsWith('The launchpad is the hub: it holds the P0 and the P1 (10,000 m³)')], [true, false, true]);
   eq('  the storage-hub way is said, at a factory’s room, and no route takes what’s left over', [p1, p2].map((st) => [routeOf(st).includes('costs the room of a factory'), /can’t take|left over/.test(routeOf(st))]), [[true, false], [true, false]]);
   eq('  bought inputs: no survey and no extractor, and the inputs brought in by name', [at(bought, /^Survey/), at(bought, /extractor control unit|extraction program/i), bought.some((x) => x.title === 'Bring in Bacteria and Reactive Metals')], [-1, -1, true]);
   eq('  a factory planet fed by others: its factories and the carrying between them', [at(feed, /factory planet/i) >= 0, feed.some((x) => /half/.test(x.body))], [true, true]);
@@ -7768,17 +7768,21 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   eq('  heads not read (0): the most that fit, said', [role(noHeads, A).extracts.reduce((h, e) => h + e.heads, 0), role(noHeads, A).fit.fits, /heads/i.test(role(noHeads, A).why ?? '')], [11, true, true]);
   const noHeads5 = planSingle({ ...input, heads: 5, rateOf: (t) => (t === 'Barren' ? rate({ heads: 0 }) : rateOf(t)) }, 'p2');
   eq('  heads not read (0), with learned rates’ median 5: at 5 heads an extractor, said', [role(noHeads5, A).extracts.map((e) => e.heads), role(noHeads5, A).fit.fits], [[5, 5], true]);
-  has('  and said so on the line', role(noHeads5, A).why ?? '', 'The colony didn’t say how many heads its extractors had: at 5 heads, the median of your extractors’ learned rates');
-  // The re-review's B2: beside a colony's storage facility, an extractor with no rate (12,000 an hour assumed) was given one head as
-  // F9 fitted the most factories, and the room left (3 heads) after: Barren with Microorganisms learned at 18,000 an hour (5 heads)
-  // and Base Metals not. At the median of your learned rates' heads (Ruling T15b-5) it runs 5, and F9 fits the factories around it.
+  has('  and said so on the line', role(noHeads5, A).why ?? '', 'The colony didn’t say how many heads its extractors had, so at 5 heads, the median of your extractors’ learned rates');
+  // The re-review's B2, then Ruling T15b-8: an extractor with no rate (12,000 an hour assumed) sits on the median of your learned
+  // rates' heads, capped at the most that leave room for its rates' layout, and the line says which. Barren with Microorganisms
+  // learned at 18,000 an hour (5 heads) and Base Metals not: its rates' layout is 3 + 2 Basics and 2 Advanced. Beside a launchpad
+  // alone the median fits; beside a colony's storage facility too, 3 heads do. (T15b-5.2 had put the median first and fitted a Basic
+  // fewer; at a median of 10, no layout at all.)
   {
     const MICRO = idOf('Microorganisms');
-    const lone = { ...input, planets: [planets[0]], char: { ...char, planets: 1 }, reserve: { [A]: { storage: 1, launchpads: 1 } }, rateOf: (t, p0) => (p0 === MICRO ? rate({ perHour: 18000 }) : null) };
-    const at = (heads) => { const r = role(planSingle({ ...lone, ...(heads ? { heads } : {}) }, 'p2'), A); return [r.extracts.map((e) => e.heads), r.makes.map((m) => m.count), r.fit.fits]; };
-    eq('  T15b-5: an unrated line beside storage ran on 3 heads; at the median, 5, with the factories that fit beside them', [at(null), at(5)], [[[5, 3], [3, 2, 2], true], [[5, 5], [2, 2, 2], true]]);
-    const r5 = role(planSingle({ ...lone, heads: 5 }, 'p2'), A);
-    has('  T15b-5: the unrated line says its heads', r5.why ?? '', 'No rate for Base Metals: ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, at 5 heads, the median of your extractors’ learned rates');
+    const lone = { ...input, planets: [planets[0]], char: { ...char, planets: 1 }, rateOf: (t, p0) => (p0 === MICRO ? rate({ perHour: 18000 }) : null) };
+    const at = (over) => { const r = role(planSingle({ ...lone, ...over }, 'p2'), A); return [r.extracts.map((e) => e.heads), r.makes.map((m) => m.count), r.fit.fits, r.why]; };
+    const STORE = { reserve: { [A]: { storage: 1, launchpads: 1 } } };
+    const SAID = 'No rate for Base Metals: ranked at what the factories make if your extractors deliver 12,000 P0 an hour each, ';
+    eq('  T15b-8: at the median where it fits, said so', at({ heads: 5 }).slice(0, 3).concat([at({ heads: 5 })[3].startsWith(`${SAID}at 5 heads, the median of your extractors’ learned rates`)]), [[5, 5], [3, 2, 2], true, true]);
+    eq('  T15b-8: beside storage, capped where the rates’ layout still fits, said so', at({ heads: 5, ...STORE }).slice(0, 3).concat([at({ heads: 5, ...STORE })[3].startsWith(`${SAID}at 3 heads: your extractors’ median is 5, and no more fit beside its factories`)]), [[5, 3], [3, 2, 2], true, true]);
+    eq('  T15b-8: with nothing learned, the most that fit (T8-1), as before', at(STORE).slice(0, 3), [[5, 3], [3, 2, 2], true]);
   }
   const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
   eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
@@ -8435,7 +8439,22 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
     roles: s.roles.map((r) => [r.planetId, r.charId, r.does, r.makes.map((m) => [m.id, m.perDay, m.count]), r.ships.map((x) => [x.id, x.perDay, x.to])]),
     outputs: s.outputs.map((o) => [o.id, o.perDay, o.sold.isk]), inputs: s.inputs.map((i) => [i.id, i.perDay, i.bought.isk]), perChar: s.perChar.map((p) => [p.charId, p.iskDay]) });
   const FILE = new URL('./fixtures/planets-steps.json', import.meta.url);
-  const now = Object.fromEntries(Object.entries(CASES).map(([name, input]) => [name, PP.planSystem(input).map(digest)]));
+  const sys = Object.fromEntries(Object.entries(CASES).map(([name, input]) => [name, PP.planSystem(input)]));
+  const now = Object.fromEntries(Object.entries(sys).map(([name, ss]) => [name, ss.map(digest)]));
+  // Ruling T15b-8 on 5-NZNW's own radii at CCU IV: an unrated planet's extractors sit on the learned median (10) capped at the most
+  // heads that leave room for its rates' layout (2 + 2 Basics on the assumed 12,000 an hour), and the line says so.
+  {
+    const un = planets.find((p) => p.type && p.type !== 'Barren');
+    const r = PP.planSingle({ ...base, planets: [un], char: { ...owner, planets: 1 } }, 'p1').roles[0];
+    eq('  T15b-8: an unrated planet at a median of 10 fits, its heads capped under 10, its Basics the rates’ 2 + 2', [r.fit.fits, r.lacks, r.extracts.every((e) => e.heads >= 1 && e.heads < 10), r.makes.map((m) => m.count)], [true, null, true, [2, 2]]);
+    has('  T15b-8: and its line says the cap', r.why ?? '', 'heads: your extractors’ median is 10, and no more fit beside its factories');
+  }
+  // Ruling T15b-8: a fit can't regress behind unchanged figures again. At the median heads uncapped (10 here) every unrated planet
+  // fitted at no level while every ISK a day stayed the same; the record holds no fit. So every planet a single-planet setup or the
+  // feed uses must fit at its character's level.
+  for (const [name, ss] of Object.entries(sys)) {
+    eq(`  ${name}: every planet of P0 → P1, P0 → P2 and the feed fits`, ss.filter((x) => ['p1', 'p2', 'feed'].includes(x.kind)).flatMap((x) => x.roles.filter((r) => r.does !== 'unused' && !(r.fit?.fits && !r.lacks)).map((r) => [x.kind, r.planetId])), []);
+  }
   if (process.env.RECORD_STEPS) {
     // A setup a line, so the file reads (and diffs) by setup.
     const about = 'Every setup of check.mjs\'s "planner in steps" cases as piPlan.ts gave them before the searches were sliced (Ruling T11-13): the slicing must not move one.';
@@ -8800,7 +8819,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   };
   // versusBest as its caller makes it (`bestsFor`).
   const vsOf = (c, s = sell, rates = {}, pl = planet) => {
-    const { best, own } = bestsFor(kOf.get(c), ix, inputOf(c, s, rates, 4, pl));
+    const { best, own } = bestsFor(kOf.get(c), c, ix, inputOf(c, s, rates, 4, pl));
     return versusBest(c, best, ix, own);
   };
   const best = bestOf(A, sell);
@@ -8825,7 +8844,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  no rate at all: the assumed figure, said as one no colony of yours has shown', vsOf(Ad16, dearerMech, { learned: {} }), { gain: 1_063_680, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 1.06 M ISK more a day, if it gets 12,000 Base Metals and Noble Metals an hour each, a rate no colony of yours has shown' });
   // Ruling T15b-6: another product speaks only from OTHER_PRODUCT_MIN (10%) of the colony's day more; a sliver on a rate the colony
   // hasn't shown is noise. Both sides of the line, on the Mechanical Parts best above.
-  const mp = bestsFor(kOf.get(Ad), ix, inputOf(Ad, dearMech));
+  const mp = bestsFor(kOf.get(Ad), Ad, ix, inputOf(Ad, dearMech));
   const atLine = (d) => versusBest(Ad, { ...mp.best, iskDay: Ad.iskDay * 1.1 + d }, ix, mp.own);
   eq('  T15b-6: another product 1 ISK under 10% of the colony’s day says nothing; 1 ISK over speaks', [OTHER_PRODUCT_MIN, atLine(-1), atLine(1).gain > 0, atLine(1).said.startsWith('Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays ')], [0.1, { gain: 0, said: '' }, true, true]);
   eq('  T15b-6: and the first fix round’s case, 3.8% more on assumed rates, is silent', vsOf(Ad, dearMech, { learned: {} }), { gain: 0, said: '' });
@@ -8854,7 +8873,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const ulFit = (b) => { const m = b.roles[0].makes, n = (f) => m.filter((x) => x.facility === f).reduce((k, x) => k + x.count, 0); return fitOf(ix, 'Barren', 4, { ecus: 2, heads: 10, basic: n('basic'), advanced: n('advanced'), hightech: 0, storage: 1, launchpads: 1 }, 3750).fits; };
   eq('  T15b-4: the premise: free, beside the storage, the best is 5 Basics and 1 Advanced, fitting, and pays more than the colony',
     [reserveFor(UL), ulFree.roles[0].makes.map((m) => [m.id, m.count]), ulFit(ulFree), ulFree.iskDay > ULc.iskDay + 1], [{ 40000001: { storage: 1, launchpads: 1 } }, [[BACTERIA, 2], [REACTIVE, 3], [NANITES, 1]], true, true]);
-  const ulBests = bestsFor(UL, ix, inputOf(ULc, cheapNan));
+  const ulBests = bestsFor(UL, ULc, ix, inputOf(ULc, cheapNan));
   eq('  T15b-4: held, the planner makes the colony’s own products on its own 2 + 2 Basics and 2 Advanced, and nothing else on them',
     [ulBests.own.roles[0].makes.map((m) => [m.id, m.count]), ulBests.best.roles[0].makes.map((m) => [m.id, m.count])], [[[BACTERIA, 2], [REACTIVE, 2], [NANITES, 2]], [[BACTERIA, 2], [REACTIVE, 3]]]);
   eq('  T15b-4: another mix of factories for the colony’s own products says nothing', vsOf(ULc, cheapNan), { gain: 0, said: '' });
@@ -8868,7 +8887,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // figure, the fault alone is said. With no fault to say (the Nanites colony), why nothing is compared. Another mix of the colony's
   // own factories is never said, so unpriced it withholds nothing.
   const mechNan = sellBy(unitOf({ [NANITES]: 6_500, [MECH]: 16_000 })), UL3m = chainOf(UL3, { sell: mechNan });
-  const m3 = bestsFor(UL3, ix, inputOf(UL3m, mechNan));
+  const m3 = bestsFor(UL3, UL3m, ix, inputOf(UL3m, mechNan));
   const unpricedBest = (b) => ({ ...b, outputs: b.outputs.map((o) => (o.id === MECH ? { ...o, sold: { ...o.sold, isk: null, why: 'no price at UALX-3' } } : o)) });
   const fault3 = 'Makes Nanites; the planner’s own layout for it here pays 10,080 ISK more a day: your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why)';
   const vsM3 = versusBest(UL3m, m3.best, ix, m3.own);
@@ -8877,10 +8896,33 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
     [versusBest(UL3m, unpricedBest(m3.best), ix, m3.own), versusBest(UL3m, { ...m3.best, iskDay: null, why: 'No home hub picked' }, ix, m3.own)], [{ gain: 10_080, said: fault3 }, { gain: 10_080, said: fault3 }]);
   const mpU = versusBest(Ad, unpricedBest(mp.best), ix, mp.own), mpN = versusBest(Ad, { ...mp.best, iskDay: null, why: 'No home hub picked' }, ix, mp.own);
   eq('  T15b-7: with no fault to say, why it isn’t compared', [mpU, mpN], [{ gain: null, said: 'It isn’t set against the planner’s best while Mechanical Parts has no price: no price at UALX-3' }, { gain: null, said: 'It isn’t set against the planner’s best, which has no figure here: no home hub picked' }]);
-  const ulb = bestsFor(UL, ix, inputOf(ULc, cheapNan));
+  const ulb = bestsFor(UL, ULc, ix, inputOf(ULc, cheapNan));
   eq('  T15b-7: another mix unpriced withholds nothing', versusBest(ULc, { ...ulb.best, outputs: ulb.best.outputs.map((o) => ({ ...o, sold: { ...o.sold, isk: null, why: 'no price' } })) }, ix, ulb.own), { gain: 0, said: '' });
+  // Ruling T15b-9: bestsFor holds Plan's whole-system input to the colony's planet, one planet allowed; a planet not in it gives no
+  // setups, said.
+  const others = [{ planetId: 40000002, name: 'Test II', type: 'Gas', radiusKm: 26370, tax: brave }, { planetId: 40000003, name: 'Test III', type: 'Barren', radiusKm: 3750, tax: brave }];
+  const whole = { ...inputOf(UL3m, mechNan), planets: [...others, planet], char: { charId: 1, name: 'Owner', planets: 3, ccLevel: 4, alpha: false } };
+  const w3 = bestsFor(UL3, UL3m, ix, whole), w0 = bestsFor(UL3, UL3m, ix, { ...whole, planets: others });
+  eq('  T15b-9: a whole-system input is held to the colony’s planet: the same words as its planet alone',
+    [w3.best.roles.map((r) => r.planetId), w3.own.roles.map((r) => r.planetId), versusBest(UL3m, w3.best, ix, w3.own)], [[40000001], [40000001], vsM3]);
+  eq('  T15b-9: its planet not in the input: no setups, said', [w0, versusBest(UL3m, w0.best, ix, w0.own)], [{ best: null, own: null }, { gain: null, said: 'The planner has no single-planet setup for this planet to set it against' }]);
+  // Ruling T15b-10: own is planned on the colony's own extraction. A colony extracting 7,000 an hour of each P0, under the 12,000 its
+  // 2 Basics a line take, where Plan's rates (learned on other planets) give 16,600: its factories could make no more on this planet,
+  // so nothing is said of them; its flags say the extraction.
+  const weak = chainOf(colony(UL.pins.map((p) => (p.extractor ? { ...p, extractor: { ...p.extractor, qty: 7000 } } : p)), UL.routes), { sell: cheapNan });
+  const weakB = bestsFor(kOf.get(weak), weak, ix, inputOf(weak, cheapNan, { extra: { [MICRO]: { perHour: 16600 }, [BASE]: { perHour: 16600 } } }));
+  eq('  T15b-10: a planet yielding less than its Basics take says nothing of its factories; its flags say the extraction',
+    [weak.flags.some((f) => f.flag === 'starving'), versusBest(weak, weakB.best, ix, weakB.own)], [true, { gain: 0, said: '' }]);
+  // Ruling T15b-11: with an output on the colony's side unpriced (III's surplus P1 at UALX-3), its own factories' fault is still said,
+  // in counts alone, and why there's no ISK figure; with no fault, why nothing is compared, as before.
+  const homeLike = sellBy(unitOf({ [NANITES]: 6_500, [BACTERIA]: null, [REACTIVE]: null }));
+  const UL3h = chainOf(UL3, { sell: homeLike }), ULh = chainOf(UL, { sell: homeLike });
+  const h3 = bestsFor(UL3, UL3h, ix, inputOf(UL3h, homeLike)), hU = bestsFor(UL, ULh, ix, inputOf(ULh, homeLike));
+  eq('  T15b-11: III’s fault said in counts when its surplus P1 has no price',
+    versusBest(UL3h, h3.best, ix, h3.own), { gain: null, said: 'Makes Nanites; your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag above says why); no ISK figure while Bacteria and Reactive Metals have no price: no price read' });
+  eq('  T15b-11: and with no fault, why nothing is compared', versusBest(ULh, hU.best, ix, hU.own).gain, 0);
   // Only the layouts the words speak of add their clauses: a best whose figure is before the customs tax says so only when it speaks.
-  const ul3 = bestsFor(UL3, ix, inputOf(UL3c, cheapNan));
+  const ul3 = bestsFor(UL3, UL3c, ix, inputOf(UL3c, cheapNan));
   eq('  a best that isn’t said lends the words no clause of its own', versusBest(UL3c, { ...ul3.best, before: ['tax'] }, ix, ul3.own).said.includes('before the customs tax'), false);
   // The same factories, every one making what it can, with what one makes routed nowhere (the colony's second Advanced's Nanites):
   // the third of differsSaid's words, which a real colony's routing fault can reach as III's did.

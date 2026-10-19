@@ -47,14 +47,18 @@ planets-planner.md.
     with no programme.
   - **`versusBest`** sets the planet against the planner's best for that planet alone, planned as Plan plans (fix round 2's ruling):
     **the caller passes the rates Plan uses** (`rateFor`'s, its fallbacks included: a P0 the colony doesn't extract takes another P0's
-    learned rate), and `bestsFor(k, ix, input)` adds the colony's own level, its reserve and its hold, and plans two setups: `best`
-    (every product) and `own` (the colony's own products on its own factories). Every finding of the re-review showed only with Plan's
-    own rates; the first probe fed only the colony's own P0s. Nothing is said within a cent or above. **A layout that doesn't fit at
+    learned rate; Plan's whole-system input will do), and `bestsFor(k, chain, ix, input)` holds it to the colony's planet with one
+    planet allowed (Ruling T15b-9: given the whole system, `best` ran on five other planets), adds the colony's own level, its reserve
+    and its hold, and plans two setups: `best` (every product, on Plan's rates) and `own` (the colony's own products on its own
+    factories, **on the colony's own extraction**, the chain's `extracts`: Ruling T15b-10, so a planet yielding less than its Basics
+    take says so in its flags and never reads as its factories' fault, as it did against the average of other planets). The planet
+    not in the input: no setups, said. Every finding of the re-review showed only with Plan's own rates; the first probe fed only the
+    colony's own P0s. Nothing is said within a cent or above. **A layout that doesn't fit at
     the colony's own level is no better**: nothing said, never a suggestion to train (Ruling T15-1; the fit's CPU and powergrid
     against that level's budget), and so is one whose fit isn't checked (the planet's size not known). On the formula's reading the
     first version told every real colony the planner's own layout paid more: sized to the higher rate, it didn't fit at their level.
-    An output unpriced on any side, or no valued ISK on either, gives no gain, with why: never a gain against 0. A P0 left over with
-    no price isn't one: nothing on both sides, said.
+    No valued ISK, or an output unpriced, gives no ISK figure, with why: never a gain against 0. A P0 left over with no price isn't
+    one: nothing on both sides, said.
     - **The best is planned beside the colony's own storage and launchpads** (Ruling T15b-1, `PlanInput.reserve`, `reserveFor(k)`:
       Plan passes none, one launchpad and no storage). The fit model has no storage, so after F9 the best won on every real colony by
       putting a third Basic in the storage facility's room. The user routes the P0 into storage, the factories draw from it, and it
@@ -67,7 +71,7 @@ planets-planner.md.
       says why)", the figure the fault's own; or, every factory making what it can, ", with the same factories, all they make
       shipped (a flag above says what holds yours back)" (an output routed nowhere; kept and pinned, since a real colony's routing
       fault reaches it as III's did). **Another mix of the colony's factories says nothing**, whichever way it trades: a fifth Basic
-      for the second Advanced (5-NZNW IV and VI, about 50k a day), one Advanced fewer, or its own P1s sold with no Advanced. Held,
+      for the second Advanced, one Advanced fewer, or its own P1s sold with no Advanced. Held,
       a colony laid out as theirs and fed is its own best for its own products; another product can still pay more.
     - **Another product** (Ruling T15b-3) is set against the colony as it would be with its fault fixed ("…; and the best P2 it can
       make alone here, Mechanical Parts, pays … more a day than that, with Noble Metals at the rate learned for another P0"), and
@@ -77,8 +81,11 @@ planets-planner.md.
       silent, and III says its fault alone. The colony's own fault, on its own rates, still speaks above a cent. Before the hold, III's
       fault was said as a mix, then as another product's gain.
     - **Another product's layout with an output unpriced, or no figure, withholds only its own clause** (Ruling T15b-7): the fault is
-      still said; with none, the words say why nothing is compared. The colony's or its own layout's output unpriced withholds all
-      (UALX-3's prices, where III's and VII's surplus P1 has none). Another mix of the colony's factories, never said, withholds nothing.
+      still said; with none, the words say why nothing is compared. Another mix of the colony's factories, never said, withholds
+      nothing. **An output on the colony's side unpriced** (UALX-3's prices, where III's surplus P1 has none) **still says the fault,
+      in counts alone** (Ruling T15b-11): "Makes Nanites; your 2 Advanced on Nanites make 120 a day where they can make 240 (a flag
+      above says why); no ISK figure while Bacteria and Reactive Metals have no price: …", `gain` null. Not known is never 0, and the
+      fault is what versusBest exists to catch; the ISK figure comes only with both sides priced.
     - **Every rate the colony hasn't shown is said, each in its own words** (Ruling T15b-5): none, "if it gets 12,000 Noble Metals an
       hour, a rate no colony of yours has shown"; another P0's, "with Noble Metals at the rate learned for another P0"; typed, "with
       Noble Metals at the rate you typed". Task 16 shows the qualifier with the figure, never the figure alone, and draws a colony's
@@ -98,6 +105,6 @@ Moved here from planets-colonies.md with the chain: state these rather than lett
   the command centre at the export rate, though a launch from it pays 1.5×): nothing leaves until it goes through the customs office
   (from storage, a transfer to a launchpad first), so the chain's ISK a day is what the colony makes for market, not what has
   sold; a P0 surplus left in storage is counted with it.
-- **versusBest never says another mix of a colony's own factories**, even where one pays more (Ruling T15b-4: 5-NZNW IV and VI,
-  about 50k a day for a fifth Basic selling P1): the user's rule is 2 Basics for each Advanced. A colony whose shape the planner
+- **versusBest never says another mix of a colony's own factories**, even where one pays more (Ruling T15b-4: a fifth Basic selling
+  P1): the user's rule is 2 Basics for each Advanced. A colony whose shape the planner
   doesn't make (a third P1, a P3) has no `own`, so its faults go unsaid there and only another product speaks.

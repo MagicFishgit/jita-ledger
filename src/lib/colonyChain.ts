@@ -10,7 +10,7 @@ import type { Facility, PiIndex, Schematic, Tier } from './piBundle';
 import type { KeptColony, KeptPin } from './colonies';
 import { ENDING_SOON_HOURS } from './colony';
 import { lowerReading, readings } from './piExtraction';
-import { PI_READING } from './piLearn';
+import { PI_READING, type Rate } from './piLearn';
 import { anHour, keptSold, keptWhy, listSaid, planSingle, taxRows, valuedOutput, type Hold, type Output, type PlanInput, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
 import type { Tax } from './planetsDoc';
 import { iskBig, units as unitsSaid } from './format';
@@ -657,7 +657,7 @@ const FAC_COUNT: Record<Facility, [string, string]> = { basic: ['Basic', 'Basics
  * nothing (the user's 2 Basics, one for each P1, for each Advanced: "there is no point to it … i would just be overproducing one of the
  * p1's"), whichever way it trades: null, and `versusBest` is silent.
  */
-function differsSaid(chain: Chain, role: Role, ix: PiIndex): string | null {
+function differsSaid(chain: Chain, role: Role, ix: PiIndex): { short: string | null; mixed: boolean; flagged: boolean } {
   const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
   type Run = { count: number; perDay: number; facility: Facility };
   const sum = (xs: readonly { id: number; count: number; perDay: number | null; facility: Facility }[]) => {
@@ -682,9 +682,7 @@ function differsSaid(chain: Chain, role: Role, ix: PiIndex): string | null {
     if (b.perDay > 0 && c.perDay < STARVING_BELOW * b.perDay) short.push(`your ${n} on ${name(id)} make ${dayCount(c.perDay)} a day where they can make ${dayCount(b.perDay)}`);
   }
   const flagged = chain.flags.some((f) => f.flag === 'starving' || f.flag === 'idle' || f.flag === 'buildingUp');
-  if (short.length) return `: ${listSaid(short)}${flagged ? ' (a flag above says why)' : ''}`;
-  if (mixed) return null;
-  return `, with the same factories, all they make shipped${flagged ? ' (a flag above says what holds yours back)' : ''}`;
+  return { short: short.length ? `${listSaid(short)}${flagged ? ' (a flag above says why)' : ''}` : null, mixed, flagged };
 }
 
 /**
@@ -701,48 +699,66 @@ function fitsHere(ix: PiIndex, chain: Chain, role: Role | undefined): boolean {
 
 /**
  * The planner's two setups `versusBest` sets a kept colony against, planned as Plan plans (the caller's `input`: the rates Plan uses,
- * `rateFor`'s with its fallbacks, its prices and program length), for the colony's planet alone at the colony's own level, beside
- * the colony's own storage and launchpads (`reserveFor`, Ruling T15b-1), with its own products held to its own factories (`holdFor`,
- * Ruling T15b-4): `best`, the better of P0 → P1 and P0 → P2 over every product; `own`, the colony's own products on its own factories
- * alone, null when the planner makes no single-planet layout of them (a P3, or Basics no Advanced takes from).
+ * `rateFor`'s with its fallbacks, its prices and program length; Plan's whole-system input will do), held to the colony's planet
+ * alone, one planet allowed (Ruling T15b-9), at the colony's own level, beside its own storage and launchpads (`reserveFor`, Ruling
+ * T15b-1), with its own products held to its own factories (`holdFor`, Ruling T15b-4):
+ * - `best`, the better of P0 → P1 and P0 → P2 over every product, on Plan's rates;
+ * - `own`, the colony's own products on its own factories alone, on the colony's own extraction for its own P0s (the chain's
+ *   `extracts`, summed by P0; one it doesn't extract, nothing: Ruling T15b-10), so "the same factories could make more" is the
+ *   factories' alone: a planet that yields less than its Basics take says so in its flags, never as its factories' fault. Null when
+ *   the planner makes no single-planet layout of them (a P3, or Basics no Advanced takes from).
+ * Both null when the input doesn't hold the colony's planet: versusBest then says there is no setup.
  */
-export function bestsFor(k: KeptColony, ix: PiIndex, input: PlanInput): { best: Setup; own: Setup | null } {
-  const like: PlanInput = { ...input, char: { ...input.char, ccLevel: k.level }, reserve: reserveFor(k), hold: holdFor(k, ix) };
+export function bestsFor(k: KeptColony, chain: Chain, ix: PiIndex, input: PlanInput): { best: Setup | null; own: Setup | null } {
+  const planets = input.planets.filter((p) => p.planetId === k.planetId);
+  if (!planets.length) return { best: null, own: null };
+  const like: PlanInput = { ...input, planets, char: { ...input.char, planets: 1, ccLevel: k.level }, reserve: reserveFor(k), hold: holdFor(k, ix) };
   const pick = (a: Setup, b: Setup) => ((b.iskDay ?? -Infinity) >= (a.iskDay ?? -Infinity) ? b : a);
   const best = pick(planSingle(like, 'p1'), planSingle(like, 'p2'));
-  const ofOwn = (['p1', 'p2'] as const).map((kind) => planSingle({ ...like, heldOnly: true }, kind))
+  const extraction = (_t: PlanetType, p0: number): Rate => {
+    const xs = chain.extracts.filter((x) => x.p0 === p0);
+    const sum = (f: (x: ChainExtract) => number | null) => xs.reduce((n, x) => n + (f(x) ?? 0), 0);
+    return {
+      perHour: sum((x) => x.perHour), higher: xs.length && xs.every((x) => x.higher != null) ? sum((x) => x.higher) : null, from: 'learned',
+      programHours: xs.find((x) => x.programHours != null)?.programHours ?? input.programHours, heads: sum((x) => x.heads), otherP0: false, checked: true,
+    };
+  };
+  const ofOwn = (['p1', 'p2'] as const).map((kind) => planSingle({ ...like, rateOf: extraction, heldOnly: true }, kind))
     .filter((x) => x.roles.some((r) => r.planetId === k.planetId && r.does !== 'unused'));
   return { best, own: ofOwn.length ? ofOwn.reduce(pick) : null };
 }
 
 /**
  * The real planet against the best single-planet setups the planner gives that planet alone (`bestsFor`: at the rates Plan uses, at
- * the colony's own level, beside its own storage and launchpads, its own products held to its own factories). Two things are said,
- * each only when it pays more:
+ * the colony's own level, beside its own storage and launchpads, its own products held to its own factories on its own extraction).
+ * Two things are said:
  * - **Its own products on its own factories** (`own`; Ruling T15b-4): only when the same factories could make more, saying what
  *   differs (`differsSaid`: factories making less than they can, with the flags' pointer), never another mix of factories. The user
  *   runs 2 Basics, one for each P1, for each Advanced, and on a third Basic selling P1: "there is no point to it … i would just be
- *   overproducing one of the p1's". So a gain from fixing the colony is said as the fault's, never as a product's.
+ *   overproducing one of the p1's". So a gain from fixing the colony is said as the fault's, never as a product's. With its ISK
+ *   known on both sides, above a cent, with the figure; with an output on the colony's side not priced, or the colony not valued, in
+ *   counts alone, with why no figure (Ruling T15b-11): not known is never 0, and the fault is what this exists to catch.
  * - **Another product** (`best`; Ruling T15b-3), against the colony as it would be with that fixed ("more a day than that"), only
- *   when it pays at least `OTHER_PRODUCT_MIN` of the colony's day more (Ruling T15b-6). A best making only goods the colony makes
- *   (its own P1s without the Advanced, say) is another mix of its factories, and says nothing. A best with no figure, or an output
- *   unpriced, withholds only this clause (Ruling T15b-7): the fault is still said, and with nothing else to say, why it isn't compared.
- * `gain` is what the planner's better layout makes a day more than the colony; within a cent of it, or above, nothing is said (gain
- * 0). Without `own` (undefined), a best making the colony's own products stands in for it. A layout that doesn't fit at the colony's
- * own level, or whose fit isn't checked, is no better: nothing said, never a suggestion to train (Ruling T15-1). With no valued ISK on
- * the colony's side, or an output of the colony's or its own layout unpriced, gain is null and the words say why: never a gain against
- * 0. A P0 left over with no
- * price isn't such an output: it stays on the planet, a known nothing on both sides (Ruling T15-5), and the words say so when they
- * speak. A layout resting on a rate the colony hasn't shown says so, each kind in its own words (Ruling T15b-5: none, assumed; another
- * P0's learned; typed), and so does one before the customs tax. The planet's name isn't in the chain: the page puts it in front.
+ *   when it pays at least `OTHER_PRODUCT_MIN` of the colony's day more (Ruling T15b-6), and only with both sides priced. A best
+ *   making only goods the colony makes (its own P1s without the Advanced, say) is another mix of its factories, and says nothing. A
+ *   best with no figure, or an output unpriced, withholds only this clause (Ruling T15b-7): the fault is still said, and with nothing
+ *   else to say, why it isn't compared.
+ * `gain` is what the planner's better layout makes a day more than the colony, null when the words carry no ISK figure; within a
+ * cent of it, or above, nothing is said (gain 0). Without `own` (undefined), a best making the colony's own products stands in for
+ * it. A layout that doesn't fit at the colony's own level, or whose fit isn't checked, is no better: nothing said, never a suggestion
+ * to train (Ruling T15-1). A P0 left over with no price isn't an unpriced output: it stays on the planet, a known nothing on both
+ * sides (Ruling T15-5), and the words say so when they speak. A layout resting on a rate the colony hasn't shown says so, each kind
+ * in its own words (Ruling T15b-5: none, assumed; another P0's learned; typed), and so does one before the customs tax. The planet's
+ * name isn't in the chain: the page puts it in front.
  */
 export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: Setup | null): { gain: number | null; said: string } {
   const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
   if (!best) return { gain: null, said: 'The planner has no single-planet setup for this planet to set it against' };
-  if (chain.iskDay == null) return { gain: null, said: `It isn’t set against the planner’s best: ${low(chain.why ?? 'what it makes isn’t valued')}` };
   const roleOf = (s: Setup) => s.roles.find((r) => r.planetId === chain.planetId && r.does !== 'unused');
   const top = chain.makes.length ? Math.max(...chain.makes.map((m) => TIERS.indexOf(ix.byId.get(m.id)?.tier ?? 'P0'))) : -1;
   const tops = chain.makes.filter((m) => TIERS.indexOf(ix.byId.get(m.id)?.tier ?? 'P0') === top).map((m) => m.id);
+  const what = tops.length ? `Makes ${listSaid(tops.map(name))}`
+    : chain.extracts.length ? `Extracts ${listSaid([...new Set(chain.extracts.map((x) => x.p0))].map(name))}` : 'Makes nothing';
   // The products a layout tops out at: its Basics' on P0 → P1, its Advanced's on P0 → P2.
   const theirTop = (s: Setup) => (roleOf(s)?.makes ?? []).filter((m) => m.facility === (s.kind === 'p1' ? 'basic' : 'advanced')).map((m) => m.id);
   const sameAs = (s: Setup) => { const t = theirTop(s); return t.length > 0 && t.length === tops.length && t.every((id) => tops.includes(id)); };
@@ -750,22 +766,10 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   // another product (Ruling T15b-4).
   const made = new Set(chain.makes.map((m) => m.id));
   const ownMix = (s: Setup) => { const r = roleOf(s); return !!r && r.makes.length > 0 && r.makes.every((m) => made.has(m.id)); };
-  const mine = own === undefined ? (sameAs(best) && best.iskDay != null ? best : null) : own && own.iskDay != null && sameAs(own) ? own : null;
-  // An output with no price: credited nothing (I1), it would count as worthless against the other side's.
-  const noPrice = (os: readonly Output[]) => {
-    const unpriced = os.filter((o) => o.sold.isk == null);
-    if (!unpriced.length) return null;
-    const names = [...new Set(unpriced.map((o) => name(o.id)))];
-    return `It isn’t set against the planner’s best while ${listSaid(names)} ${names.length > 1 ? 'have' : 'has'} no price: ${[...new Set(unpriced.map((o) => low(o.sold.why ?? 'no price read')))].join('; ')}`;
-  };
-  // The colony or its own layout unpriced: nothing is compared.
-  const here = noPrice([...chain.outputs, ...(mine ? mine.outputs : [])]);
-  if (here) return { gain: null, said: here };
-  // Another product's layout with no figure, or an output unpriced, withholds only its own clause (Ruling T15b-7): the colony's own
-  // fault, priced, is still said. Another mix of the colony's own factories is never said, so it withholds nothing.
-  const bestHeld = best === mine || ownMix(best) ? null : best.iskDay == null
-    ? `It isn’t set against the planner’s best, which has no figure here: ${low(best.why ?? 'what it would make isn’t valued')}`
-    : noPrice(best.outputs);
+  const mine = own === undefined ? (sameAs(best) ? best : null) : own && sameAs(own) ? own : null;
+  const mineRole = mine ? roleOf(mine) : undefined;
+  // What the colony's own factories could make more, in counts: needs no price.
+  const d = mine && fitsHere(ix, chain, mineRole) ? differsSaid(chain, mineRole!, ix) : null;
   // A layout resting on a rate the colony hasn't shown is said as that, each kind in its own words, never claimed (Rulings T15b-3,
   // T15b-5): none (the planner assumes what two Basics take), another P0's learned rate, or one you typed.
   const guessOf = (role: Role | undefined) => {
@@ -777,14 +781,37 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
     return (noneNames.length ? `, if it gets ${unitsSaid(none[0].perHour)} ${listSaid(noneNames)} an hour${noneNames.length > 1 ? ' each' : ''}, a rate no colony of yours has shown` : '')
       + (withSaid.length ? `, with ${listSaid(withSaid)}` : '');
   };
+  // An output with no price: credited nothing (I1), it would count as worthless against the other side's. Said after "It isn't set
+  // against the planner's best" or "no ISK figure".
+  const noPrice = (os: readonly Output[]) => {
+    const unpriced = os.filter((o) => o.sold.isk == null);
+    if (!unpriced.length) return null;
+    const names = [...new Set(unpriced.map((o) => name(o.id)))];
+    return ` while ${listSaid(names)} ${names.length > 1 ? 'have' : 'has'} no price: ${[...new Set(unpriced.map((o) => low(o.sold.why ?? 'no price read')))].join('; ')}`;
+  };
+
+  // The colony's side not valued, or an output on it unpriced: no ISK is compared, but its own factories' fault is still said, in
+  // counts alone (Ruling T15b-11).
+  const side = chain.iskDay == null ? `: ${low(chain.why ?? 'what it makes isn’t valued')}`
+    : noPrice([...chain.outputs, ...(mine ? mine.outputs : [])])
+    ?? (mine && mine.iskDay == null ? `: ${low(mine.why ?? 'what it would make isn’t valued')}` : null);
+  if (side) {
+    if (d?.short) return { gain: null, said: `${what}; ${d.short}${guessOf(mineRole)}; no ISK figure${side}` };
+    return { gain: null, said: `It isn’t set against the planner’s best${side}` };
+  }
+  const colony = chain.iskDay!;
+  // Another product's layout with no figure, or an output unpriced, withholds only its own clause (Ruling T15b-7): the colony's own
+  // fault, priced, is still said. Another mix of the colony's own factories is never said, so it withholds nothing.
+  const bestHeld = best === mine || ownMix(best) ? null : best.iskDay == null
+    ? `It isn’t set against the planner’s best, which has no figure here: ${low(best.why ?? 'what it would make isn’t valued')}`
+    : noPrice(best.outputs) && `It isn’t set against the planner’s best${noPrice(best.outputs)}`;
 
   // Its own products on its own factories: said only when the same factories could make more (Ruling T15b-4).
-  let base = chain.iskDay, ownSaid = '';
-  const mineRole = mine ? roleOf(mine) : undefined;
-  if (mine && fitsHere(ix, chain, mineRole) && mine.iskDay! - chain.iskDay > SAME_ISK) {
-    const d = differsSaid(chain, mineRole!, ix);
-    if (d != null) {
-      ownSaid = `the planner’s own layout for it here pays ${iskBig(mine.iskDay! - chain.iskDay)} more a day${d}${guessOf(mineRole)}`;
+  let base = colony, ownSaid = '';
+  if (mine && d && mine.iskDay! - colony > SAME_ISK) {
+    const tail = d.short ? `: ${d.short}` : !d.mixed ? `, with the same factories, all they make shipped${d.flagged ? ' (a flag above says what holds yours back)' : ''}` : null;
+    if (tail) {
+      ownSaid = `the planner’s own layout for it here pays ${iskBig(mine.iskDay! - colony)} more a day${tail}${guessOf(mineRole)}`;
       base = mine.iskDay!;
     }
   }
@@ -793,17 +820,15 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   let otherSaid = '';
   const bestRole = roleOf(best);
   const otherGain = best.iskDay == null ? null : best.iskDay - base;
-  if (!bestHeld && otherGain != null && best !== mine && !ownMix(best) && fitsHere(ix, chain, bestRole) && otherGain > SAME_ISK && otherGain >= OTHER_PRODUCT_MIN * chain.iskDay) {
+  if (!bestHeld && otherGain != null && best !== mine && !ownMix(best) && fitsHere(ix, chain, bestRole) && otherGain > SAME_ISK && otherGain >= OTHER_PRODUCT_MIN * colony) {
     const t = theirTop(best), pays = `${iskBig(otherGain)} more a day${ownSaid ? ' than that' : ''}`;
     otherSaid = (best.kind === 'p1'
       ? `the best P1s it can make alone here${t.length ? `, ${listSaid(t.map(name))},` : ''} pay ${pays}`
       : `the best P2 it can make alone here${t.length ? `, ${name(t[0])},` : ''} pays ${pays}`) + guessOf(bestRole);
   }
   if (!ownSaid && !otherSaid) return bestHeld ? { gain: null, said: bestHeld } : { gain: 0, said: '' };
-  const gain = (otherSaid ? best.iskDay! : base) - chain.iskDay;
+  const gain = (otherSaid ? best.iskDay! : base) - colony;
 
-  const what = tops.length ? `Makes ${listSaid(tops.map(name))}`
-    : chain.extracts.length ? `Extracts ${listSaid([...new Set(chain.extracts.map((x) => x.p0))].map(name))}` : 'Makes nothing';
   // Only the layouts the words speak of say their tax and their P0 left over.
   const used = [...(otherSaid ? [best] : []), ...(ownSaid && mine ? [mine] : [])];
   const beforeTax = chain.before.includes('tax') || used.some((s) => s.before.includes('tax')) ? ', before the customs tax' : '';

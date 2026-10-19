@@ -355,7 +355,11 @@ function p2Alone(ix: PiIndex, t: PlanetType): number[] {
  * One extractor feeding its Basic factories. `basics` is how many there are: the rate's worth (ceil(P0 an hour ÷ 6,000)), or fewer
  * when that many don't fit (Ruling F9), when `p0Left` is the P0 an hour they can't take, shipped as P0 where it pays, else building up.
  */
-type Line = { p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; heads: number | null; headsAssumed: boolean; p0Left: number };
+type Line = {
+  p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; p0Left: number;
+  /** Null when not known and nothing learned (the most that fit, T8-1). `headsAssumed`: the median of your learned rates' heads (`headsMedian`), capped where its planet's layout must fit (`capHeads`). */
+  heads: number | null; headsAssumed: boolean; headsMedian: number | null;
+};
 function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number, assumed?: number | null): Line {
   const inH = anHour(b, b.inputs[0].qty), outH = anHour(b, b.out.qty);
   // With no rate, the two Basics the 2 + 4 layout gives each P0 (12,000 P0 an hour), said as such, never claimed.
@@ -371,8 +375,28 @@ function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number,
     // learned rates' heads where there is one (Ruling T15b-5), else filled in by `fitted` with the most that fit.
     heads: rate && rate.heads > 0 ? Math.ceil(rate.heads) : assumed ?? null,
     headsAssumed: !(rate && rate.heads > 0) && assumed != null,
+    headsMedian: !(rate && rate.heads > 0) && assumed != null ? assumed : null,
   };
 }
+
+/**
+ * Ruling T15b-8 (revising T15b-5.2): a line whose heads aren't known reserves the median of your learned rates' heads, capped at the
+ * most heads that still leave room for its rates' layout where the plan must fit (on the assumed rate, 2 Basics a line, and the
+ * Advanced for P0 → P2): at a median of 10, 20 heads beside a launchpad left room for no layout at all on 5-NZNW at CCU IV. Said on
+ * the line when the cap binds. When even one head a line leaves no room, as with nothing learned (T8-1): one reserved while F9 fits
+ * fewer factories, the most that fit filled in after.
+ */
+function capHeads(ix: PiIndex, p: Plan, at: FitAt): Plan {
+  if (!p.lines.some((l) => l.headsAssumed)) return p;
+  const withHeads = (h: number | null, assumed: boolean): Plan => ({ ...p, lines: p.lines.map((l) => (l.headsMedian != null ? { ...l, heads: h, headsAssumed: assumed } : l)) });
+  for (let h = Math.max(...p.lines.map((l) => l.headsMedian ?? 0)); h >= 1; h--) {
+    const q = withHeads(h, true);
+    if (fitsAt(ix, q, at)) return q;
+  }
+  return withHeads(null, false);
+}
+/** The same plan's lines carrying another plan's heads (a plan rebuilt with other counts, or on the other reading, keeps its cap). */
+const keepHeads = (q: Plan, p: Plan): Plan => ({ ...q, lines: q.lines.map((l, i) => (p.lines[i] && p.lines[i].p0 === l.p0 ? { ...l, heads: p.lines[i].heads, headsAssumed: p.lines[i].headsAssumed, headsMedian: p.lines[i].headsMedian } : l)) });
 
 /** Where a planet's layout must fit (Ruling F9): a Command Center Upgrades level and the planet's radius, beside the storage and launchpads already standing (`PlanInput.reserve`; one launchpad when not said). */
 type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: number };
@@ -437,9 +461,10 @@ function planP1(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
 const countsOf = (p: Plan): Counts => ({ basics: p.lines.map((l) => l.basics), advanced: p.advanced?.count ?? 0 });
 /** The same planet, product and rates with these counts of factories (on either reading). */
 function withCounts(input: PlanInput, p: Plan, high: boolean, c: Counts): Plan | null {
-  return p.advanced
+  const q = p.advanced
     ? planP2(input, p.planet, p.at, p.t, p.product, high, c)
     : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high, c);
+  return q && keepHeads(q, p);
 }
 /** Whether a plan's factories fit at `at`, its extractors at their rates' heads, at least one a head where a rate didn't say how many. */
 function fitsAt(ix: PiIndex, p: Plan, at: FitAt, c: Counts = countsOf(p)): boolean {
@@ -452,14 +477,16 @@ function fitsAt(ix: PiIndex, p: Plan, at: FitAt, c: Counts = countsOf(p)): boole
  * otherwise each way of running fewer factories that fits and has no room for one more (each line at least one Basic and no more
  * than its rate feeds; a P0 → P2 at least one Advanced, and never one its Basics don't feed), every one a plan for the search to
  * value; the P0 the Basics can't take is shipped as P0 where it pays, else it builds up. The heads are always the rate's: a rate is
- * never scaled to fewer heads (one a head where a rate didn't say, the rest filled in by `fitted`). When the least layout of its
+ * never scaled to fewer heads (a line whose heads aren't known on your learned rates' median, capped first: `capHeads`; with nothing
+ * learned, one a head, the rest filled in by `fitted`). When the least layout of its
  * kind doesn't fit either (a Basic a line, and an Advanced for a P0 → P2), the rates' layout, said with what it lacks, as before.
  * A layout that fits only at a higher level is never ranked in its place. Structures already standing (`FitAt.storage`, a
  * colony's own: `PlanInput.reserve`) are fitted beside it.
  */
-function fittedPlans(input: PlanInput, p: Plan, at: FitAt | null, high: boolean): Plan[] {
-  if (!at) return [p];
+function fittedPlans(input: PlanInput, base: Plan, at: FitAt | null, high: boolean): Plan[] {
+  if (!at) return [base];
   const { ix } = input;
+  const p = capHeads(ix, base, at);
   if (fitsAt(ix, p, at)) return [{ ...p, fitAt: at }];
   const most = p.lines.map((l) => l.basics);
   const two = !!p.advanced;
@@ -567,8 +594,9 @@ function replan(input: PlanInput, p: Plan, kind: 'p1' | 'p2', high: boolean): Pl
     ? planP2(input, p.planet, p.at, p.t, p.product, high)
     : planP1(input, p.planet, p.at, p.t, [p.lines[0].p0, p.lines[1].p0], high);
   if (!again) return p;
-  if (p.sized === 'over' || !p.fitAt || (p.sized === 'rate' && fitsAt(input.ix, again, p.fitAt))) return { ...again, fitAt: p.fitAt, sized: p.sized };
-  return { ...(withCounts(input, p, high, countsOf(p)) ?? again), fitAt: p.fitAt, sized: 'fit' };
+  const kept = keepHeads(again, p);
+  if (p.sized === 'over' || !p.fitAt || (p.sized === 'rate' && fitsAt(input.ix, kept, p.fitAt))) return { ...kept, fitAt: p.fitAt, sized: p.sized };
+  return { ...(withCounts(input, p, high, countsOf(p)) ?? kept), fitAt: p.fitAt, sized: 'fit' };
 }
 type Ship = { id: number; perDay: number };
 
@@ -798,7 +826,7 @@ function fitted(input: PlanInput, p: Plan, cc: number): { heads: (number | null)
     return { heads, fit: null, notes, lacks: null };
   }
   const unsaid = p.lines.filter((l) => l.rate && !(l.rate.heads > 0));
-  if (unsaid.length) notes.push(`the colony didn’t say how many heads its extractors had: ${unsaid[0].headsAssumed ? headsSaid(unsaid[0].heads!) : 'the most that fit'}`);
+  if (unsaid.length) notes.push(`the colony didn’t say how many heads its extractors had${unsaid[0].headsAssumed ? `, so ${headsSaid(unsaid[0])}` : ': the most that fit'}`);
   const unknown = heads.map((h, i) => (h == null ? i : -1)).filter((i) => i >= 0);
   if (unknown.length) {
     const most = maxHeads(ix, p.t, cc, base, r);
@@ -837,14 +865,17 @@ function levelFor(ix: PiIndex, t: PlanetType, cc: number, l: Layout, r: number):
   return null;
 }
 
-/** An assumed head count, said (Ruling T15b-5). */
-const headsSaid = (n: number) => `at ${n} head${n === 1 ? '' : 's'}, the median of your extractors’ learned rates`;
+/** An assumed head count, said (Rulings T15b-5, T15b-8): the median, or the most that fit under it. */
+const headsSaid = (l: Line) => {
+  const n = l.heads!, m = l.headsMedian!, hs = (k: number) => `${k} head${k === 1 ? '' : 's'}`;
+  return n >= m ? `at ${hs(n)}, the median of your extractors’ learned rates` : `at ${hs(n)}: your extractors’ median is ${m}, and no more fit beside its factories`;
+};
 /** What a role says about its rates: from another program length, another P0, or none (ranked at the factories' capacity). */
 function rateNotes(input: PlanInput, p: Plan): string[] {
   const notes: string[] = [];
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
   const none = p.lines.filter((l) => !l.rate);
-  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each${none[0].headsAssumed ? `, ${headsSaid(none[0].heads!)}` : ''}`);
+  if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each${none[0].headsAssumed ? `, ${headsSaid(none[0])}` : ''}`);
   const other = [...new Set(p.lines.filter((l) => l.rate && Math.abs(l.rate.programHours - input.programHours) > EPS).map((l) => l.rate!.programHours))].sort((a, b) => a - b);
   if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: you chose ${chosenSaid(input.programHours)}, and nothing says what another length gives`);
   const others = p.lines.filter((l) => l.rate?.otherP0);

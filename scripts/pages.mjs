@@ -3701,6 +3701,24 @@ try {
       if (!t) problems.push(`no setup row for ${k}`);
       else if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test(fig) && !(fig === '–' && why.length > 12)) problems.push(`setup ${k} shows neither an ISK a day nor why: “${fig}”, notes “${why.slice(0, 120)}”`);
     }
+    // Ruling T15b-8: at the seeded colony's median of 10 heads, an unrated planet's extractors are capped where its layout fits;
+    // uncapped, every one read "No Command Center Upgrades level fits it" while the figures stayed the same.
+    {
+      const opened = [];
+      for (const k of ['p1', 'p2', 'feed']) {
+        const toggle = page.locator(`[data-planets="setup:${k}"] button[aria-expanded="false"]`, { hasText: 'What it makes' });
+        if (await toggle.count()) { await toggle.click().catch(() => undefined); opened.push(k); }
+      }
+      await page.waitForTimeout(300);
+      for (const k of ['p1', 'p2', 'feed']) {
+        const roles = (await page.locator(`[data-planets="setup:${k}"] [data-planets^="role:"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+        if (!roles.length) problems.push(`${k}’s planets didn’t open to be checked for a fit`);
+        // An unrated planet's line says "No rate for …" (a planet on another P0's learned rate keeps that rate's heads: F9).
+        for (const t of roles.filter((x) => x.includes('No rate for') && x.includes('No Command Center Upgrades level fits it'))) problems.push(`at a median of 10 heads, an unrated planet in ${k} fits at no level: “${t.slice(0, 400)}”`);
+        if (k !== 'feed' && !roles.some((x) => x.includes('No rate for') && /your extractors’ median is 10, and no more fit beside its factories/.test(x))) problems.push(`no unrated planet in ${k} says its heads are capped under the median of 10: ${JSON.stringify(roles.map((x) => x.slice(0, 160)))}`);
+      }
+      for (const k of opened) await page.locator(`[data-planets="setup:${k}"] button[aria-expanded="true"]`, { hasText: 'What it makes' }).click().catch(() => undefined);
+    }
     const gap = await text('[data-planets="setup:p2"] [data-planets="gap"]');
     if (!/a day under the best here|the best here/.test(gap)) problems.push(`P0 → P2’s gap to the best: “${gap}”`);
     // Bought (Ruling T11-3): nothing is bought past what Jita supplies, your 10% share of the good's Forge day (the case's books hold
