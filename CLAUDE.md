@@ -188,8 +188,11 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `planets.md`: the Planets side hustle: its static-data bundle, what fits on a planet, the extraction readings and the
   in-game check that settles them, learned rates, the `planets` document, customs tax (Brave's default), and the page (Plan,
   Chart).
-- `planets-planner.md`: how Plan ranks a system's setups: what each counts, the searches' budget, the exact sizing of a
-  bought setup (a linear programme), the prices it sells and buys at, upkeep and the ranking.
+- `planets-planner.md`: how Plan ranks a system's setups: what each counts, F9's layouts and heads, the single-planet searches
+  and the ranking.
+- `planets-market.md`: the prices Plan sells and buys at (the home hub, Jita, Either, and Jita's figure where the hub has
+  none), what an unvalued good counts, the bought setup's exact sizing (a linear programme) and the upkeep.
+- `planets-searches.md`: the feed, the chain, and the budget and steps their searches run in.
 - `planets-colonies.md`: your colonies: the synced `colonies` document, the cloud's hourly read of the main's colonies, and
   the Colonies section.
 - `planets-chain.md`: a real colony's chain (what it makes, followed route by route, its flags and value) and `versusBest`,
