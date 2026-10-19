@@ -119,7 +119,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 const add = (m: Map<number, number>, k: number, v: number) => m.set(k, (m.get(k) ?? 0) + v);
-const push = <T>(m: Map<number, T[]>, k: number, v: T) => { const xs = m.get(k); if (xs) xs.push(v); else m.set(k, [v]); };
+const push = <K, T>(m: Map<K, T[]>, k: K, v: T) => { const xs = m.get(k); if (xs) xs.push(v); else m.set(k, [v]); };
 
 const bySchematic = new WeakMap<PiIndex, Map<number, Schematic>>();
 function schematicOf(ix: PiIndex, id: number): Schematic | null {
@@ -378,7 +378,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   const runs = new Set<number>(), imported = new Map<number, Set<number>>();
   const routeFlags: ChainFlagRow[] = [];
   for (const f of facs) {
-    let ok = true;
+    // The inputs that don't reach it, by why: one flag a factory for each why, naming its inputs together.
+    const misses = new Map<'none' | 'notMaker' | 'storage' | 'launchpad', number[]>();
     for (const i of f.s.inputs) {
       const srcs = from.get(f.pin.id)?.get(i.id) ?? [];
       const stores = srcs.filter((s) => buffer.has(s));
@@ -388,17 +389,20 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
         imported.get(f.pin.id)!.add(i.id);
         continue;
       }
-      ok = false;
-      const where = `${FACTORY[f.s.facility]} factory making ${name(f.s.out.id)}`;
       const kd = stores.length ? kindOf(stores[0]) : null;
+      push(misses, kd === 'storage' || kd === 'launchpad' ? kd : srcs.length ? 'notMaker' : 'none', i.id);
+    }
+    if (!misses.size) { runs.add(f.pin.id); continue; }
+    const where = `${FACTORY[f.s.facility]} factory making ${name(f.s.out.id)}`;
+    for (const [why, ids] of misses) {
+      const goods = listSaid(ids.map(name)), them = ids.length > 1 ? 'them' : 'it';
       routeFlags.push({
-        flag: 'starving', id: i.id, pinId: f.pin.id,
-        said: kd === 'storage' || kd === 'launchpad' ? `${cap(where)} draws ${name(i.id)} from ${A_HOLD[kd]} nothing routes it into, so it makes none`
-          : srcs.length ? `Nothing that makes ${name(i.id)} routes it into ${where}, so it makes none`
-            : `Nothing routes ${name(i.id)} into ${where}, so it makes none`,
+        flag: 'starving', id: ids[0], pinId: f.pin.id,
+        said: why === 'storage' || why === 'launchpad' ? `${cap(where)} draws ${goods} from ${A_HOLD[why]} nothing routes ${them} into, so it makes none`
+          : why === 'notMaker' ? `Nothing that makes ${goods} routes ${them} into ${where}, so it makes none`
+            : `Nothing routes ${goods} into ${where}, so it makes none`,
       });
     }
-    if (ok) runs.add(f.pin.id);
   }
   const net: Net = { exts, facs, to, buffer, runs, imported, stored };
 

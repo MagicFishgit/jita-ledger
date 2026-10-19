@@ -8552,6 +8552,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   has('  and says so', saidOf(miss), 'Bacteria');
   eq('  it makes no Nanites: 120 a day from the other', near(miss.makes.find((m) => m.id === NANITES).perDay), 120);
   eq('  what it doesn’t take is an output', miss.outputs.map((o) => [o.id, near(o.perDay)]), [[NANITES, 120], [BACTERIA, 960], [REACTIVE, 1920]]);
+  const missBoth = chainOf(nanites({ drop: [[20, 52, BACTERIA, 40], [20, 52, REACTIVE, 40]] }));
+  eq('  a factory missing both inputs is one flag naming both', [flagsOf(missBoth), saidOf(missBoth)], [[['starving', BACTERIA, 52]], 'Nothing routes Bacteria and Reactive Metals into an Advanced factory making Nanites, so it makes none']);
   // An input whose supply is under its need: 15,000 Base Metals an hour into 3 Basics that take 18,000 (83%).
   const short = chainOf(nanites({ base: 15000 }));
   eq('  an input under its need is starving', flagsOf(short), [['starving', BASE, null]]);
