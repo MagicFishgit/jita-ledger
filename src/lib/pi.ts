@@ -69,7 +69,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
   if (kind === 'p1') {
     steps.push({
       title: 'Place a Basic Industry Facility for each the line names',
-      body: `Each one takes 3,000 of its P0 every 30 minutes and gives 20 of the P1: 6,000 an hour in, 40 out, so 150 P0 make one P1. The line says how many keep up with your extraction; one that runs dry is wasted powergrid.`,
+      body: `Each one takes 3,000 of its P0 every 30 minutes and gives 20 of the P1: 6,000 an hour in, 40 out, so 150 P0 make one P1. The line says how many: as many as keep up with your extraction where they fit at your Command Center Upgrades level, else the most that fit, and then it says what P0 is left over. One that runs dry is wasted powergrid.`,
     });
   }
   if (kind === 'p2') {
@@ -77,7 +77,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       {
         title: 'Place the Basic Industry Facilities, then the Advanced ones',
         body: `The Basics turn each P0 into its P1 (3,000 in every 30 minutes, 20 out: 150 P0 a P1). An Advanced Industry Facility takes 40 each of two P1 an hour and makes 5 of the P2: here, ${made}. The line says how many of each.`,
-        tip: 'The planner sizes the factories to your extraction rate, so the line’s counts are the ones that keep up with it; each factory more leaves room for fewer heads.',
+        tip: 'The planner sizes the factories to your extraction rate where that fits at your level, else to the most that fit, and the line says what’s left over; each factory more leaves room for fewer heads.',
       },
     );
   }
@@ -107,7 +107,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
     }
     : {
       title: 'Place a launchpad, link everything, then route it',
-      body: 'The launchpad holds the output and is what you export through. Link each extractor to its factories and the factories to the launchpad; links cost powergrid by their length, so keep the structures close. Then route: open each extractor, choose its product and route it to its factory, then each factory’s output on. Without routes the colony moves nothing.',
+      body: 'The launchpad holds the output and is what you export through. This layout keeps no storage facility: the launchpad holds the P0 and the goods in between. Link each extractor to its factories and the factories to the launchpad; links cost powergrid by their length, so keep the structures close. Then route: open each extractor, choose its product and route it to its factory, and the P0 its factories can’t take (the line says what’s left over) into the launchpad; then each factory’s output on. Without routes the colony moves nothing.',
       tip: 'If a structure shows a warning triangle, it has an input or output with nowhere to go.',
     });
   if (fed) {
