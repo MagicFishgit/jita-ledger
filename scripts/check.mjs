@@ -5891,8 +5891,9 @@ console.log('\n--- which account each character is on (accounts.ts) ---');
   eq('    with no account set, the order is as it came', A.byAccount([MAIN, FANNY, WILLI].map((c) => ({ charId: c, account: null }))).map((c) => c.charId), [MAIN, FANNY, WILLI]);
 
   // Planets' repeat line: the months of Omega a set of characters is on.
-  eq('  two on one account and one not set: 2 accounts', A.accountCount(doc, [MAIN, WILLI, 900299]), { accounts: 1, unset: 1, k: 2 });
-  eq('    said', [A.accountCountSaid(A.accountCount(doc, [MAIN, WILLI, 900299])), A.accountCountSaid(A.accountCount(doc, [MAIN, WILLI])), A.accountCountSaid(A.accountCount(doc, [MAIN, FANNY])), A.accountCountSaid(A.accountCount(A.emptyAccounts(), [1, 2]))],
+  const ids = (cs) => cs.map((c) => A.accountOf(doc, c)?.id ?? null);
+  eq('  two on one account and one not set: 2 accounts', A.accountCount(ids([MAIN, WILLI, 900299])), { accounts: 1, unset: 1, k: 2 });
+  eq('    said', [A.accountCountSaid(A.accountCount(ids([MAIN, WILLI, 900299]))), A.accountCountSaid(A.accountCount(ids([MAIN, WILLI]))), A.accountCountSaid(A.accountCount(ids([MAIN, FANNY]))), A.accountCountSaid(A.accountCount([null, null]))],
     ['their 2 accounts, 1 character’s account not set', 'their account', 'their 2 accounts', 'their 2 accounts, 2 characters’ accounts not set']);
 
   // Clone state: an account's, from its characters' readings.

@@ -142,13 +142,13 @@ export function byAccount<T extends { account: AccountRef | null }>(chars: T[]):
 }
 
 /**
- * How many accounts a set of characters is on: the accounts set, and those not set, each counted as one of its own (`k`, the
- * months of Omega they pay for). Planets' repeat line sets a month of the setup against `k` months of Omega.
+ * How many accounts a set of characters is on, from each one's account ID (null: not set): the accounts set, and those not set,
+ * each counted as one of its own (`k`, the months of Omega they pay for). Planets' repeat line sets a month of the setup against
+ * `k` months of Omega.
  */
-export function accountCount(doc: AccountsDoc, charIds: number[]): { accounts: number; unset: number; k: number } {
-  const set = new Set<string>();
-  let unset = 0;
-  for (const c of charIds) { const id = doc.byChar[String(c)]; if (id && doc.accounts.some((a) => a.id === id)) set.add(id); else unset++; }
+export function accountCount(ids: (string | null | undefined)[]): { accounts: number; unset: number; k: number } {
+  const set = new Set(ids.filter((x): x is string => !!x));
+  const unset = ids.filter((x) => !x).length;
   return { accounts: set.size, unset, k: set.size + unset };
 }
 

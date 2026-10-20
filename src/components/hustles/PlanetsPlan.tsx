@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } fr
 import type { ColoniesDoc } from '../../lib/colonies';
 import { ago, iskBig, units } from '../../lib/format';
 import { monthOfOmega, omegaShare, periods, shareSaid } from '../../lib/iskPeriods';
+import { accountCount, accountCountSaid, type AccountRef } from '../../lib/accounts';
 import { useNow } from '../../lib/hooks';
 import { usePlexPrice } from '../plexPrice';
 import { dayCount } from '../../lib/split';
@@ -112,7 +113,8 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             <SystemHead name={value.system.name} security={value.system.security} planets={value.planets} />
             <Selling said={market.said} />
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
-              <Setups setups={rows} working={!rowsWorking ? null : rowsLive ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good} />
+              <Setups setups={rows} working={!rowsWorking ? null : rowsLive ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good}
+                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
               learned={learned} programHours={programHours} />
@@ -487,9 +489,11 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
  * The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. `working`: what's being worked out again,
  * in words (an input changed, or the live books came in), or null.
  */
-function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good }: {
+function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
   programHours: number; good: number | null;
+  /** Each character's account, as the Characters page sets it: the repeat line counts months of Omega by account, a chain names them. */
+  accountOf: (charId: number) => AccountRef | null;
 }) {
   // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
   const plex = usePlexPrice();
@@ -505,15 +509,16 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
         {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
       <span className="note small">Worked out at the program length above and the customs tax and extraction rates below; change any and they are worked out again.</span>
-      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} />)}
+      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} />)}
     </div>
   );
 }
 
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours }: {
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf }: {
   s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
+  accountOf: (charId: number) => AccountRef | null;
 }) {
   const [open, setOpen] = useState(false);
   // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
@@ -599,7 +604,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
         })()}</span>
       )}
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
-      {priced && s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} />}
+      {priced && s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} />}
       {priced && (
         <>
           <div data-planets="upkeep">
@@ -611,7 +616,9 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
                 const ch = who(p.charId);
                 const n = used.filter((r) => r.charId === p.charId).length;
                 const train = trainSaid(used.filter((r) => r.charId === p.charId), pname);
-                return <span key={p.charId} className="pl-line"><b>{ch?.name ?? `Character ${p.charId}`}</b>: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share` : ''}{train ? `; ${train.charAt(0).toLowerCase()}${train.slice(1)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
+                // Each character's account, once any of the chain's is set (the Characters page): which accounts it spans.
+                const acct = s.perChar.some((q) => accountOf(q.charId)) ? accountOf(p.charId)?.name ?? 'account not set' : null;
+                return <span key={p.charId} className="pl-line" data-planets={`chain-char:${p.charId}`}><b>{ch?.name ?? `Character ${p.charId}`}</b>{acct ? <span className="pl-type"> ({acct})</span> : null}: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share` : ''}{train ? `; ${train.charAt(0).toLowerCase()}${train.slice(1)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
               })}
               {s.kind !== 'chain' && lacks && <span className="pl-line" data-planets="train">{lacks}.</span>}
             </div>
@@ -731,10 +738,18 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
  * character to make things simple to manage and scale"), valued together on what they make (`Repeat`), with whom it doesn't suit and
  * why, what holds the figure under so many times one's, and a clone not read said.
  */
-function RepeatLine({ r, chars, shown, name }: { r: Repeat; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string }) {
+function RepeatLine({ r, chars, shown, name, omega, accountOf }: {
+  r: Repeat; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; accountOf: (charId: number) => AccountRef | null;
+}) {
   const who = (id: number) => chars.find((x) => x.charId === id)?.name ?? `Character ${id}`;
   const all = r.chars.length;
   const per = periods(r.iskDay);
+  // Against the months of Omega their accounts pay for (Omega is an account's): one a distinct account of the characters counted,
+  // and one each for a character whose account isn't set on the Characters page, said.
+  const counted = r.chars.filter((c) => !c.why).map((c) => c.charId);
+  const accts = accountCount(counted.map((id) => accountOf(id)?.id ?? null));
+  const share = per && r.n > 1 ? omegaShare(per.month / accts.k, omega.perMonth, omega.price) : null;
+  const cost = monthOfOmega(omega.perMonth, omega.price);
   const together = per ? `about ${iskBig(per.day)} a day together (${iskBig(per.month)} a month)` : 'what they make together isn’t known';
   const lead = r.n === all ? `${together}.` : r.n > 1 ? `it suits ${r.n} of them, ${together}.` : `it suits only ${shown.charId === r.chars[0].charId ? who(shown.charId) : who(r.chars[0].charId)}.`;
   const times = (n: number) => (n === 2 ? 'twice' : `${n} times`);
@@ -749,6 +764,11 @@ function RepeatLine({ r, chars, shown, name }: { r: Repeat; chars: PlanChar[]; s
   return (
     <span className="note small" data-planets="repeat">
       On each of your {all} characters doing planetary industry: {lead}
+      {share != null && per && cost != null && (
+        <span data-planets="repeat-omega"> {shareSaid(share)} of a month of Omega for {accountCountSaid(accts)}.
+          <Tip title="Against their accounts’ Omega" text={`${shareSaid(share)} = what they make together in a month (${iskBig(per.month)}) over ${accts.k === 1 ? 'one account’s month of Omega' : `${accts.k} accounts’ months of Omega`} (${accts.k} × ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost * accts.k)}).\n\n• Omega is an account’s, so characters on one account share one month of it: set which account each is on on the Characters page.${accts.unset ? `\n• ${accts.unset === 1 ? 'A character whose account isn’t set counts' : 'Characters whose accounts aren’t set count'} as an account of ${accts.unset === 1 ? 'its' : 'their'} own.` : ''}`} />
+        </span>
+      )}
       {caps.length > 0 && <> {cap(caps.map(capSaid).join('; '))}.</>}
       {out.map((c) => <span key={c.charId} data-planets={`repeat-out:${c.charId}`}> {who(c.charId)}: {c.why}.</span>)}
       {unread.length > 0 && <> {unread.length === 1 ? `${who(unread[0].charId)}’s clone state isn’t read` : `The clone states of ${listSaid(unread.map((c) => who(c.charId)))} aren’t read`}: counted as Omega.</>}
