@@ -104,6 +104,15 @@ logs in to the app) and the browser's side.
 - **Clone state is worked out, and can be unknown** (`cloneState`): Alpha when a skill is usable below its trained
   level, Omega when one is usable above Alpha's cap (`lib/alphaCaps.ts`, from CCP's `cloneGrades.jsonl`), else it can't
   be told. "Since" is kept only for a change the cloud saw.
+- **And it is an account's, never set by hand** (`accountClones` in accounts.ts, 20 October 2026; the user: "i don't want to
+  manually set alpha or omega we can already pick this up from the API"). An account is Omega when a character on it reads
+  Omega, Alpha when one reads Alpha, and when they disagree the newest reading (the main's at its `lastSync`, an alt's at its
+  `sheet` job's `lastOk`), said on its head as "reads disagree"; else not known. A character whose own skills can't tell takes
+  its account's ("Omega, from its account"); its own reading always wins for itself; a state set by hand earlier
+  (`chars[id].clone`, the removed buttons') only when nothing is read for it or its account. One rule for `useIndustryChars`,
+  `useResearchChars`, `useMiningFleet` and the Characters page: an alt's ledger is built at it (altLedger's fallback, so its pilot
+  and fees follow), `clone` carries it (so `planCharOf`: a new PI alt on an Omega account isn't "clone state not read"), and the
+  main's pilot takes its account's only when its own skills can't tell. The Wallet's alt ledgers (net worth only) don't need it.
 - **The watchdog is by character**: an alt's job findings name it and carry its ID in their key, and a refused login
   quiets only its own character's job mails. It used to be "any refused login quiets them all".
 - **An app version behind is shown no alt logins** (`/v1/status` lists only `main` and `mailer`): its To do turns every

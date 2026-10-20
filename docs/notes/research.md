@@ -66,7 +66,7 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   "standings not read yet: level 1 agents only".
   Prices: "Pricing…" while a book is read, "–" with why when it couldn't be or no bid pays over the fee after tax.
 - **Alpha is said only when known**: `settings.clone` defaults to `'alpha'`, so the main is Alpha here only when the sync
-  detected it (`meta.cloneDetected`), an alt when its sheet did or it was set by hand on the Characters page; a main set
+  detected it (`meta.cloneDetected`), an alt when its sheet did, its account says (characters-cloud.md) or it was set by hand earlier; a main set
   to Omega in Settings counts as Omega (Omega isn't the default, so it was set). Otherwise "Clone state not read" sits
   where the Alpha notice would, saying R&D agents need Omega and the training times are at Omega's speed (the training
   tile says so too). The skill strips' own maths still read `pilot.alpha`, as everywhere.

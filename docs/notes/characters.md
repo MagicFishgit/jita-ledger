@@ -44,24 +44,34 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   isolation check leaves `[data-alts]` out of the Wallet's text and still compares the ledger. Its tip gives each alt's
   last read (`lastRead`): ISK sent to an alt leaves the main's total at once and reaches the alt's point at the cloud's
   next hourly read, which rewrites the day's point when it moves 0.5%, so the line can dip for up to an hour. The
-  Characters page's All net worth adds the main's last saved point instead, so the two can differ; both tips say so). The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
+  Characters page's All net worth adds the main's last saved point instead, so the two can differ; both tips say so). The Characters page writes `accounts` (which account each is on) and the public type names it looks up
   (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes;
   the first reads every import clause from `./store`, so a default, namespace (`import * as S`, then `S.update`) or
   dynamic import fails it, while `import type` passes. A later page that needs alt data is added to that list on
   purpose, in the commit that makes it read it. They are tripwires: a helper module calling `update` for the alt store
   wouldn't show, which is why stage 2b starts with a test that the main's figures don't move when an alt is pulled.
 - **`chars` is the one thing about an alt the main's ledger holds**: a synced document of its own, ID to name, and a
-  clone state set by hand. Two things write it: the roster read (`mergeChars`, whose rule is `mergeCharsDoc` in
-  `prefs.ts`: it adds and renames, never removes one, and keeps a hand-set clone through a rename) and the Characters
-  page's Alpha/Omega buttons. An imported backup without it leaves the present one. Not a field of `prefs`:
-  `sanitizePrefs` would drop it on an older version's save.
+  clone state set by hand earlier. The roster read writes it (`mergeChars`, whose rule is `mergeCharsDoc` in `prefs.ts`: it
+  adds and renames, never removes one, and keeps a hand-set clone through a rename); the Characters page's Alpha/Omega
+  buttons wrote the clone until 20 October 2026 (below), so nothing here edits it now and it goes up only with a first
+  upload. An imported backup without it leaves the present one. Not a field of `prefs`: `sanitizePrefs` would drop it on
+  an older version's save.
+- **Which account each character is on is set by hand, once per character** (`accounts.ts`, the synced `accounts` doc, 20
+  October 2026; ESI has no notion of an account). The user: "on the characters page I need to be able to group them. This might
+  be important for PI", and "imagine trying to make sense of 20 characters in the future and knowing which account each belongs
+  to when i switch to them". Cards sit under "Which account?" (a new character lands there; the add flow is untouched), then
+  each account, the main's first, with its name, "N of 3 characters" and its clone state (characters-cloud.md). A card's small
+  control moves it; **a fourth is refused, saying why**, counted over the characters on the page. Names "Main account", then
+  "Account 2"… in the order made, or typed; an emptied account stays until removed, so no default name moves. Groups are
+  sections, never panels (check-income finds the main's card as the first panel with a pilot); nothing writes the doc without
+  a click. Every Show for picker lists characters by account (`byAccount`, `Seg`'s `group`), labelled only with two or more.
 - **The roster's merge into `chars` is applied as a change from the cloud and never pushed** (`update(…, { origin:
   'cloud' })`). Pushed on every roster read, a device whose ledger hadn't caught up with the cloud's (a new one before
   its first sync, one just wiped) would have sent a list built from the roster alone over the cloud's, dropping
   characters taken off the roster and clone states set by hand. A "ledger is current" gate on the push was tried first
   and dropped: after "Delete all data" without a reload, a token refresh re-runs the cloud sync's start, which re-arms
   its state on the emptied ledger (and that state is unreliable after a wipe anyway: known-bugs), so the gate turned true
-  on an empty ledger. `chars` goes up only when you edit it (a clone state), carrying every character the device knows.
+  on an empty ledger. `chars` went up only when you edited it (a clone state), carrying every character the device knew.
 - **ISK moved between two of your characters is a transfer** (stage 4: `ownTransfer` and `ownIds` in `lib/roster.ts`, the
   optional `mine` on `categoryOf`, `describeRef`, `flows`, `unusual` and `attribute`; without it each answers as before).
   Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (a

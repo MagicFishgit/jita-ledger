@@ -105,6 +105,10 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     "1.4×" past 100%, its tip giving the PLEX count, price, the price's age and that it is one account's month. A chain's is per
     character, as its day is. No PLEX price read yet: the share is "–" with why, never 0%; no ISK a day, no periods. Colonies gets it
     with Task 16.
+  - **The repeat line counts accounts** (20 October 2026; the accounts are characters.md's): what its characters make together in a
+    month against K months of Omega, K the distinct accounts of the characters it counts, one whose account isn't set counting as
+    its own, said ("for their 2 accounts, 1 character’s account not set"). A chain's per-character lines name each account once
+    any is set; a single row's share stays one account's month. Show for lists characters by account.
   - **Plan it: Plan held to one good** (19 October 2026; `PlanInput.only`, `onlyWhy`, `Setup.repeat` in piPlan.ts; `PlanningGood`,
     `RepeatLine` in PlanetsPlan.tsx). The user: "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go
     to PLAN I don't think it is showing how to build it on which planet to make that item". Plan ranked each kind by its own best

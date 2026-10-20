@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{altStore,altLedger,roster,income}.ts"
+  - "src/lib/{altStore,altLedger,roster,income,accounts}.ts"
   - "src/components/{Characters.tsx,charIncome.ts,Wallet.tsx,Todo.tsx}"
   - "src/components/hustles/{Mining.tsx,miningFleet.ts}"
   - "scripts/{income,ledgers}.mjs"
