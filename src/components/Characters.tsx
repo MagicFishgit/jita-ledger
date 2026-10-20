@@ -280,7 +280,7 @@ function AccountPick({ charId, mainId, present }: { charId: number; mainId: numb
   };
   return (
     <div className="row tight acct-pick" data-account-pick={charId}>
-      <label className="note small" htmlFor={`acct-${charId}`}>{current ? 'Move to' : 'Which account is it on?'}</label>
+      <label className="note small" htmlFor={`acct-${charId}`}>{current ? 'Account' : 'Which account is it on?'}</label>
       <select id={`acct-${charId}`} className="ind-sel" value={current} onChange={(e) => choose(e.target.value)}>
         {!current && <option value="">Pick one</option>}
         {accountsInOrder(doc, mainId).map((a) => {

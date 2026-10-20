@@ -4170,6 +4170,40 @@ try {
       if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test((await text('[data-planets="setup:p2"] .pl-isk b')).trim())) problems.push(`after Every product P0 → P2 has no figure: “${await text('[data-planets="setup:p2"] .pl-isk b')}”`);
       if (await page.evaluate(() => localStorage.getItem('jita-ledger:planets-plan-good'))) problems.push('Every product left the good kept');
     }
+
+    // --- Accounts (accounts.ts): Show for lists characters under their account, the main's first and those not set last, and the
+    // repeat line sets what they make together against the months of Omega their accounts pay for. Owner on the main account, Alpha
+    // Alt on Account 2; first Planet Alt and Unread Alt not set (bought's line counts Owner's account and Planet Alt's own: 2, one not
+    // set, and Planet Alt's clone isn't read); then Planet Alt on the main account (1 account, and its clone comes from it).
+    {
+      const GEL = 2348, PLANET_ALT = 900103, OWNER = ownerAuth().characterId;
+      const plAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(PLANET_ALT, 'Planet Alt')] },
+        [`alt:${PLANET_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 3, 2406: 3 }, meta: { attributes: ATTRS } } } };
+      const cases = [
+        { said: 'Planet Alt not set', byChar: { [OWNER]: 'a1', [ALPHA]: 'a2' }, groups: ['Main account', 'Account 2', 'Account not set'], order: ['Owner', 'Alpha Alt', 'Unread Alt', 'Planet Alt'],
+          omega: /^(?:\d+%|[\d.]+×) of a month of Omega for their 2 accounts, 1 character’s account not set\.i?$/, unread: true },
+        { said: 'Planet Alt on the main account', byChar: { [OWNER]: 'a1', [PLANET_ALT]: 'a1', [ALPHA]: 'a2' }, groups: ['Main account', 'Account 2', 'Account not set'], order: ['Owner', 'Planet Alt', 'Alpha Alt', 'Unread Alt'],
+          omega: /^(?:\d+%|[\d.]+×) of a month of Omega for their account\.i?$/, unread: false },
+      ];
+      for (const k of cases) {
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, planets: { systems: {}, programHours: 72 }, industry: DOC, cloud: CLOUD_STATE, accounts: { accounts: [{ id: 'a1' }, { id: 'a2' }], byChar: k.byChar } }, plAlts, { prospects: SCAN });
+        await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan?good=${GEL}`);
+        await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push(`Plan never drew (accounts: ${k.said})`));
+        await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (accounts: ${k.said}): ${e.message.split('\n')[0]}`));
+        await settled();
+        const groups = await page.locator('[aria-label="Show for"] .seg-group-name').allTextContents();
+        if (JSON.stringify(groups) !== JSON.stringify(k.groups)) problems.push(`Show for's accounts (${k.said}): ${JSON.stringify(groups)}`);
+        const order = await page.locator('[aria-label="Show for"] button').allTextContents();
+        if (JSON.stringify(order) !== JSON.stringify(k.order)) problems.push(`Show for's characters, by account (${k.said}): ${JSON.stringify(order)}`);
+        // Its tip's "i" ends the text.
+        const om = (await text('[data-planets="setup:bought"] [data-planets="repeat-omega"]')).trim();
+        if (!k.omega.test(om)) problems.push(`bought's repeat line against their accounts' Omega (${k.said}): “${om}” in “${await text('[data-planets="setup:bought"] [data-planets="repeat"]')}”`);
+        const repB = await text('[data-planets="setup:bought"] [data-planets="repeat"]');
+        if (/Planet Alt’s clone state isn’t read/.test(repB) !== k.unread) problems.push(`Planet Alt's clone (${k.said}) ${k.unread ? 'isn’t said to be not read' : 'is still said to be not read, though its account is Omega'}: “${repB}”`);
+        if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-accounts-${k.unread ? 'unset' : 'set'}.png` }); }
+      }
+    }
     }
 
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
@@ -4804,6 +4838,108 @@ try {
       process.stdout.write(probs.length ? `  FAIL sender #characters (stale sender)\n${probs.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sender #characters (a stale browser sender added while the cloud sends from another: an alt, taken out here, nothing revoked)\n');
       await p2.close();
     }
+  }
+  // Characters grouped by account (19 October 2026; accounts.ts). The user's own shape: the main account holds the main and two
+  // PI alts (3 of 3), Account 2 holds FannySchmeller and an alt whose Alpha read is older than Fanny's Omega (reads disagree);
+  // two alts aren't on an account yet, one with a clone state set by hand earlier. The main reads Omega from its skills, and its
+  // account's Omega reaches the two PI alts whose skills can't tell (one had Alpha set by hand: the account's wins). No
+  // Alpha/Omega buttons; a fourth on the main account is refused, saying why; a new account, Rename and Remove.
+  if (SHOWN.includes('characters') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('accounts'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const MAIN = ownerAuth().characterId, WILLI = 900301, MESSENGER = 900302, FANNY = 900303, LAPSED = 900304, HAND = 900305, NEW = 900306;
+    const ok = (job, ago) => ({ job, lastRun: now - ago, lastOk: now - ago, lastError: null });
+    const entry = (charId, name, sheetAgo = 1800_000) => ({ charId, name, addedAt: now - 5 * 86400_000, scopes: ['esi-skills.read_skills.v1', 'esi-wallet.read_character_wallet.v1'],
+      at: now - 600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', sheetAgo), ok('sheet', sheetAgo)] });
+    // Skills read (a total), so a card's clone state isn't "Not read yet"; nothing past Alpha's limits unless detected.
+    const copy = (meta = {}) => ({ rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3402: 3 }, meta: { totalSp: 900_000, walletBalance: 1e6, walletAt: iso(now - 600_000), ...meta } } });
+    const alts = {
+      roster: { at: now - 60_000, list: [entry(WILLI, 'Willi Wakkerr'), entry(MESSENGER, 'Messenger from God'), entry(FANNY, 'FannySchmeller', 3600_000), entry(LAPSED, 'Lapsed Alt', 3 * 3600_000), entry(HAND, 'Hand Alt'), entry(NEW, 'New Alt')] },
+      [`alt:${WILLI}`]: copy(), [`alt:${MESSENGER}`]: copy(), [`alt:${FANNY}`]: copy({ cloneDetected: 'omega' }), [`alt:${LAPSED}`]: copy({ cloneDetected: 'alpha' }), [`alt:${HAND}`]: copy(), [`alt:${NEW}`]: copy(),
+    };
+    const ledger = {
+      settings: { acc: 4, br: 4, abr: 0, trade: 4, retail: 0, wholesale: 0, tycoon: 0, clone: 'omega' },
+      skills: { 3443: 4 }, meta: { lastSync: iso(now - 300_000), cloneDetected: 'omega', walletBalance: 2e9, walletAt: iso(now - 120_000), totalSp: 40e6 },
+      chars: { [WILLI]: { name: 'Willi Wakkerr' }, [MESSENGER]: { name: 'Messenger from God', clone: 'alpha' }, [FANNY]: { name: 'FannySchmeller' }, [LAPSED]: { name: 'Lapsed Alt' }, [HAND]: { name: 'Hand Alt', clone: 'omega' }, [NEW]: { name: 'New Alt' } },
+      accounts: { accounts: [{ id: 'a1' }, { id: 'a2' }], byChar: { [MAIN]: 'a1', [WILLI]: 'a1', [MESSENGER]: 'a1', [FANNY]: 'a2', [LAPSED]: 'a2' } },
+      cloud: { charId: MAIN, rev: 1, started: true, dirty: { r: [], d: [] } },
+    };
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => (route.request().url().startsWith(`http://localhost:${PORT}/`) ? route.continue() : route.abort()));
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    const text = async (sel = '.page') => (await page.locator(sel).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth, a]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', a]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth(), alts]);
+    await page.goto(`${BASE}#characters`);
+    await page.waitForSelector('[data-account="a1"]', { timeout: 20_000 }).catch(async () => problems.push(`no Main account section: “${(await text()).slice(0, 300)}”`));
+    const card = (name) => page.locator('section.panel', { has: page.locator('.pilot-name', { hasText: name }) }).first();
+    // textContent, not innerText: a flag is upper-cased by the stylesheet.
+    const cloneOf = async (name) => (await card(name).locator('[data-clone]').first().textContent().catch(() => '') ?? '').trim();
+    // The sections: "Which account?" first, then the main's account, then Account 2, each with its count.
+    const sections = await page.locator('section.acct').evaluateAll((els) => els.map((e) => e.getAttribute('data-account')));
+    if (JSON.stringify(sections) !== JSON.stringify(['unset', 'a1', 'a2'])) problems.push(`the sections, in order: ${JSON.stringify(sections)}`);
+    const head = async (id) => text(`[data-account="${id}"] .acct-head`);
+    if (!/^Main account 3 of 3 characters Omega Rename$/i.test(await head('a1'))) problems.push(`the main account's head: “${await head('a1')}”`);
+    if (!/^Account 2 2 of 3 characters Omega: reads disagree Rename$/i.test(await head('a2'))) problems.push(`Account 2's head: “${await head('a2')}”`);
+    if (!/^Which account\?/i.test(await head('unset'))) problems.push(`no “Which account?” head: “${await head('unset')}”`);
+    const inSection = async (id) => page.locator(`[data-account="${id}"] .pilot-name`).allInnerTexts();
+    if (JSON.stringify(await inSection('a1')) !== JSON.stringify(['Owner', 'Willi Wakkerr', 'Messenger from God'])) problems.push(`the main account's cards: ${JSON.stringify(await inSection('a1'))}`);
+    if (JSON.stringify(await inSection('unset')) !== JSON.stringify(['Hand Alt', 'New Alt'])) problems.push(`“Which account?”'s cards: ${JSON.stringify(await inSection('unset'))}`);
+    // The account's clone state reaches the characters whose own skills can't tell, over a state set by hand earlier.
+    if (await cloneOf('Owner') !== 'Omega') problems.push(`the main's clone, read from its skills: “${await cloneOf('Owner')}”`);
+    for (const n of ['Willi Wakkerr', 'Messenger from God']) if (await cloneOf(n) !== 'Omega, from its account') problems.push(`${n}'s clone doesn't come from its account: “${await cloneOf(n)}”`);
+    if (await cloneOf('Hand Alt') !== 'Omega (set by hand earlier)') problems.push(`Hand Alt's state set by hand earlier: “${await cloneOf('Hand Alt')}”`);
+    if (await cloneOf('Lapsed Alt') !== 'Alpha') problems.push(`Lapsed Alt keeps its own read: “${await cloneOf('Lapsed Alt')}”`);
+    if (await cloneOf('New Alt') !== 'Can’t tell') problems.push(`New Alt, nothing read for it or an account: “${await cloneOf('New Alt')}”`);
+    // No Alpha/Omega buttons any more.
+    if (await page.getByRole('button', { name: /^(Alpha|Omega)$/ }).count() || /Alpha or Omega\?/.test(await text())) problems.push('the Characters page still offers Alpha/Omega buttons');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-accounts-characters.png`, fullPage: true }); }
+    // A fourth on the main account is refused, saying why, and New Alt stays where it was.
+    await page.locator(`[data-account-pick="${NEW}"] select`).selectOption('a1').catch((e) => problems.push(`couldn't pick the main account for New Alt: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    const refused = await text(`[data-account-pick="${NEW}"] [data-account-refused]`);
+    if (refused !== 'Main account already holds 3 characters, the most an EVE account can. Move one of them to another account first.') problems.push(`a fourth on the main account isn't refused with why: “${refused}”`);
+    if (JSON.stringify(await inSection('unset')) !== JSON.stringify(['Hand Alt', 'New Alt'])) problems.push('a refused fourth moved anyway');
+    if (!/\(full: 3 of 3\)/.test(await text(`[data-account-pick="${NEW}"] select`))) problems.push('the full account isn\'t marked full in the control');
+    // A new account: "Account 3", 1 of 3, its clone state not known; then New Alt moved to Account 2, and Account 3, empty, removed.
+    await page.locator(`[data-account-pick="${NEW}"] select`).selectOption('new').catch((e) => problems.push(`couldn't make a new account: ${e.message.split('\n')[0]}`));
+    await page.waitForSelector('[data-account="a3"]', { timeout: 5000 }).catch(() => problems.push('no new account made'));
+    if (!/^Account 3 1 of 3 characters Clone state not known Rename$/i.test(await head('a3'))) problems.push(`the new account's head: “${await head('a3')}”`);
+    await page.locator(`[data-account-pick="${NEW}"] select`).selectOption('a2').catch((e) => problems.push(`couldn't move New Alt: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    if (JSON.stringify(await inSection('a2')) !== JSON.stringify(['FannySchmeller', 'Lapsed Alt', 'New Alt'])) problems.push(`New Alt didn't move to Account 2: ${JSON.stringify(await inSection('a2'))}`);
+    if (await cloneOf('New Alt') !== 'Omega, from its account') problems.push(`New Alt doesn't take Account 2's newest read: “${await cloneOf('New Alt')}”`);
+    if (!/0 of 3 characters/.test(await head('a3'))) problems.push(`Account 3, empty, doesn't say so: “${await head('a3')}”`);
+    await page.locator('[data-account="a3"] button', { hasText: 'Remove this account' }).click().catch((e) => problems.push(`no Remove for the empty account: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    if (await page.locator('[data-account="a3"]').count()) problems.push('the empty account wasn\'t removed');
+    // Rename Account 2; the name is kept in the synced document.
+    await page.locator('[data-account="a2"] button', { hasText: 'Rename' }).click().catch(() => undefined);
+    await page.locator('[data-account="a2"] input').fill('Fanny’s account').catch((e) => problems.push(`no name box: ${e.message.split('\n')[0]}`));
+    await page.locator('[data-account="a2"] input').press('Enter').catch(() => undefined);
+    await page.waitForTimeout(400);
+    if (!/^Fanny’s account /i.test(await head('a2'))) problems.push(`the typed name didn't take: “${await head('a2')}”`);
+    const stored = await page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('accounts'); g.onsuccess = () => res(g.result); }; }));
+    if (stored?.accounts?.find((a) => a.id === 'a2')?.name !== 'Fanny’s account' || stored?.byChar?.[NEW] !== 'a2' || stored?.accounts?.some((a) => a.id === 'a3')) problems.push(`what was saved: ${JSON.stringify(stored)}`);
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out after the moves: ${o}`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'accounts', page: 'characters', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL accounts #characters\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   accounts #characters (grouped by account: the sections and their counts, the account’s clone state reaching its characters, reads that disagree, no Alpha/Omega buttons, a fourth refused, a new account, Remove and Rename)\n');
+    await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
