@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { accountClones, accountRef, cloneMembers, fallbackClone, type AccountRef } from '../../lib/accounts';
 import { altLedger } from '../../lib/altLedger';
 import { askedScopes, hasScope } from '../../lib/auth';
 import { JITA_44, SCOPE, SCOPES } from '../../lib/config';
@@ -53,6 +54,8 @@ export type ResearchChar = {
    * the setting's default and so says nothing). `unknown` is never called Alpha, and says so.
    */
   clone: 'alpha' | 'omega' | 'unknown';
+  /** The account it's on, as the Characters page sets it; null when none is set (Show for lists characters under it). */
+  account: AccountRef | null;
 };
 
 /** What the hook needs of the alt store (structurally, so this file needn't import it). */
@@ -73,13 +76,16 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
   const auth = useAuth();
   const mainId = auth?.characterId ?? 0;
   const mainName = auth?.characterName ?? 'You';
-  const { skills, meta, settings, orders, chars: known } = d;
+  const { skills, meta, settings, orders, chars: known, accounts } = d;
   const canStandings = hasScope(SCOPE.standings);
   const canResearch = hasScope(SCOPE.agentsResearch);
   return useMemo(() => {
+    // Its own skills', else its account's, else set by hand earlier (accounts.ts; the rule useIndustryChars uses too).
+    const clones = accountClones(accounts, cloneMembers({ charId: mainId, meta, byHand: settings.clone === 'omega' ? 'omega' : undefined }, alts.roster, alts.alts, known)).chars;
+    const mc = clones.get(mainId);
     const main: ResearchChar = {
       charId: mainId, name: mainName, isMain: true,
-      pilot: pilotFrom({ skills, meta, settings }, { charId: mainId, name: mainName, isMain: true }, false),
+      pilot: pilotFrom({ skills, meta, settings: mc?.from === 'account' ? { ...settings, clone: mc.clone as 'alpha' | 'omega' } : settings }, { charId: mainId, name: mainName, isMain: true }, false),
       standings: meta.standings ? { state: 'read', list: meta.standings.list, at: timeOf(meta.standings.at) }
         : canStandings ? { state: 'unread' } : { state: 'login' },
       research: meta.research ? { state: 'read', agents: meta.research.agents, at: timeOf(meta.research.at) }
@@ -87,13 +93,13 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
       tax: rates(settings).t, broker: rates(settings).f,
       own: openInJita(orders),
       missionAt: meta.researchMissionAt ?? null,
-      clone: meta.cloneDetected ?? (settings.clone === 'omega' ? 'omega' : 'unknown'),
+      clone: mc?.clone ?? 'unknown', account: accountRef(accounts, mainId, mainId),
     };
     const wanted = [...SCOPES, ...askedScopes()];
     const others = alts.roster.map((entry): ResearchChar => {
       const saved = alts.alts[entry.charId] ?? NO_ALT;
-      const byHand = known[String(entry.charId)]?.clone;
-      const ledger = altLedger(saved, byHand);
+      const cc = clones.get(entry.charId);
+      const ledger = altLedger(saved, fallbackClone(cc));
       const name = entry.name ?? known[String(entry.charId)]?.name ?? `Character ${entry.charId}`;
       const login = loginState(entry, wanted);
       const lost = login.state === 'working' ? undefined : login.state;
@@ -101,7 +107,6 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
       const rs = ledger.meta.research;
       // At its read standings with Jita 4-4's owners (altFees.ts), not altLedger's zeros.
       const fee = ratesAtStandings(ledger.settings, st?.list);
-      const detected = (ledger.meta as { cloneDetected?: 'alpha' | 'omega' }).cloneDetected;
       return {
         charId: entry.charId, name, isMain: false,
         pilot: { ...pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true), lost },
@@ -116,11 +121,11 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
         tax: fee.t, broker: fee.f,
         own: openInJita(ledger.orders),
         missionAt: null,
-        clone: detected ?? byHand ?? 'unknown',
+        clone: cc?.clone ?? 'unknown', account: accountRef(accounts, entry.charId, mainId),
       };
     });
     return [main, ...others];
-  }, [mainId, mainName, skills, meta, settings, orders, canStandings, canResearch, known, alts.roster, alts.alts]);
+  }, [mainId, mainName, skills, meta, settings, orders, canStandings, canResearch, known, accounts, alts.roster, alts.alts]);
 }
 
 /** Moved to pilot.ts (Industry reads the same words since stage 2); callers keep importing it from here. */

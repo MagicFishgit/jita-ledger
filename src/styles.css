@@ -511,6 +511,10 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .seg.sm button { height: 24px; padding: 0 9px; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0; }
 .seg.md button { height: 30px; }
 .seg-label { display: flex; align-items: center; gap: 10px; }
+/* A Show for picker with characters on two or more accounts: each account's own switch, headed by its name (ui.tsx Seg). */
+.seg-groups { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 12px; min-width: 0; max-width: 100%; }
+.seg-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; max-width: 100%; }
+.seg-group-name { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* a bar of compact field chips, as on the calculator and the filters */
 .chipbar {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, Coins, History, Pickaxe, Timer, TrendingUp, Users } from 'lucide-react';
+import { byAccount } from '../../lib/accounts';
 import { useAlts } from '../../lib/altStore';
 import { hasScope } from '../../lib/auth';
 import { cloudEnabled } from '../../lib/cloud';
@@ -272,7 +273,7 @@ export function Mining() {
 
       {many && (
         <Seg label="Character" value={filter} onChange={chooseFilter}
-          options={[{ v: 'all' as const, label: 'All' }, ...chars.map((c) => ({ v: c.charId, label: c.name }))]} />
+          options={[{ v: 'all' as const, label: 'All' }, ...byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group }))]} />
       )}
 
       <Tiles min={170} items={[
@@ -670,7 +671,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
       <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
         {chars.length > 1 && (
           <Seg size="sm" label="Show for" value={shownId} onChange={onShow}
-            options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills, ship and pace' : skillsUnread(c.pilot) ? `${unreadNote(c.pilot)}.` : `${c.name}’s skills, ship and pace, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+            options={byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: c.isMain ? 'Your skills, ship and pace' : skillsUnread(c.pilot) ? `${unreadNote(c.pilot)}.` : `${c.name}’s skills, ship and pace, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
         )}
         <label htmlFor="mine-ore" className="chip h34" data-tip-title="Ore to price the fits for"
           data-tip={'Which crystals every fit loads, and what ISK an hour and payback are worked out at: a m³ of this ore sold the best of three ways in Jita now, after tax.\n\nThe m³ a minute doesn’t change: a crystal of the right kind mines any ore of its family alike.'}>

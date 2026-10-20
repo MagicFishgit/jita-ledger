@@ -130,15 +130,35 @@ export function Tip({ text, title, big, glyph = 'i' }: { text: string; title?: s
   );
 }
 
+/**
+ * A segmented switch. Options may carry a `group` (a Show for picker's account, lib/accounts.ts `byAccount`): runs of one group
+ * are drawn as their own switch headed by its name, but only when two or more named groups are in it, so a picker whose
+ * characters are all on one account, or on none, looks as it always did. An option with no group (a filter's "All") heads nothing.
+ */
 export function Seg<T extends string | number>(props: {
-  value: T; options: { v: T; label: ReactNode; n?: ReactNode; tip?: string; tipTitle?: string }[]; onChange: (v: T) => void; label: string; size?: 'sm' | 'md';
+  value: T; options: { v: T; label: ReactNode; n?: ReactNode; tip?: string; tipTitle?: string; group?: string }[]; onChange: (v: T) => void; label: string; size?: 'sm' | 'md';
 }) {
+  const cls = 'seg' + (props.size ? ' ' + props.size : '');
+  const button = (o: (typeof props.options)[number]) => (
+    <button key={String(o.v)} type="button" aria-pressed={props.value === o.v} onClick={() => props.onChange(o.v)} data-tip={o.tip} data-tip-title={o.tip ? o.tipTitle : undefined}>
+      {o.label}{o.n != null && <span className="n">{o.n}</span>}
+    </button>
+  );
+  const runs: { group: string | undefined; options: typeof props.options }[] = [];
+  for (const o of props.options) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === o.group) last.options.push(o); else runs.push({ group: o.group, options: [o] });
+  }
+  if (new Set(runs.flatMap((r) => (r.group ? [r.group] : []))).size < 2) {
+    return <div className={cls} role="group" aria-label={props.label}>{props.options.map(button)}</div>;
+  }
   return (
-    <div className={'seg' + (props.size ? ' ' + props.size : '')} role="group" aria-label={props.label}>
-      {props.options.map((o) => (
-        <button key={String(o.v)} type="button" aria-pressed={props.value === o.v} onClick={() => props.onChange(o.v)} data-tip={o.tip} data-tip-title={o.tip ? o.tipTitle : undefined}>
-          {o.label}{o.n != null && <span className="n">{o.n}</span>}
-        </button>
+    <div className="seg-groups" role="group" aria-label={props.label}>
+      {runs.map((r, i) => (
+        <div key={i} className="seg-group" role={r.group ? 'group' : undefined} aria-label={r.group}>
+          {r.group && <span className="seg-group-name" aria-hidden="true">{r.group}</span>}
+          <div className={cls}>{r.options.map(button)}</div>
+        </div>
       ))}
     </div>
   );

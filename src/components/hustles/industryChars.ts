@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { accountClones, accountRef, cloneMembers, fallbackClone, type AccountRef, type CharClone } from '../../lib/accounts';
 import { ratesAtStandings } from '../../lib/altFees';
 import { altLedger } from '../../lib/altLedger';
 import { askedScopes, hasScope } from '../../lib/auth';
@@ -29,8 +30,14 @@ const openAnywhere = (orders: Record<string, { state: string; locationId: number
  */
 export type IndustryChar = {
   charId: number; name: string; isMain: boolean; pilot: Pilot;
-  /** As read from its skills, or set by hand; `unknown` is never called Alpha. */
+  /**
+   * As read from its skills, else its account's (accounts.ts: Omega and Alpha belong to an account), else set by hand earlier;
+   * `unknown` is never called Alpha. `cloneFrom` says which.
+   */
   clone: Clone;
+  cloneFrom: CharClone['from'];
+  /** The account it's on, as the Characters page sets it; null when none is set. */
+  account: AccountRef | null;
   /** Its Jita 4-4 broker fee and sales tax: the main's from its settings; an alt's at its read standings (none read: no standing). */
   broker: number; tax: number;
   /** Every order it holds, any station, and its journal: a home hub's broker fee is measured from its own orders there (hubFeeRate). The main's from its sync, an alt's from the cloud's hourly read. */
@@ -76,15 +83,20 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
   const auth = useAuth();
   const mainId = auth?.characterId ?? 0;
   const mainName = auth?.characterName ?? 'You';
-  const { skills, meta, settings, orders, journal, txs, stock, mining, chars: known, jobs, blueprints } = d;
+  const { skills, meta, settings, orders, journal, txs, stock, mining, chars: known, jobs, blueprints, accounts } = d;
   // The hour, so a minute's re-render keeps the same characters (minedLately's 30 days don't need finer).
   const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
   return useMemo(() => {
     const r = rates(settings);
+    // Each character's clone state: its own skills', else its account's, else one set by hand earlier (Settings' Omega for the
+    // main, since Alpha is the setting's default and so says nothing). The one rule every character reader shares.
+    const clones = accountClones(accounts, cloneMembers({ charId: mainId, meta, byHand: settings.clone === 'omega' ? 'omega' : undefined }, alts.roster, alts.alts, known)).chars;
+    const mc = clones.get(mainId);
     const main: IndustryChar = {
       charId: mainId, name: mainName, isMain: true,
-      pilot: pilotFrom({ skills, meta, settings }, { charId: mainId, name: mainName, isMain: true }, false),
-      clone: meta.cloneDetected ?? (settings.clone === 'omega' ? 'omega' : 'unknown'),
+      // The main's pilot reads the clone setting; only its account's state, when its own skills can't tell, is put in its place.
+      pilot: pilotFrom({ skills, meta, settings: mc?.from === 'account' ? { ...settings, clone: mc.clone as 'alpha' | 'omega' } : settings }, { charId: mainId, name: mainName, isMain: true }, false),
+      clone: mc?.clone ?? 'unknown', cloneFrom: mc?.from ?? null, account: accountRef(accounts, mainId, mainId),
       broker: r.f, tax: r.t, standingsRead: true,
       feeKnown: settings.override || !settings.fromCharacter || hasSkills(skills),
       stock: stock?.byLocation ? { byLocation: stock.byLocation, at: stock.at } : null,
@@ -103,8 +115,8 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
     const altOrders: HubOrder[] = [];
     const others = alts.roster.map((entry): IndustryChar => {
       const saved = alts.alts[entry.charId] ?? NO_ALT;
-      const byHand = known[String(entry.charId)]?.clone;
-      const ledger = altLedger(saved, byHand);
+      const cc = clones.get(entry.charId);
+      const ledger = altLedger(saved, fallbackClone(cc));
       altOrders.push(...openAnywhere(ledger.orders));
       const name = entry.name ?? known[String(entry.charId)]?.name ?? `Character ${entry.charId}`;
       const login = loginState(entry, wanted);
@@ -122,7 +134,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       return {
         charId: entry.charId, name, isMain: false,
         pilot: { ...pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true), lost },
-        clone: (ledger.meta as { cloneDetected?: 'alpha' | 'omega' }).cloneDetected ?? byHand ?? 'unknown',
+        clone: cc?.clone ?? 'unknown', cloneFrom: cc?.from ?? null, account: accountRef(accounts, entry.charId, mainId),
         broker: ra.f, tax: ra.t, standingsRead: !!list, feeKnown: hasSkills(ledger.skills),
         stock: st?.byLocation ? { byLocation: st.byLocation, at: st.at } : null,
         buys: Object.values(ledger.txs).filter((t) => t.isBuy),
@@ -133,7 +145,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
     });
     const hubOrders = [...openAnywhere(orders), ...altOrders];
     return [main, ...others].map((c) => ({ ...c, hubOrders }));
-  }, [mainId, mainName, skills, meta, settings, orders, journal, txs, stock, mining, known, jobs, blueprints, alts.roster, alts.alts, hour]);
+  }, [mainId, mainName, skills, meta, settings, orders, journal, txs, stock, mining, known, jobs, blueprints, accounts, alts.roster, alts.alts, hour]);
 }
 
 /** Why a character's skills aren't shown, as a sentence: the main's next sync, an alt's first read, or its login to hand over again. */

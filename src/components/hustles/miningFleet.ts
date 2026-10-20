@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { accountClones, accountRef, cloneMembers, fallbackClone, type AccountRef } from '../../lib/accounts';
 import { altLedger } from '../../lib/altLedger';
 import { askedScopes, hasScope } from '../../lib/auth';
 import { cloudAltTicks, cloudEnabled, cloudMiningTicks, useCloud } from '../../lib/cloud';
@@ -33,6 +34,8 @@ export type FleetChar = {
    * character never read shows "Not read yet" rather than zeros. `permission`: its login lacks the Mining ledger one.
    */
   mining: 'read' | 'permission' | 'unread';
+  /** The account it's on, as the Characters page sets it; null when none is set (the pickers list characters under it). */
+  account: AccountRef | null;
 };
 
 /** What the read of every character's ticks said. `loading` until the first read after the cloud came on answers. */
@@ -68,18 +71,23 @@ export function useMiningFleet(days: number, alts: FleetAlts): {
 
   // Keyed on what's read, never the whole ledger: a write to trades or orders would otherwise build every character
   // again, and every memo on the tab after it.
-  const { mining, skills, meta, settings, chars: known } = d;
+  const { mining, skills, meta, settings, chars: known, accounts } = d;
   const myMining = useMemo(() => Object.values(mining).filter((r) => r.charId === mainId), [mining, mainId]);
-  const mainPilot = useMemo(() => pilotFrom({ skills, meta, settings }, { charId: mainId, name: mainName, isMain: true }, false), [skills, meta, settings, mainId, mainName]);
+  // Each character's clone state: its own skills', else its account's, else set by hand earlier (accounts.ts, as useIndustryChars).
+  const clones = useMemo(() => accountClones(accounts, cloneMembers({ charId: mainId, meta, byHand: settings.clone === 'omega' ? 'omega' : undefined }, alts.roster, alts.alts, known)).chars,
+    [accounts, mainId, meta, settings.clone, alts.roster, alts.alts, known]);
+  const mc = clones.get(mainId);
+  const mainClone = mc?.from === 'account' ? mc.clone as 'alpha' | 'omega' : null;
+  const mainPilot = useMemo(() => pilotFrom({ skills, meta, settings: mainClone ? { ...settings, clone: mainClone } : settings }, { charId: mainId, name: mainName, isMain: true }, false), [skills, meta, settings, mainClone, mainId, mainName]);
   const chars = useMemo<FleetChar[]>(() => {
     const main: FleetChar = {
       charId: mainId, name: mainName, isMain: true, records: myMining, pilot: mainPilot,
-      mining: myMining.length || canRead ? 'read' : 'permission',
+      mining: myMining.length || canRead ? 'read' : 'permission', account: accountRef(accounts, mainId, mainId),
     };
     const wanted = [...SCOPES, ...askedScopes()];
     const others = alts.roster.map((entry): FleetChar => {
       const saved = alts.alts[entry.charId] ?? NO_ALT;
-      const ledger = altLedger(saved, known[String(entry.charId)]?.clone);
+      const ledger = altLedger(saved, fallbackClone(clones.get(entry.charId)));
       const name = entry.name ?? known[String(entry.charId)]?.name ?? `Character ${entry.charId}`;
       // A login refused, or none kept: nothing more is read, so what isn't read says so (Pilot's `lost`).
       const login = loginState(entry, wanted).state;
@@ -87,11 +95,11 @@ export function useMiningFleet(days: number, alts: FleetAlts): {
         charId: entry.charId, name, isMain: false, entry, names: ledger.names,
         records: Object.values(ledger.mining),
         pilot: { ...pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true), lost: login === 'working' ? undefined : login },
-        mining: altReadState(saved, entry, wanted, SCOPE.mining).mining,
+        mining: altReadState(saved, entry, wanted, SCOPE.mining).mining, account: accountRef(accounts, entry.charId, mainId),
       };
     });
     return [main, ...others];
-  }, [mainId, mainName, myMining, mainPilot, canRead, known, alts.roster, alts.alts]);
+  }, [mainId, mainName, myMining, mainPilot, canRead, known, accounts, clones, alts.roster, alts.alts]);
 
   // Ticks are read once a visit, and again when they may have grown: the main's when its mining records do (the cloud
   // pushes what its ten-minute read found, and the ESI sync adds its own), the alts' when a roster revision moves. Keys,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { byAccount } from '../../lib/accounts';
 import { useAlts } from '../../lib/altStore';
 import { sanitizeColonies, type ColoniesDoc } from '../../lib/colonies';
 import { navigate, type Route } from '../../lib/hooks';
@@ -87,7 +88,7 @@ export function Planets({ route }: { route: Route }) {
         <Seg label="Planets section" value={section} onChange={choose} options={SECTIONS.map((s) => ({ v: s.key, label: s.label, tip: s.tip }))} />
         {chars.length > 1 && (
           <Seg size="sm" label="Show for" value={shown.charId} onChange={chooseShow}
-            options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills, clone, fees and colonies' : `${c.name}’s skills, clone and fees, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+            options={byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: c.isMain ? 'Your skills, clone, fees and colonies' : `${c.name}’s skills, clone and fees, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
         )}
       </div>
       <PilotProvider value={shown.pilot}>

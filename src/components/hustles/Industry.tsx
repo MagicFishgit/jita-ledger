@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { byAccount } from '../../lib/accounts';
 import { useAlts } from '../../lib/altStore';
 import { navigate, type Route } from '../../lib/hooks';
 import type { Indexed } from '../../lib/industry';
@@ -74,7 +75,7 @@ export function Industry({ route }: { route: Route }) {
           {SECTIONS.length > 1 && <Seg label="Industry section" value={section} onChange={choose} options={SECTIONS.map((s) => ({ v: s.key, label: s.label, tip: s.tip }))} />}
           {chars.length > 1 && (
             <Seg size="sm" label="Show for" value={shown.charId} onChange={chooseShow}
-              options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills, clone, fees, stock and mining' : `${c.name}’s skills, clone, fees, stock and mining, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+              options={byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: c.isMain ? 'Your skills, clone, fees, stock and mining' : `${c.name}’s skills, clone, fees, stock and mining, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
           )}
         </div>
       )}

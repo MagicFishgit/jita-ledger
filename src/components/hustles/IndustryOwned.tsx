@@ -17,6 +17,7 @@ import { useEnsureNames } from '../common';
 import { useData } from '../../lib/store';
 import { tileRows } from '../../lib/tileFilter';
 import { Seg, Th, TileShowing, Tiles, useTileFilter } from '../ui';
+import { byAccount } from '../../lib/accounts';
 import { MISSING_SAID } from './IndustryBuild';
 import type { IndustryChar } from './industryChars';
 import { useFinder, useStationSaid } from './industryFinder';
@@ -93,7 +94,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
       {many && (
         <div data-industry="char-filter">
           <Seg<number | 'all'> size="sm" label="Characters" value={filter} onChange={onFilter}
-            options={[{ v: 'all', label: 'All', tip: 'Every character’s blueprints and jobs' }, ...chars.map((c) => ({ v: c.charId, label: c.name, tip: `${c.name}’s blueprints and jobs; Show for follows` }))]} />
+            options={[{ v: 'all', label: 'All', tip: 'Every character’s blueprints and jobs' }, ...byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: `${c.name}’s blueprints and jobs; Show for follows` }))]} />
         </div>
       )}
 

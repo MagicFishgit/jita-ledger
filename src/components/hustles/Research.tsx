@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ArrowRight, ChevronRight, Coins, Moon } from 'lucide-react';
+import { byAccount } from '../../lib/accounts';
 import { useAlts } from '../../lib/altStore';
 import { isk, iskBig } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
@@ -123,7 +124,7 @@ export function Research() {
               {!walkOpen && <span className="note small">Train, reach the agents, pick one and start it: for another agent, or another character.</span>}
               {walkOpen && chars.length > 1 && (
                 <Seg size="sm" label="Show for" value={shown.charId} onChange={chooseShow}
-                  options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills and standings' : `${c.name}’s skills and standings, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+                  options={byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: c.isMain ? 'Your skills and standings' : `${c.name}’s skills and standings, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
               )}
             </div>
             {walkOpen && (
