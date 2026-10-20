@@ -5910,6 +5910,7 @@ console.log('\n--- which account each character is on (accounts.ts) ---');
   eq('    a character\'s own reading still wins for itself', [cl.chars.get(MAIN).clone, cl.chars.get(MAIN).from, cl.chars.get(MESSENGER).clone], ['omega', 'skills', 'alpha']);
   eq('    a reading with no time is the oldest', A.accountClone(doc, 'a2', [m(MAIN, 'omega', null), m(WILLI, 'alpha', T)]).state, 'alpha');
   eq('  an alt\'s ledger is built at its account\'s or its hand-set state, nothing when neither is known', [A.fallbackClone(cl.chars.get(MESSENGER)), A.fallbackClone(A.accountClones(doc, [m(FANNY, null, null)]).chars.get(FANNY)), A.fallbackClone(undefined)], ['alpha', undefined, undefined]);
+  eq('    nor when its own skills tell (altLedger reads them, one memo key for every caller)', [A.fallbackClone(cl.chars.get(WILLI)), A.fallbackClone(cl.chars.get(MAIN))], [undefined, undefined]);
   // The members: the main from its meta, read at its last sync; an alt from its pulled copy, read at its sheet's last success.
   const R = await import('../src/lib/roster.ts');
   const entry = (charId, sheetOk) => ({ charId, name: 'x', addedAt: 0, scopes: [], at: null, refusedAt: null, refused: null, rev: 1, ship: null, shipAt: null, jobs: sheetOk == null ? [] : [{ job: 'sheet', lastRun: sheetOk, lastOk: sheetOk, lastError: null }] });

@@ -227,6 +227,7 @@ export function cloneMembers(
 
 /**
  * The clone state an alt's ledger is built at (altLedger's fallback, behind what its own skills show): its account's, or one set
- * by hand earlier. Undefined when neither is known, as before.
+ * by hand earlier. Undefined when its own skills tell (altLedger reads them itself, and every caller then builds the ledger under
+ * the one memo key the Wallet uses) and when neither is known, as before.
  */
-export const fallbackClone = (c: CharClone | undefined): 'alpha' | 'omega' | undefined => (c && c.clone !== 'unknown' ? c.clone : undefined);
+export const fallbackClone = (c: CharClone | undefined): 'alpha' | 'omega' | undefined => (c && c.from !== 'skills' && c.clone !== 'unknown' ? c.clone : undefined);
