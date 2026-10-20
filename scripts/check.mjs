@@ -5841,6 +5841,83 @@ console.log('\n--- which characters are yours ---');
   eq('  when a job last worked', [R.jobOk(ent({ jobs: [job('archive', 123)] }), 'archive'), R.jobOk(ent({ jobs: [job('archive', null)] }), 'archive'), R.jobOk(ent(), 'mining')], [123, null, null]);
 }
 
+console.log('\n--- which account each character is on (accounts.ts) ---');
+{
+  const A = await import('../src/lib/accounts.ts');
+  const { isDocKey, DOC_KEYS, refusedDoc, everything } = await import('../src/lib/cloudSync.ts');
+  const MAIN = 95210486, WILLI = 900201, MESSENGER = 900202, FANNY = 2122193260, FOURTH = 900204;
+  const present = [MAIN, WILLI, MESSENGER, FANNY, FOURTH];
+  // The sanitizer: an account is an ID and, when typed, a name; a character's account must be one of them.
+  eq('  nothing, an array or a string is no accounts', [A.sanitizeAccounts(null), A.sanitizeAccounts([1]), A.sanitizeAccounts('x')], [A.emptyAccounts(), A.emptyAccounts(), A.emptyAccounts()]);
+  eq('  an account keeps its ID and a typed name, trimmed; a blank name is none',
+    A.sanitizeAccounts({ accounts: [{ id: 'a1', name: '  Trading  ' }, { id: 'a2', name: '   ' }, { id: 'a3' }], byChar: {} }).accounts, [{ id: 'a1', name: 'Trading' }, { id: 'a2' }, { id: 'a3' }]);
+  eq('    a long name is cut, not refused', A.sanitizeAccounts({ accounts: [{ id: 'a1', name: 'x'.repeat(90) }], byChar: {} }).accounts[0].name.length, 40);
+  eq('    a bad or repeated ID is left out', A.sanitizeAccounts({ accounts: [{ id: 'a1' }, { id: 'a1', name: 'Again' }, { id: 'no spaces' }, { id: 7 }, null], byChar: {} }).accounts, [{ id: 'a1' }]);
+  eq('  a character on an account that isn\'t listed, or under a bad ID, is left unset',
+    A.sanitizeAccounts({ accounts: [{ id: 'a1' }], byChar: { [MAIN]: 'a1', [WILLI]: 'a9', abc: 'a1', [FANNY]: 3 } }).byChar, { [MAIN]: 'a1' });
+  eq('  four on one account are kept as they are (two devices\' writes), never one dropped by the sanitizer',
+    Object.keys(A.sanitizeAccounts({ accounts: [{ id: 'a1' }], byChar: { 1: 'a1', 2: 'a1', 3: 'a1', 4: 'a1' } }).byChar).length, 4);
+  eq('  it is a synced document, held back by a Worker a version behind', [isDocKey('accounts'), DOC_KEYS.includes('accounts'), refusedDoc('Unknown document: accounts')], [true, true, 'accounts']);
+  eq('    and goes up with a first upload', everything({ accounts: A.emptyAccounts() }).docs.includes('accounts'), true);
+
+  // Putting characters on accounts: the user's own (19 October 2026), the main account first made for the main.
+  let doc = A.emptyAccounts();
+  const put = (c, t) => { const r = A.assignAccount(doc, c, t, MAIN, present); if (r.doc) doc = r.doc; return r; };
+  put(FANNY, 'new');
+  eq('  the first account made, for a character not the main, is "Account 2"', A.accountName(doc, 'a1', MAIN), 'Account 2');
+  put(MAIN, 'new');
+  eq('  the main\'s is "Main account", whichever was made first', [A.accountName(doc, 'a2', MAIN), A.accountName(doc, 'a1', MAIN)], ['Main account', 'Account 2']);
+  eq('    and it is listed first', A.accountsInOrder(doc, MAIN).map((a) => a.id), ['a2', 'a1']);
+  put(WILLI, 'a2'); put(MESSENGER, 'a2');
+  eq('  three on the main account', A.membersOf(doc, 'a2', present), [MAIN, WILLI, MESSENGER]);
+  const fourth = put(FOURTH, 'a2');
+  eq('  a fourth is refused, saying why', fourth, { refused: 'Main account already holds 3 characters, the most an EVE account can. Move one of them to another account first.' });
+  eq('    and nothing changed', A.accountOf(doc, FOURTH), null);
+  eq('  one already on it moved there again changes nothing', put(WILLI, 'a2').doc === doc, true);
+  eq('  a character taken off the roster isn\'t counted against the limit', 'doc' in A.assignAccount(doc, FOURTH, 'a2', MAIN, [MAIN, WILLI, FOURTH]), true);
+  put(FOURTH, 'new');
+  eq('  "Account 3" next', A.accountName(doc, 'a3', MAIN), 'Account 3');
+  eq('  an account that isn\'t listed is refused', 'refused' in A.assignAccount(doc, FOURTH, 'a9', MAIN, present), true);
+  put(FOURTH, 'a1');
+  eq('  moving off an account leaves it, empty, so no other name moves', [doc.accounts.length, A.membersOf(doc, 'a3', present), A.accountName(doc, 'a1', MAIN)], [3, [], 'Account 2']);
+  eq('  an empty account can be removed; one holding a character can\'t', [A.removeAccount(doc, 'a3', present)?.accounts.map((a) => a.id), A.removeAccount(doc, 'a1', present)], [['a1', 'a2'], null]);
+  eq('  a new account\'s ID is never reused', A.nextAccountId({ accounts: [{ id: 'a2' }], byChar: {} }), 'a3');
+  eq('  a typed name, and back to the default when cleared', [A.accountName(A.renameAccount(doc, 'a1', ' Fanny\'s '), 'a1', MAIN), A.accountName(A.renameAccount(A.renameAccount(doc, 'a1', 'X'), 'a1', ''), 'a1', MAIN)], ['Fanny\'s', 'Account 2']);
+
+  // Pickers: each account's characters together, the main's first, those not set last; nothing moves with no account set.
+  const ch = (charId) => ({ charId, account: A.accountRef(doc, charId, MAIN) });
+  eq('  a picker lists by account, the main\'s first, unset last', A.byAccount([ch(MAIN), ch(FANNY), ch(900299), ch(WILLI), ch(FOURTH)]).map((c) => [c.charId, c.group]),
+    [[MAIN, 'Main account'], [WILLI, 'Main account'], [FANNY, 'Account 2'], [FOURTH, 'Account 2'], [900299, 'Account not set']]);
+  eq('    with no account set, the order is as it came', A.byAccount([MAIN, FANNY, WILLI].map((c) => ({ charId: c, account: null }))).map((c) => c.charId), [MAIN, FANNY, WILLI]);
+
+  // Planets' repeat line: the months of Omega a set of characters is on.
+  eq('  two on one account and one not set: 2 accounts', A.accountCount(doc, [MAIN, WILLI, 900299]), { accounts: 1, unset: 1, k: 2 });
+  eq('    said', [A.accountCountSaid(A.accountCount(doc, [MAIN, WILLI, 900299])), A.accountCountSaid(A.accountCount(doc, [MAIN, WILLI])), A.accountCountSaid(A.accountCount(doc, [MAIN, FANNY])), A.accountCountSaid(A.accountCount(A.emptyAccounts(), [1, 2]))],
+    ['their 2 accounts, 1 character’s account not set', 'their account', 'their 2 accounts', 'their 2 accounts, 2 characters’ accounts not set']);
+
+  // Clone state: an account's, from its characters' readings.
+  const T = Date.parse('2026-10-19T12:00:00Z');
+  const m = (charId, detected, at, byHand) => ({ charId, detected, at, byHand });
+  let cl = A.accountClones(doc, [m(MAIN, 'omega', T), m(WILLI, null, T - 3600_000), m(MESSENGER, null, null, 'alpha'), m(FANNY, null, T), m(FOURTH, null, null)]);
+  eq('  the main account reads Omega from the main', [cl.accounts.get('a2').state, cl.accounts.get('a2').by, cl.accounts.get('a2').conflict], ['omega', MAIN, false]);
+  eq('  a new PI alt whose skills can\'t tell takes its account\'s', cl.chars.get(WILLI), { clone: 'omega', from: 'account', account: cl.accounts.get('a2') });
+  eq('    and over a state set by hand earlier', [cl.chars.get(MESSENGER).clone, cl.chars.get(MESSENGER).from], ['omega', 'account']);
+  eq('  an account no character reads is not known, and its characters too', [cl.accounts.get('a1').state, cl.chars.get(FANNY).clone, cl.chars.get(FANNY).from], ['unknown', 'unknown', null]);
+  eq('  a state set by hand earlier speaks only when nothing is read for it or its account', A.accountClones(doc, [m(FANNY, null, null, 'omega')]).chars.get(FANNY), { clone: 'omega', from: 'hand', account: { state: 'unknown', conflict: false, by: null, at: null, readings: [] } });
+  cl = A.accountClones(doc, [m(MAIN, 'omega', T - 600_000), m(WILLI, 'alpha', T), m(MESSENGER, null, null)]);
+  eq('  readings that disagree: the newest wins, said', [cl.accounts.get('a2').state, cl.accounts.get('a2').by, cl.accounts.get('a2').conflict], ['alpha', WILLI, true]);
+  eq('    a character\'s own reading still wins for itself', [cl.chars.get(MAIN).clone, cl.chars.get(MAIN).from, cl.chars.get(MESSENGER).clone], ['omega', 'skills', 'alpha']);
+  eq('    a reading with no time is the oldest', A.accountClone(doc, 'a2', [m(MAIN, 'omega', null), m(WILLI, 'alpha', T)]).state, 'alpha');
+  eq('  an alt\'s ledger is built at its account\'s or its hand-set state, nothing when neither is known', [A.fallbackClone(cl.chars.get(MESSENGER)), A.fallbackClone(A.accountClones(doc, [m(FANNY, null, null)]).chars.get(FANNY)), A.fallbackClone(undefined)], ['alpha', undefined, undefined]);
+  // The members: the main from its meta, read at its last sync; an alt from its pulled copy, read at its sheet's last success.
+  const R = await import('../src/lib/roster.ts');
+  const entry = (charId, sheetOk) => ({ charId, name: 'x', addedAt: 0, scopes: [], at: null, refusedAt: null, refused: null, rev: 1, ship: null, shipAt: null, jobs: sheetOk == null ? [] : [{ job: 'sheet', lastRun: sheetOk, lastOk: sheetOk, lastError: null }] });
+  const members = A.cloneMembers({ charId: MAIN, meta: { cloneDetected: 'omega', lastSync: new Date(T).toISOString() }, byHand: 'omega' },
+    [entry(WILLI, T - 60_000), entry(FANNY, null)], { [WILLI]: { ...R.emptyAlt(), docs: { meta: { cloneDetected: 'alpha' } } } }, { [FANNY]: { name: 'Fanny', clone: 'omega' } });
+  eq('  the members, from the main\'s meta and each alt\'s copy', members, [
+    { charId: MAIN, detected: 'omega', at: T, byHand: 'omega' }, { charId: WILLI, detected: 'alpha', at: T - 60_000, byHand: undefined }, { charId: FANNY, detected: null, at: null, byHand: 'omega' }]);
+}
+
 console.log('\n--- what a ledger earned (income.ts) ---');
 {
   const { activityEvents, incomeRows } = await import('../src/lib/income.ts');

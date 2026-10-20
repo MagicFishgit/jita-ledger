@@ -9,6 +9,7 @@ import { sanitizeBlueprints, type BlueprintsDoc, type JobRecord } from './indust
 import { sanitizeColonies, type ColoniesDoc } from './colonies';
 import { sanitizePlanets, type PlanetsDoc } from './planetsDoc';
 import { sanitizeCopyContracts, type CopyContractsDoc } from './copyContracts';
+import { sanitizeAccounts, type AccountsDoc } from './accounts';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -79,11 +80,16 @@ export type Data = {
   planets: PlanetsDoc;
   /** The main's planetary colonies as last read (colonies.ts). Absent: never read. */
   colonies?: ColoniesDoc;
+  /**
+   * Which EVE account each of your characters is on, the main's included, set by hand once per character on the Characters
+   * page (accounts.ts): ESI has no notion of an account. A document of its own, so an older build's save can't drop it.
+   */
+  accounts: AccountsDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts', 'colonies', 'planets',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts', 'colonies', 'planets', 'accounts',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -129,6 +135,7 @@ export async function initStore(): Promise<void> {
   data.copyContracts = sanitizeCopyContracts(data.copyContracts);
   data.colonies = sanitizeColonies(data.colonies);
   data.planets = sanitizePlanets(data.planets);
+  data.accounts = sanitizeAccounts(data.accounts);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -268,6 +275,8 @@ export async function importAll(json: string): Promise<void> {
   // Which characters are yours is about the cloud's roster, not about this ledger's trades: a backup from before
   // there were any says nothing of them, and must not turn past transfers to them back into donations.
   if (incoming.chars === undefined) delete p.chars; else p.chars = sanitizeChars(p.chars);
+  // Likewise which account each is on: a backup from before accounts were kept leaves the ones set here.
+  if (incoming.accounts === undefined) delete p.accounts; else p.accounts = sanitizeAccounts(p.accounts);
   if (p.settings) p.settings = sanitizeSettings(p.settings);
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
