@@ -1313,6 +1313,15 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .between-line > .kv > span:first-child { color: var(--body); }
 .between-figs { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; color: var(--sec); }
 
+/* The Characters page by account (Characters.tsx): each account's head over its characters' cards, "Which account?" first.
+   Not a panel: each card is its own (scripts/income.mjs finds the main's card as the first panel holding a pilot). */
+.acct { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.acct + .acct { margin-top: 6px; }
+.acct-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 0 2px 4px; border-bottom: 1px solid var(--line); min-width: 0; }
+.acct-name { font-family: var(--f-head); font-size: 15px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); overflow-wrap: anywhere; }
+.acct-input { height: 28px; max-width: 100%; width: 260px; padding: 0 8px; background: var(--field); border: 1px solid var(--acc); color: var(--ink); font: inherit; }
+.acct-pick { gap: 6px 10px; flex-wrap: wrap; align-items: center; }
+
 /* A table row a link sent you to (Orders `?show=`, To do's "Open orders"): a bright outline that pulses twice and
    fades. Drawn with inset shadows on the cells, since an outline on a table row isn't drawn everywhere. */
 .tbl tbody tr.flash > td { animation: row-flash 2.6s ease-out; }

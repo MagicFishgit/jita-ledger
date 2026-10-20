@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Cloud, CloudOff, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react';
+import { ACCOUNT_HOLDS, accountClones, accountName, accountOf, accountsInOrder, assignAccount, cloneMembers, fallbackClone, membersOf, removeAccount, renameAccount, type AccountClone, type CharClone } from '../lib/accounts';
 import { askedScopes, hasScope, loginAltForCloud } from '../lib/auth';
 import { altLedger } from '../lib/altLedger';
 import { refreshAlts, useAlts } from '../lib/altStore';
@@ -12,7 +13,7 @@ import type { IncomeRow } from '../lib/income';
 import { minedTotal, type MiningRecord } from '../lib/mining';
 import { altFacts, altReadState, charFacts, emptyAlt, failingJobs, idleQueueSaid, jobOk, lastRead, loginState, ownIds, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
 import { ROMAN, trainSaid } from '../lib/skillStatus';
-import { update, useData, type Data } from '../lib/store';
+import { getData, update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
 import { PERIOD_DAYS, periodStart, type Days } from '../lib/wallet';
 import { useCharIncome, useMinedWorth } from './charIncome';
@@ -149,9 +150,17 @@ function Card(props: {
   onEarned: (id: number, isk: number | null) => void;
   /** The alt's roster entry; absent for the character logged in here. */
   entry?: RosterEntry;
-  /** A clone state set by hand (an alt's) or in Settings (the main's), for one ESI can't tell apart. */
-  byHand?: 'alpha' | 'omega';
-  onClone?: (v: 'alpha' | 'omega' | undefined) => void;
+  /**
+   * Its clone state and where it came from (accounts.ts): its own skills, else its account's, else set by hand earlier. Never
+   * set on this page: Omega and Alpha belong to an account, and the account's is worked out from its characters' skills.
+   */
+  clone: CharClone;
+  /** The main's clone setting (Settings), said when nothing read tells; absent for an alt. */
+  setting?: 'alpha' | 'omega';
+  /** Its account's name, when it's on one; a character's name by ID, for what its account's state was read from. */
+  accountName: string | null; nameOf: (id: number) => string;
+  /** Which account it's on: the small control at its foot. */
+  pick: ReactNode;
   onHandOver?: () => void; onRemove?: () => void; busy?: boolean; cloudOff?: boolean;
 }) {
   const { id, name, facts, now, entry, onEarned } = props;
@@ -167,13 +176,24 @@ function Card(props: {
   const failing = entry ? failingJobs(entry) : [];
   const read = entry ? lastRead(entry) : null;
   const unread = !!entry && facts.totalSp == null;
-  const clone: CloneState = facts.clone !== 'unknown' ? facts.clone : props.byHand ?? 'unknown';
+  const c = props.clone;
+  // The main with nothing read for it or its account says its Settings' state, as it always did; an alt says it can't tell.
+  const fromSetting = !entry && (c.from === 'hand' || c.from === null);
+  const clone: CloneState = fromSetting ? props.setting ?? 'unknown' : c.clone;
   const cloneColor = clone === 'alpha' ? 'var(--acc2)' : clone === 'omega' ? 'var(--acc)' : 'var(--note)';
-  const cloneWhy = facts.clone !== 'unknown'
+  const cantTell = unread ? 'The cloud hasn’t read this character’s skills yet'
+    : 'ESI has no field for it, and this character has trained nothing past what an Alpha may use, so its skills look the same either way';
+  const cloneWhy = c.from === 'skills'
     ? (entry ? 'Worked out from its skills: Alpha when a skill is usable below the level trained, Omega when one is usable above what an Alpha may use.' : 'Read from your skills on the last sync.')
-    : !entry ? 'The clone state set in Settings, because the last sync couldn’t tell.'
-    : unread ? 'The cloud hasn’t read this character’s skills yet, so its clone state isn’t known.'
-    : 'ESI has no field for it, and this character has trained nothing past what an Alpha may use, so its skills look the same either way. Say which it is, if you like: it’s a label only.';
+    : c.from === 'account' ? `${entry ? cantTell : 'The last sync couldn’t tell from your skills'}, so it takes its account’s: Omega and Alpha belong to an account. ${props.accountName}: ${accountCloneSaid(c.account!, props.nameOf, now)}`
+    : fromSetting ? `The clone state set in Settings, because the last sync couldn’t tell${props.accountName ? `, and nothing on ${props.accountName} says` : ''}.`
+    : c.from === 'hand' ? `Set by hand earlier on this page. ${cantTell}, and nothing ${props.accountName ? `on ${props.accountName}` : 'on its account'} says which, so it stands until something does.`
+    : unread && !props.accountName ? 'The cloud hasn’t read this character’s skills yet, and its account isn’t set, so its clone state isn’t known.'
+    : `${cantTell}. ${props.accountName ? `Nothing on ${props.accountName} says either: another character there whose skills show it would tell.` : 'Put it on its account below: another character there whose skills show it tells.'}`;
+  const cloneSaid = c.from === 'account' ? `${CLONE_SAID[clone]}, from its account`
+    : fromSetting ? `${CLONE_SAID[clone]} (as set in Settings)`
+    : c.from === 'hand' ? `${CLONE_SAID[clone]} (set by hand earlier)`
+    : unread && c.from === null ? 'Not read yet' : CLONE_SAID[clone];
   return (
     <Panel label={name}>
       <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
@@ -185,9 +205,8 @@ function Card(props: {
           </div>
         </div>
         <div className="row tight">
-          <Flag color={unread ? 'var(--note)' : cloneColor} title="Clone state"
-            why={cloneWhy}>
-            {unread ? 'Not read yet' : CLONE_SAID[clone]}{facts.clone === 'unknown' && props.byHand ? (entry ? ' (you said)' : ' (as set in Settings)') : ''}{facts.cloneSince ? ` since ${fmtDate(facts.cloneSince)}` : ''}
+          <Flag color={unread && c.from === null ? 'var(--note)' : cloneColor} title="Clone state" why={cloneWhy}>
+            <span data-clone={c.from ?? 'none'}>{cloneSaid}{c.from === 'skills' && facts.cloneSince ? ` since ${fmtDate(facts.cloneSince)}` : ''}</span>
           </Flag>
           {login?.state === 'refused' && <Flag color="var(--neg)" title="Login refused" why={`EVE has refused the cloud’s login for ${name} since ${fmtDateTime(entry!.refusedAt!)}${entry!.refused ? ` (${entry!.refused})` : ''}. Nothing is read for it until you hand it over again.${entry!.sender ? ' It is the login your alert mail is sent from, so no alert mail goes out either: handing it over again here, or under Settings → Your data, fixes both.' : ''}`}>Login refused</Flag>}
           {login?.state === 'none' && <Flag color="var(--neg)" title="No login" why="The cloud holds no login for this character, so nothing is read for it. Hand it over again.">No login</Flag>}
@@ -207,15 +226,6 @@ function Card(props: {
         earnedTile(income, props.period, !!entry, !!props.earnedUnread, entry ? jobOk(entry, 'archive') : null, now),
         minedTile(props.mined, props.worth, props.period, props.oneDay, props.miningUnread ?? null),
       ]} />
-      {entry && !unread && facts.clone === 'unknown' && props.onClone && (
-        <div className="row tight">
-          <span className="note small">Alpha or Omega?</span>
-          {(['alpha', 'omega'] as const).map((k) => (
-            <button key={k} type="button" className="btn xs" aria-pressed={props.byHand === k} onClick={() => props.onClone!(props.byHand === k ? undefined : k)}
-              style={props.byHand === k ? { borderColor: 'var(--acc)', color: 'var(--ink)' } : undefined}>{CLONE_SAID[k]}</button>
-          ))}
-        </div>
-      )}
       {entry && (
         <p className="note small">
           {entry.sender ? 'It also sends your alert mail: the cloud reads it with the login it sends from, since EVE allows a character one set of permissions. ' : ''}
@@ -234,9 +244,84 @@ function Card(props: {
           <button type="button" className="btn sm quiet" disabled={props.busy || props.cloudOff} title={props.cloudOff ? CLOUD_OFF : undefined} onClick={props.onRemove}><Trash2 aria-hidden="true" />Remove</button>
         </div>
       )}
+      {props.pick}
     </Panel>
   );
 }
+
+const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/**
+ * What an account's clone state was read from, as a sentence: its characters' own skills, the newest read when they disagree
+ * (said: one read is out of date, or a character is on the wrong account), or nothing when none of them tells.
+ */
+function accountCloneSaid(a: AccountClone, nameOf: (id: number) => string, now: number): string {
+  if (a.state === 'unknown') return 'not known: no character on it has trained past what an Alpha may use, so their skills look the same either way.';
+  const read = (s: 'alpha' | 'omega') => listSaid(a.readings.filter((r) => r.state === s).map((r) => `${nameOf(r.charId)}’s`));
+  if (!a.conflict) return `${CLONE_SAID[a.state]}, from ${read(a.state)} skills.`;
+  const when = a.at != null ? `, read ${ago(new Date(a.at).toISOString(), now)}` : '';
+  return `${read('omega')} skills read Omega and ${read('alpha')} Alpha, so the newest read speaks: ${nameOf(a.by!)}’s${when}, ${CLONE_SAID[a.state]}. If they really are on one account, the other read is out of date; if not, move one to its own account.`;
+}
+
+/**
+ * Which account a character is on: one of yours, or a new one. Refused, saying why, when the account already holds three of
+ * your characters (EVE's limit), and the control stays where it was.
+ */
+function AccountPick({ charId, mainId, present }: { charId: number; mainId: number; present: number[] }) {
+  const doc = useData().accounts;
+  const [refused, setRefused] = useState<string | null>(null);
+  const current = doc.byChar[String(charId)] ?? '';
+  const choose = (v: string) => {
+    if (!v || v === current) return;
+    const r = assignAccount(getData().accounts, charId, v, mainId, present);
+    if ('refused' in r) { setRefused(r.refused); return; }
+    setRefused(null);
+    update({ accounts: r.doc });
+  };
+  return (
+    <div className="row tight acct-pick" data-account-pick={charId}>
+      <label className="note small" htmlFor={`acct-${charId}`}>{current ? 'Move to' : 'Which account is it on?'}</label>
+      <select id={`acct-${charId}`} className="ind-sel" value={current} onChange={(e) => choose(e.target.value)}>
+        {!current && <option value="">Pick one</option>}
+        {accountsInOrder(doc, mainId).map((a) => {
+          const n = membersOf(doc, a.id, present).filter((x) => x !== charId).length;
+          return <option key={a.id} value={a.id}>{accountName(doc, a.id, mainId)}{a.id !== current && n >= ACCOUNT_HOLDS ? ` (full: ${n} of ${ACCOUNT_HOLDS})` : ''}</option>;
+        })}
+        <option value="new">A new account</option>
+      </select>
+      {refused && <span className="note small" role="alert" data-account-refused="" style={{ color: 'var(--acc2)', whiteSpace: 'normal' }}>{refused}</span>}
+    </div>
+  );
+}
+
+/**
+ * An account's head: its name (typed, or its default), how many of its three places your characters hold, and its clone state,
+ * worked out from what its characters' skills show (never set by hand). An empty account can be removed.
+ */
+function AccountHead({ id, mainId, present, clone, nameOf, now }: { id: string; mainId: number; present: number[]; clone: AccountClone | undefined; nameOf: (id: number) => string; now: number }) {
+  const doc = useData().accounts;
+  const [draft, setDraft] = useState<string | null>(null);
+  const name = accountName(doc, id, mainId);
+  const n = membersOf(doc, id, present).length;
+  const a = clone ?? { state: 'unknown' as const, conflict: false, by: null, at: null, readings: [] };
+  const save = () => { if (draft != null) update((x) => ({ accounts: renameAccount(x.accounts, id, draft) })); setDraft(null); };
+  return (
+    <div className="acct-head">
+      {draft == null ? <span className="acct-name">{name}</span> : (
+        <input aria-label={`Name for ${name}`} className="acct-input" autoFocus value={draft} maxLength={40} placeholder={accountName({ ...doc, accounts: doc.accounts.map((x) => (x.id === id ? { id } : x)) }, id, mainId)}
+          onChange={(e) => setDraft(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') setDraft(null); }} />
+      )}
+      <span className="note small" data-account-count="">{n} of {ACCOUNT_HOLDS} characters</span>
+      <Flag color={a.state === 'alpha' ? 'var(--acc2)' : a.state === 'omega' ? 'var(--acc)' : 'var(--note)'} title={`${name}’s clone state`}
+        why={`Omega and Alpha belong to an account, so this is worked out from its characters’ skills, never set here. ${cap(accountCloneSaid(a, nameOf, now))}`}>
+        <span data-account-clone="">{a.state === 'unknown' ? 'Clone state not known' : CLONE_SAID[a.state]}{a.conflict ? ': reads disagree' : ''}</span>
+      </Flag>
+      {draft == null && <button type="button" className="link-btn" onClick={() => setDraft(doc.accounts.find((x) => x.id === id)?.name ?? '')}>Rename</button>}
+      {n === 0 && <button type="button" className="link-btn" onClick={() => update((x) => { const next = removeAccount(x.accounts, id, present); return next ? { accounts: next } : {}; })}>Remove this account</button>}
+    </div>
+  );
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function Characters() {
   const d = useData();
@@ -272,17 +357,24 @@ export function Characters() {
   const mine = charFacts({ ...d.meta, cloneSince: undefined }, d.netWorth, now);
   const myMining = useMemo(() => Object.values(d.mining).filter((r) => r.charId === mainId), [d.mining, mainId]);
   const wanted = [...SCOPES, ...askedScopes()];
+  // Each character's clone state: its own skills', else its account's, else set by hand earlier (accounts.ts), and each account's.
+  // The main's own setting is said apart (Settings'), so it isn't passed as set by hand here.
+  const clones = useMemo(() => accountClones(d.accounts, cloneMembers({ charId: mainId, meta: d.meta }, alts.roster, alts.alts, d.chars)), [d.accounts, mainId, d.meta, alts.roster, alts.alts, d.chars]);
   const others = alts.roster.map((entry) => {
     const saved = alts.alts[entry.charId] ?? NO_ALT;
     const facts = altFacts(saved, now);
-    const byHand = d.chars[String(entry.charId)]?.clone;
+    const clone = clones.chars.get(entry.charId)!;
     // The alt's copy as a ledger, the same object until its revision moves (altLedger), so its income is worked out once.
-    const ledger = altLedger(saved, byHand);
+    const ledger = altLedger(saved, fallbackClone(clone));
     // Each part is known once that part was read (altReadState), never because something else was.
     const read = altReadState(saved, entry, wanted, SCOPE.mining);
     const miningUnread = read.mining === 'read' ? undefined : read.mining === 'permission' ? 'Needs the Mining ledger permission' : 'Not read yet';
-    return { entry, facts, byHand, ledger, mining: Object.values(ledger.mining), earnedUnread: !read.earned, miningUnread };
+    return { entry, facts, clone, ledger, mining: Object.values(ledger.mining), earnedUnread: !read.earned, miningUnread };
   });
+  // Which account each is on: those not set first, under "Which account?", then each account, the main's first.
+  const present = [mainId, ...others.map((o) => o.entry.charId)];
+  const nameOf = (id: number) => (id === mainId ? auth?.characterName ?? 'Your character' : alts.roster.find((e) => e.charId === id)?.name ?? d.chars[String(id)]?.name ?? `Character ${id}`);
+  const acctOf = (id: number) => accountOf(d.accounts, id);
   const everyone = [mine, ...others.map((o) => o.facts)];
   // Ore names from your ledger, or the alt's own copy when yours hasn't one.
   const worth = useMinedWorth([myMining, ...others.map((o) => o.mining)].flat().filter((r) => r.date >= pricedFrom).map((r) => r.typeId), others.map((o) => o.ledger.names));
@@ -351,13 +443,6 @@ export function Characters() {
     }
   }
 
-  /** The roster on disk can be ahead of `chars` (no live read this session), so a click starts from the entry's name. */
-  const setClone = (entry: RosterEntry, v: 'alpha' | 'omega' | undefined) => update((x) => {
-    const id = String(entry.charId);
-    const { clone: _was, ...rest } = x.chars[id] ?? { name: entry.name ?? `Character ${entry.charId}` };
-    return { chars: { ...x.chars, [id]: v ? { ...rest, clone: v } : rest } };
-  });
-
   const add = (
     <button type="button" className="btn primary" disabled={busy || !cloudOn || !auth} onClick={handOver}>
       <UserPlus aria-hidden="true" />Add a character
@@ -400,15 +485,46 @@ export function Characters() {
 
       <Tiles items={total} min={220} />
 
-      <Card id={mainId} name={auth?.characterName ?? 'Your character'} facts={mine} now={now} skill={skill} byHand={d.settings.clone}
-        ledger={d} mine={family} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1} onEarned={onEarned}
-        miningUnread={!myMining.length && !hasScope(SCOPE.mining) ? 'Needs the Mining ledger permission' : undefined} />
-      {others.map(({ entry, facts, byHand, ledger, mining, earnedUnread, miningUnread }) => (
-        <Card key={entry.charId} id={entry.charId} name={entry.name ?? `Character ${entry.charId}`} facts={facts} now={now} skill={skill} entry={entry} busy={busy} cloudOff={!cloudOn}
-          ledger={ledger} mine={families.get(entry.charId) ?? family} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1}
-          earnedUnread={earnedUnread} miningUnread={miningUnread} onEarned={onEarned}
-          byHand={byHand} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
-      ))}
+      {(() => {
+        const card = (id: number) => {
+          const acct = acctOf(id);
+          const common = { now, skill, nameOf, accountName: acct ? accountName(d.accounts, acct.id, mainId) : null, pick: <AccountPick charId={id} mainId={mainId} present={present} />,
+            since, period, incomeNow, oneDay: days === 1, onEarned, worth };
+          if (id === mainId) {
+            return (
+              <Card key={id} id={mainId} name={auth?.characterName ?? 'Your character'} facts={mine} {...common} clone={clones.chars.get(mainId)!} setting={d.settings.clone}
+                ledger={d} mine={family} mined={myMining.filter((r) => r.date >= fromDate)}
+                miningUnread={!myMining.length && !hasScope(SCOPE.mining) ? 'Needs the Mining ledger permission' : undefined} />
+            );
+          }
+          const { entry, facts, clone, ledger, mining, earnedUnread, miningUnread } = others.find((o) => o.entry.charId === id)!;
+          return (
+            <Card key={id} id={id} name={entry.name ?? `Character ${id}`} facts={facts} {...common} clone={clone} entry={entry} busy={busy} cloudOff={!cloudOn}
+              ledger={ledger} mine={families.get(id) ?? family} mined={mining.filter((r) => r.date >= fromDate)}
+              earnedUnread={earnedUnread} miningUnread={miningUnread} onHandOver={handOver} onRemove={() => remove(entry)} />
+          );
+        };
+        const unset = present.filter((id) => !acctOf(id));
+        return (
+          <>
+            {unset.length > 0 && (
+              <section className="acct" aria-label="Which account?" data-account="unset">
+                <div className="acct-head">
+                  <span className="acct-name">Which account?</span>
+                  <span className="note small" style={{ whiteSpace: 'normal' }}>EVE doesn’t say which account a character is on, so say it once for each below: each picker then lists your characters by account, and an account’s Omega or Alpha reaches every character on it.</span>
+                </div>
+                {unset.map(card)}
+              </section>
+            )}
+            {accountsInOrder(d.accounts, mainId).map((a) => (
+              <section key={a.id} className="acct" aria-label={accountName(d.accounts, a.id, mainId)} data-account={a.id}>
+                <AccountHead id={a.id} mainId={mainId} present={present} clone={clones.accounts.get(a.id)} nameOf={nameOf} now={now} />
+                {membersOf(d.accounts, a.id, present).map(card)}
+              </section>
+            ))}
+          </>
+        );
+      })()}
       {empty && (
         <Panel>
           <Empty icon={Users} action={<>{add}<p>{addHint}</p></>}>
