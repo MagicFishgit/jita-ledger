@@ -81,9 +81,11 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
           },
           {
             l: 'Clone', v: c.clone === 'alpha' ? 'Alpha' : c.clone === 'omega' ? 'Omega' : 'Not read',
-            n: c.clone === 'alpha' ? alphaTileSaid()
+            // Said where it came from when not this character's own skills (accounts.ts): its account's, or set by hand earlier.
+            n: (c.cloneFrom === 'account' ? 'from its account: ' : c.cloneFrom === 'hand' && !c.isMain ? 'set by hand earlier: ' : '')
+              + (c.clone === 'alpha' ? alphaTileSaid()
               : c.clone === 'omega' ? 'every industry skill is open'
-                : 'clone state not read: the 0.25% Alpha job tax is left out where it can’t be told',
+                : 'clone state not read: the 0.25% Alpha job tax is left out where it can’t be told'),
           },
         ]} />
       </div>
