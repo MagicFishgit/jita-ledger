@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
-import { ago, iskBig, units } from '../../lib/format';
+import { ago, fmtShort, iskBig, units } from '../../lib/format';
 import { monthOfOmega, omegaShare, periods, shareSaid } from '../../lib/iskPeriods';
 import { accountCount, accountCountSaid, type AccountRef } from '../../lib/accounts';
 import { useNow } from '../../lib/hooks';
@@ -19,13 +19,14 @@ import {
   ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
   type Bought, type Output, type PlanChar, type Repeat, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
-import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
+import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type KeptPlan, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
+import { changedSince, keepable, keptOf, keptPlanetsOf, layoutKey } from '../../lib/planKeep';
 import { update, useData } from '../../lib/store';
 import { system as systemInfo } from '../../lib/universe';
 import { Points } from '../Facts';
 import { Check, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
-import { useHomeHubs, useIndustryDoc } from './industryMarket';
+import { LIVE_READ_BOUND_MS, useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { SystemPlanet } from './planetsMarket';
 import { NO_SYS, usePlanning } from './planetsPlanning';
 import { useMainSystem } from './rightNow';
@@ -73,19 +74,29 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct }: {
+export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
   systemId: number | null; onSystem: (id: number | null) => void; mainName: string;
   /** Plan it: the good Plan is held to (from the address, else kept), or null for every product; `onEveryProduct` lets it go. */
   good: number | null; onEveryProduct: () => void;
+  /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
+  ready?: boolean;
 }) {
   const doc = useData().planets;
   // One ranking from one input, shared with the Chart (planetsPlanning.ts); held to the good chosen beside it.
-  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive } = usePlanning({ c, chars, colonies, ix, systemId, only: good });
+  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis } = usePlanning({ c, chars, colonies, ix, systemId, only: good, ready });
   // The rows: held to the good when one is chosen, else every product's ranking, as before.
   const rows = good != null ? held : setups;
   const rowsWorking = good != null ? heldWorking : working;
   const rowsLive = good != null ? heldLive : livePass;
+  // Keep this plan (planner fix 2): kept per system and good in the synced `planets` doc, with what it rests on; Forget lets it go.
+  const keep = good != null && systemId != null && basis ? (s: Setup) => {
+    const k = keptOf(s, basis, new Date().toISOString());
+    if (k) setPrefs(systemId, (p) => ({ ...p, kept: { ...p.kept, [String(good)]: k } }));
+  } : null;
+  const forget = () => { if (good != null && systemId != null) setPrefs(systemId, (p) => { const kept = { ...p.kept }; delete kept[String(good)]; return { ...p, kept }; }); };
+  const nameOf = (id: number) => chars.find((x) => x.charId === id)?.name ?? `Character ${id}`;
+  const kept = good != null && keptPlan ? { plan: keptPlan, now: keptNow, newer, changed: newer && basis ? changedSince(keptPlan.basis, basis, nameOf, (id) => ix.byId.get(id)?.name ?? `type ${id}`) : [], forget } : null;
 
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   const blockedWhy = charWhy(planChar);
@@ -112,9 +123,11 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
           <>
             <SystemHead name={value.system.name} security={value.system.security} planets={value.planets} />
             <Selling said={market.said} />
+            {/* Plan it's rows waited for every live read; past the bound, they're worked out on what came in (fix round 1 of planner fix 2). */}
+            {!blockedWhy && morning.ready && heldLate > 0 && rows && <p className="note small" style={{ margin: 0 }} data-planets="late">{heldLate} of the live reads hadn’t come back after {LIVE_READ_BOUND_MS / 1000} seconds, so these are worked out on what had: those goods are on this morning’s books, and it’s all worked out again when they land.</p>}
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
-              <Setups setups={rows} working={!rowsWorking ? null : rowsLive ? `Working them out again ${market.liveSaid}…` : 'Working them out again…'} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good}
-                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} />
+              <Setups setups={rows} working={!rowsWorking ? null : good != null || !rowsLive ? 'Working them out again…' : `Working them out again ${market.liveSaid}…`} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good}
+                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
               learned={learned} programHours={programHours} />
@@ -317,17 +330,19 @@ const setPrefs = (systemId: number, fn: (s: SystemPrefs) => SystemPrefs) => upda
 function PlanetList({ ix, systemId, security, planets, prefs, learned }: { ix: PiIndex; systemId: number; security: number; planets: SystemPlanet[]; prefs: SystemPrefs; learned: Partial<Record<PlanetType, Record<string, Learned>>> }) {
   const high = secBand(security) === 'high';
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
-  /** How the planet's extraction is known, P0 by P0: learned from your extractors, typed, another P0's learned rate, or none. */
+  /** How the planet's extraction is known, P0 by P0: learned from your extractors (now, or before: planner fix 2), typed, another P0's learned rate, or none. */
   const extractionSaid = (t: PlanetType): string => {
-    const by = { own: [] as string[], typed: [] as string[], onType: [] as string[], other: [] as string[], none: [] as string[] };
+    const by = { own: [] as string[], typed: [] as string[], before: [] as string[], onType: [] as string[], other: [] as string[], none: [] as string[] };
     for (const p0 of ix.planetTypes[t].p0) {
-      const r = learned[t]?.[String(p0)] || prefs.rates[t]?.[String(p0)] ? null : rateFor(learned, undefined, t, p0);
-      const k = learned[t]?.[String(p0)] ? 'own' : prefs.rates[t]?.[String(p0)] ? 'typed' : r?.otherType ? 'onType' : r ? 'other' : 'none';
+      const l = learned[t]?.[String(p0)];
+      const r = l || prefs.rates[t]?.[String(p0)] ? null : rateFor(learned, undefined, t, p0);
+      const k = l && !l.before ? 'own' : prefs.rates[t]?.[String(p0)] ? 'typed' : l ? 'before' : r?.otherType ? 'onType' : r ? 'other' : 'none';
       by[k].push(k === 'onType' ? `${name(p0)} at ${r!.otherType} planets’ learned rate` : name(p0));
     }
     return [
       by.own.length ? `learned for ${listSaid(by.own)}` : null,
       by.typed.length ? `typed for ${listSaid(by.typed)}` : null,
+      by.before.length ? `learned before for ${listSaid(by.before)}, by a colony of yours no longer there` : null,
       by.onType.length ? listSaid(by.onType) : null,
       by.other.length ? `${listSaid(by.other)} at another ${t} P0’s learned rate` : null,
       by.none.length ? `no rate for ${listSaid(by.none)}: worked out at what the factories take, if your extractors deliver that` : null,
@@ -407,12 +422,14 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
             <div className="col" style={{ gap: 4, minWidth: 0 }}>
               {/* A P0 with a rate of its own (learned or typed) is a line; the rest are named together, each a button to type one. */}
               {ix.planetTypes[t].p0.filter((p0) => learned[t]?.[String(p0)] || prefs.rates[t]?.[String(p0)]).map((p0) => {
-                const own = learned[t]?.[String(p0)];
+                const l = learned[t]?.[String(p0)];
+                const own = l && !l.before ? l : null, before = l?.before ? l : null;
                 const typed = prefs.rates[t]?.[String(p0)];
-                // A learned rate is used before a typed one (rateFor): typing over it would change nothing, so it offers no box.
+                // A rate learned now is used before a typed one (rateFor): typing over it would change nothing, so it offers no box. One
+                // learned before (planner fix 2: its colony is gone) gives way to a rate typed, so it offers one.
                 return (
                   <span key={p0} className="pl-rate" data-planets={`rate:${t}:${p0}`}>
-                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typedSaid(typed!)}{own && typed ? ` · your typed ${units(typed.perHour)} an hour stands aside while a rate is learned` : ''}</span>
+                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typed ? typedSaid(typed) : learnedSaid(before!, systemId)}{own && typed ? ` · your typed ${units(typed.perHour)} an hour stands aside while a rate is learned` : typed && before ? ` · learned before at ${units(before.perHour)} an hour, which your typed rate stands in for` : ''}</span>
                     {!own && <button type="button" className="link-btn" onClick={() => setEdit({ t, p0 })}>Change</button>}
                   </span>
                 );
@@ -452,7 +469,8 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
 function learnedSaid(l: Learned, systemId: number): string {
   const heads = l.heads > 0 ? `${+l.heads.toFixed(1)} heads` : 'heads not known: the colony didn’t say';
   return [
-    `${units(l.perHour)} an hour, learned from ${l.extractors} extractor${l.extractors === 1 ? '' : 's'}`,
+    l.before ? `${units(l.perHour)} an hour, learned before from ${l.extractors} extractor${l.extractors === 1 ? '' : 's'}, last on ${fmtShort(l.before)}: no colony of yours shows it now`
+      : `${units(l.perHour)} an hour, learned from ${l.extractors} extractor${l.extractors === 1 ? '' : 's'}`,
     `${hoursSaid(l.programHours)} programs, ${heads}`,
     ...(l.systems.includes(systemId) ? [] : ['learned in another system: richness varies from planet to planet']),
     l.checked ? null : `${PI_UNCHECKED}${l.higher != null ? ` (${units(l.higher)} the other way)` : ''}`,
@@ -501,26 +519,39 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
  * The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. `working`: what's being worked out again,
  * in words (an input changed, or the live books came in), or null.
  */
-function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf }: {
+/** A kept plan as Setups draws it (planner fix 2): the plan, it worked out on today's inputs, the layout offered beside it and what changed. */
+type KeptView = { plan: KeptPlan; now: Setup | null; newer: { s: Setup; more: number | null } | null; changed: string[]; forget: () => void };
+
+function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf, kept = null, onKeep = null }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
   programHours: number; good: number | null;
   /** Each character's account, as the Characters page sets it: the repeat line counts months of Omega by account, a chain names them. */
   accountOf: (charId: number) => AccountRef | null;
+  /** Plan it: the plan kept for this system and good, drawn first, the ranking folded under it (planner fix 2). */
+  kept?: KeptView | null;
+  /** Plan it: keeps a setup as the plan for this system and good; null when none can be kept here. */
+  onKeep?: ((s: Setup) => void) | null;
 }) {
   // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
   const plex = usePlexPrice();
   const plexNow = useNow(60_000);
   const settings = useData().settings;
+  const [others, setOthers] = useState(false);
   const omega = { price: plex.price, perMonth: settings.plexPerMonth, typed: settings.plexPrice > 0, at: plex.read?.at, now: plexNow };
-  if (!setups) return <p className="note small" style={{ margin: 0 }} data-planets="working">Working out each setup…</p>;
+  // Plan it's rows are the live pass's alone (planner fix 2): until it lands, nothing is drawn as the answer.
+  const waiting = <p className="note small" style={{ margin: 0 }} data-planets="working">{good != null ? 'Working it out…' : 'Working out each setup…'}</p>;
+  const keptBlock = kept && <KeptPlanBlock kept={kept} good={good!} name={name} onKeep={onKeep}
+    row={(s, tag, opens) => <SetupRow key={tag} s={s} rank={null} best={null} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} tag={tag} opens={opens} />} />;
+  if (!setups) return kept ? <div className="col" style={{ gap: 10 }}>{keptBlock}{waiting}</div> : waiting;
   // Plan it: the setups that make the good from the system's planets, the most a day first; bought apart, below them (planner fix 1):
   // it buys its inputs and doesn't use the system's planets for them.
   const ranked = good != null ? setups.filter((s) => s.kind !== 'bought') : setups;
   const buyInstead = good != null ? setups.find((s) => s.kind === 'bought') ?? null : null;
   const best = ranked.find((s) => s.iskDay != null) ?? null;
-  const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} />;
-  return (
-    <div className="col" style={{ gap: 10 }}>
+  const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf}
+    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} />;
+  const ranking = (
+    <>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
         <span className="panel-title">{good != null ? `The setups that make ${name(good)}, the most first` : 'The setups, best first'}</span>
         {working && <span className="note small" data-planets="working">{working}</span>}
@@ -535,22 +566,73 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
           {row(buyInstead, null)}
         </div>
       )}
+    </>
+  );
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      {keptBlock}
+      {/* With a plan kept, the kept plan is what Plan shows: today's ranking folds under it, so nothing that moves sits in view. */}
+      {kept ? (
+        <div className="col" style={{ gap: 10 }} data-planets="others">
+          <div><Toggle open={others} onToggle={() => setOthers(!others)}>Every setup worked out today ({ranked.length + (buyInstead ? 1 : 0)})</Toggle></div>
+          {others && ranking}
+        </div>
+      ) : ranking}
+    </div>
+  );
+}
+
+/**
+ * Plan it's kept plan (planner fix 2): when it was kept, its row worked out on today's inputs (its planets and what each runs as kept),
+ * Forget this plan, and beside it the layout offered when today's best makes `KEEP_MARGIN` more of the good, with what changed and Use
+ * the new one. Never put in the kept plan's place by itself.
+ */
+function KeptPlanBlock({ kept, good, name, onKeep, row }: {
+  kept: KeptView; good: number; name: (id: number) => string; onKeep: ((s: Setup) => void) | null;
+  row: (s: Setup, tag: string, opens: boolean) => ReactNode;
+}) {
+  const { plan, now, newer, changed } = kept;
+  const g = name(good);
+  const per = (s: Setup) => (s.made ? s.made.perDay : 0);
+  const chainSaid = (s: Setup) => (s.kind === 'chain' ? ' in all' : '');
+  return (
+    <div className="col" style={{ gap: 10 }} data-planets="kept">
+      <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+        <span className="panel-title">Your kept plan</span>
+        <button type="button" className="link-btn" onClick={kept.forget} data-planets="forget">Forget this plan</button>
+      </div>
+      <span className="note small" data-planets="kept-said">Kept {fmtShort(plan.at)}, when it made {aDay(plan.made)} {g} a day{plan.kind === 'chain' ? ' in all' : ''}. Its planets and what each runs stay as kept; what it makes and fetches is worked out on today’s rates and prices.
+        <Tip title="Your kept plan" text={'The plan you kept for this system and good, so it stays put while you build it.\n\n• Its planets, each extractor’s P0, heads and Basics, and the factories stay as kept, whatever today’s rates would rank first.\n• What it makes and fetches follows today’s rates, prices, taxes and the character shown, within those factories.\n• A newer layout is offered beside it only when it makes at least 5% more; Forget this plan lets it go.'} /></span>
+      {now ? row(now, `kept-setup:${now.kind}`, true) : <p className="note small" style={{ margin: 0 }} data-planets="working">Working it out…</p>}
+      {newer && (
+        <div className="col inset-box" style={{ gap: 8 }} data-planets="newer">
+          <span className="note small" data-planets="newer-said">A newer layout makes {aDay(per(newer.s))} {g} a day{chainSaid(newer.s)}, {newer.more != null && now?.made
+            ? `${Math.round(newer.more * 100)}% more than your kept plan’s ${aDay(per(now))} today`
+            : 'where your kept plan makes none today'}: {changed.length ? listSaid(changed) : 'on the same rates and skills as when you kept it'}.</span>
+          {onKeep && <div><button type="button" className="btn" onClick={() => onKeep(newer.s)} data-planets="use-new">Use the new one</button></div>}
+          {row(newer.s, `newer-setup:${newer.s.kind}`, false)}
+        </div>
+      )}
     </div>
   );
 }
 
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf }: {
-  /** Its place in the ranking; null for one shown apart (Plan it's bought). */
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan' }: {
+  /** Its place in the ranking; null for one shown apart (Plan it's bought, a kept plan, the layout offered beside it). */
   s: Setup; rank: number | null; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
   accountOf: (charId: number) => AccountRef | null;
+  /** Its `data-planets` (`setup:<kind>` by default); `opens`, whether its detail opens by itself (else the best and P0 → P2 do). */
+  tag?: string; opens?: boolean;
+  /** Plan it: keeps this setup as the plan for its system and good (planner fix 2); null when it can't be kept. */
+  onKeep?: (() => void) | null; keepSaid?: string;
 }) {
   const [open, setOpen] = useState(false);
   // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
   // set holds only for the place it was set in (m3): when a live re-rank makes this row the best, it opens; when it stops being
   // the best, it folds again, unless set by hand in that place too.
-  const opensItself = rank === 1 || s.kind === 'p2';
+  const opensItself = opens ?? (rank === 1 || s.kind === 'p2');
   const [setByHand, setSetByHand] = useState<{ open?: boolean; shut?: boolean }>({});
   const place = opensItself ? 'open' : 'shut';
   const detail = setByHand[place] ?? opensItself;
@@ -573,6 +655,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   const taxedPlanets = new Set(s.taxes.filter((t) => t.perDay == null).map((t) => t.planetId));
   const notes: ReactNode[] = [];
   if (s.why) notes.push(s.why === RAN_OUT ? `${RAN_OUT}: nothing was found within it, which says nothing of what this system can do.` : `${s.why}.`);
+  // A kept plan's own words (planner fix 2): planets it takes past what the character shown has.
+  for (const k of s.kept?.notes ?? []) notes.push(<span data-planets="kept-note">{`${k}.`}</span>);
   if (s.cut && s.why == null) notes.push('The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.');
   if (priced && s.before.includes('tax')) notes.push(`Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.`);
   if (priced && s.before.includes('extraction')) notes.push('Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.');
@@ -601,12 +685,14 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   }) : [];
 
   return (
-    <article className={'pl-setup' + (rank === 1 && priced ? ' best' : '')} data-planets={`setup:${s.kind}`}>
+    <article className={'pl-setup' + (rank === 1 && priced ? ' best' : '')} data-planets={tag ?? `setup:${s.kind}`}
+      data-layout={s.made ? layoutKey(s.kind, keptPlanetsOf(s)) : undefined}>
       <div className="pl-setup-head">
         <span className="pl-rank">{rank ?? '·'}</span>
         <div className="pl-setup-name">
-          <b>{label}</b>{s.kind === 'p2' && <span className="pl-yours">your setup</span>}<Tip title={KIND[s.kind].label} text={KIND[s.kind].tip} />
+          <b>{label}</b>{s.kind === 'p2' && !s.kept && <span className="pl-yours">your setup</span>}{s.kept && <span className="pl-yours">kept</span>}<Tip title={KIND[s.kind].label} text={KIND[s.kind].tip} />
           {perChar && <span className="sub">{listSaid(inChain)}: {inChain.length} characters, ranked per character</span>}
+          {onKeep && <button type="button" className="link-btn" onClick={onKeep} data-planets="keep">{keepSaid}</button>}
         </div>
         <div className="pl-isk">
           {/* Plan it: the head figure is the good's units a day, the ISK beside it as information (planner fix 1). */}
@@ -753,7 +839,7 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   const noLevel = !!r.fit && !r.fit.fits && !r.lacks;
   const extract = r.extracts.map((e) => {
     const from = e.setAside ? `${e.setAside.from === 'typed' ? 'your typed rate' : e.setAside.otherType ? `the rate learned on ${e.setAside.otherType} planets` : 'another P0’s rate'} set aside, its heads more than fit: if your extractors deliver it`
-      : !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : e.rate.otherType ? `learned on ${e.rate.otherType} planets` : 'learned';
+      : !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : e.rate.otherType ? `learned on ${e.rate.otherType} planets` : e.rate.before ? 'learned before' : 'learned';
     const heads = e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : e.rate && !(e.rate.heads > 0) ? 'heads not known: the colony didn’t say how many' : 'heads not known';
     return `${name(e.p0)} at ${units(e.perHour)} an hour (${from}; ${heads})`;
   });

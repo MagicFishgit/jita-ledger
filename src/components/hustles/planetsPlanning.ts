@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { PlanetType } from '../../lib/pi';
 import type { PiIndex } from '../../lib/piBundle';
-import { assumedHeads, learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
-import { customsLevel, planCharOf, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
-import type { SystemPrefs } from '../../lib/planetsDoc';
+import { assumedHeads, learnedRates, PI_READING, rateFor, recordOf, withRecorded, type Learned } from '../../lib/piLearn';
+import { customsLevel, planCharOf, planKept, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
+import { basisOf, newerThan } from '../../lib/planKeep';
+import { sanitizePlanets, type KeptBasis, type KeptPlan, type SystemPrefs } from '../../lib/planetsDoc';
+import { cloudEnabled, useCloudPulled } from '../../lib/cloud';
 import { useStable } from '../../lib/hooks';
-import { useData } from '../../lib/store';
+import { sameValue } from '../../lib/sameValue';
+import { update, useData } from '../../lib/store';
 import type { IndustryChar } from './industryChars';
 import { usePlanetMarket, useSystemPlanets, type PlanetMarket, type SystemPlanets, type SystemState } from './planetsMarket';
 
@@ -28,7 +31,7 @@ const SETTLE_MS = 350;
  * time (`planSteps`), as many steps a slice as fit in this, so the chain's search of most of a second never runs as one task.
  */
 const SLICE_MS = 8;
-export const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBrave: false, rates: {} };
+export const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBrave: false, rates: {}, kept: {} };
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 export type LearnedFrom = {
@@ -43,11 +46,29 @@ export type LearnedFrom = {
  * a refused alt's last read among them), by planet type and P0, and the program length they run: Plan and Colonies both read it, so
  * a colony is set against the planner's best on the rates Plan ranks on. Keyed on the documents' contents: Planets.tsx rebuilds the
  * map of them whenever the characters are.
+ *
+ * Planner fix 2: over the learned rates' record in the `planets` doc (`withRecorded`), so a rate whose colony was torn down is still
+ * read ("learned before"), and each read of the colonies updates the record (`recordOf`), written only when it changes. Written only
+ * once every character's copy is loaded (`ready`: the alt store has read what it stored), or the main's colonies alone would be
+ * recorded over every character's, and then every character's over them a moment later; and only once this visit has pulled from the
+ * cloud (`useCloudPulled`; at once with the sync off: fix round 1, Ruling FX2-2), since the write is the app's own into a newest-wins
+ * document: a device opened on a copy from before another's Keep this plan would otherwise push that copy, the plan missing, over it.
  */
-export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix: PiIndex): LearnedFrom {
+export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix: PiIndex, ready = false): LearnedFrom {
   const doc = useData().planets;
   const docs = useStable(Object.keys(colonies).map(Number).sort((a, b) => a - b).map((id) => colonies[id]).filter((x): x is ColoniesDoc => !!x));
-  const learned = useMemo(() => learnedRates(docs, ix, PI_READING), [docs, ix]);
+  const live = useMemo(() => learnedRates(docs, ix, PI_READING), [docs, ix]);
+  const record = useStable(doc.learned);
+  const learned = useStable(useMemo(() => withRecorded(live, record, PI_READING), [live, record]));
+  const level = useCloudPulled() || !cloudEnabled();
+  useEffect(() => {
+    if (!ready || !level || sameValue(recordOf(live, record, ''), record)) return;
+    const at = new Date().toISOString();
+    update((x) => {
+      const next = recordOf(live, x.planets.learned, at);
+      return sameValue(next, x.planets.learned) ? {} : { planets: sanitizePlanets({ ...x.planets, learned: next }) };
+    });
+  }, [ready, level, live, record]);
   const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
   const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
   const heads = useMemo(() => assumedHeads(learned), [learned]);
@@ -117,15 +138,26 @@ export type Planning = {
   /**
    * Plan it: the setups held to the good chosen (`only`), ranked, beside the ranking of every product above (which says what
    * choosing it costs); null while they're worked out, and with no good chosen. `heldWorking` and `heldLive` as `working` and
-   * `livePass` for them.
+   * `livePass` for them. Planner fix 2: only ever the live pass's (on the live books and the hub region's history, once every read is
+   * in), never the morning's drawn as the answer; null until the first lands, the last kept while another is worked out.
    */
   held: Setup[] | null; heldWorking: boolean; heldLive: boolean;
+  /** Plan it: live reads still out when its rows were worked out by the bound (`LIVE_READ_BOUND_MS`): those goods are on this morning's books. */
+  heldLate: number;
+  /**
+   * Plan it: the plan kept for this system and good (planner fix 2, "Keep this plan"), null when none; `keptNow` it worked out again on
+   * today's inputs (null while the live pass is still to land, the last kept meanwhile); `newer`, the layout to offer beside it, when
+   * today's best makes `KEEP_MARGIN` more; `basis` what a plan kept now would rest on.
+   */
+  keptPlan: KeptPlan | null; keptNow: Setup | null; newer: { s: Setup; more: number | null } | null; basis: KeptBasis | null;
 };
 
-export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
+export function usePlanning({ c, chars, colonies, ix, systemId, only = null, ready = false }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null;
   /** Plan it: the good the Plan section is held to, or null for every product (the Chart passes none). */
   only?: number | null;
+  /** Every character's copy is loaded, so the learned rates' record may be written (`useLearned`). */
+  ready?: boolean;
 }): Planning {
   const doc = useData().planets;
   // Keyed on what the planner reads (the final review's I2), never on the character objects: those are rebuilt on every write to
@@ -137,12 +169,15 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
 
-  const { learned, ownHours, defaultHours, programHours, heads, programFrom } = useLearned(colonies, ix);
+  const { learned, ownHours, defaultHours, programHours, heads, programFrom } = useLearned(colonies, ix, ready);
   const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
-  const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, prefs.rates[t]?.[String(p0)], t, p0), [learned, prefs.rates]);
+  // Keyed on value (planner fix 2): every write to the `planets` doc (a plan kept, the learned rates' record) rebuilds each system's
+  // prefs and every planet's tax through the sanitizer, and keyed on the objects the planner would work everything out again.
+  const typedRates = useStable(prefs.rates);
+  const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, typedRates[t]?.[String(p0)], t, p0), [learned, typedRates]);
 
   const morning = usePlanetMarket(c, ix);
-  const planets = value?.planets ?? null;
+  const planets = useStable(value?.planets ?? null);
   const inputM = useMemo((): PlanInput | null => (planets && morning.ready
     ? { ix, planets, char: planChar, others, rateOf, heads, sell: morning.sell, buy: morning.buy, programHours, programFrom, freight: morning.freight } : null),
   [ix, planets, planChar, others, rateOf, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours, programFrom]);
@@ -167,12 +202,33 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
   const goodsKeyO = goodsOf(firstO.setups);
   const liveO = useMemo(() => (goodsKeyO ? goodsKeyO.split(',').map(Number) : []), [goodsKeyO]);
   const marketO = usePlanetMarket(c, ix, { live: liveO });
-  const inputLO = useMemo((): PlanInput | null => (inputMO && marketO.live && marketO.ready ? { ...inputMO, sell: marketO.sell, buy: marketO.buy, freight: marketO.freight } : null),
-    [inputMO, marketO.live, marketO.ready, marketO.sell, marketO.buy, marketO.freight]);
+  // Planner fix 2: the morning pass only names the goods to read live; the rows are the live pass's, worked out once every live read
+  // (the Jita books and the hub region's history) has come back or failed, never batch by batch and never the morning's drawn as the
+  // answer (the investigation's browser run drew 104 a day, then 23, on one visit: planner-bugs-report.md, Bug 2, cause 2). A morning
+  // pass naming no goods (every setup blocked) is the answer as it is.
+  const inputLO = useMemo((): PlanInput | null => (inputMO && liveO.length && marketO.settled && marketO.ready ? { ...inputMO, sell: marketO.sell, buy: marketO.buy, freight: marketO.freight } : null),
+    [inputMO, liveO.length, marketO.settled, marketO.ready, marketO.sell, marketO.buy, marketO.freight]);
   const secondO = usePlanned(inputLO, heldScope);
-  const held = only == null ? null : (inputLO && secondO.setups) ? secondO.setups : firstO.setups;
-  const heldWorking = only != null && (firstO.working || (!!inputLO && secondO.working));
-  const heldLive = only != null && !firstO.working && !!inputLO && secondO.working;
+  const noLive = !!firstO.setups && !firstO.working && !liveO.length;
+  // The last live ranking for this system and good, shown (as being worked out again) while the goods to read change under a new one.
+  const lastO = useRef<{ scope: string; setups: Setup[] } | null>(null);
+  if (secondO.setups) lastO.current = { scope: heldScope, setups: secondO.setups };
+  const held = only == null ? null : secondO.setups ?? (lastO.current?.scope === heldScope ? lastO.current.setups : null) ?? (noLive ? firstO.setups : null);
+  const heldWorking = only != null && (noLive ? firstO.working : firstO.working || !inputLO || secondO.working);
+  const heldLive = only != null && heldWorking && !!held;
+  const heldLate = only != null && inputLO ? marketO.late : 0;
 
-  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive };
+  // Keep this plan (planner fix 2): the plan kept for this system and good, worked out again on the live pass's input (the morning's when
+  // there are no live reads), the last kept meanwhile; and a newer layout offered beside it past the margin, once both are worked out.
+  const keptPlan = useStable(only != null && systemId != null ? prefs.kept[String(only)] ?? null : null);
+  const keptInput = inputLO ?? (noLive ? inputMO : null);
+  const keptFresh = useMemo(() => (keptPlan && keptInput ? planKept(keptInput, keptPlan) : null), [keptPlan, keptInput]);
+  const lastKept = useRef<{ scope: string; s: Setup } | null>(null);
+  const keptScope = `${heldScope}:${keptPlan?.at ?? ''}`;
+  if (keptFresh) lastKept.current = { scope: keptScope, s: keptFresh };
+  const keptNow = keptPlan ? keptFresh ?? (lastKept.current?.scope === keptScope ? lastKept.current.s : null) : null;
+  const newer = useMemo(() => (keptPlan && keptNow && held && !heldWorking ? newerThan(keptPlan, keptNow, held) : null), [keptPlan, keptNow, held, heldWorking]);
+  const basis = useMemo(() => (planets && only != null ? basisOf(ix, planets, planChar, rateOf, programHours) : null), [ix, planets, planChar, rateOf, programHours, only]);
+
+  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis };
 }

@@ -44,6 +44,8 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
   exercised this search until Task 15b's fix round set it against a brute force on F9's candidate sets (`single-brute.mjs`: Task 8's
   12-planet shape at 15,000–20,000 an hour and 5 heads, CCU IV, random prices and caps, P0 at a loss or unpriced; every set of 2 and
   3 of the 12 planets and of 4 of the first 6, P0 → P1 and P0 → P2, seeds 1–8 × 5): 240 of 240 equal.
+- **A plan kept** (planner fix 2) is shown worked out on today's inputs, its planets never moving, with today's ranking folded under it and a
+  newer layout offered only past 5% more of the good; Plan it's rows are the live pass's alone: planets-kept.md.
 - **The ranking** (`rankSetups`): ISK a day rounded to the cent, then less upkeep (a chain's per character), then the order run,
   so it's transitive. P0 → P2 always shows. Plan it (planner fix 1): the held good's units a day first, to a hundredth (a chain's per
   character), then as above; bought is drawn apart, below.
@@ -72,6 +74,7 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
 
+- **Plan it's rows wait for the slowest live read**, and a kept plan's factories cap what it makes (planets-kept.md).
 - **A line whose heads aren't known** (no rate, or every extractor of that type and P0 said none) sits on the median of your
   learned rates' heads (Ruling T15b-5), **capped at the most that leave room for its rates' layout** (Ruling T15b-8): a learned rate
   is credited whole to them, and an assumed 12,000 an hour is two Basics' worth set on a head count your own extractors run, or the

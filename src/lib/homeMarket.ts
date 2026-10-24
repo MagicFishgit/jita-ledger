@@ -79,6 +79,21 @@ export function hubsFrom(list: readonly HubState[] | null): HomeHub[] {
 
 /** A structure's own read speaks while under this old (the spec): it's read hourly, so one read missed still speaks. */
 export const STRUCTURE_FRESH_MS = 2 * 3600_000;
+/**
+ * How long before a hub's own read turns two hours old it's asked for again with a page open (planner fix 2): the minute's clock
+ * notices within a minute, and the cloud's answer lands well before the read stops speaking, so the prices never switch to
+ * Goonmetrics' and back mid-visit while the cloud holds a newer read.
+ */
+export const REREAD_LEAD_MS = 3 * 60_000;
+/** Whether a hub's own read (`at`) is due to be asked for again: within `REREAD_LEAD_MS` of two hours old, or past it. */
+export const rereadDue = (at: string, now: number): boolean => now - Date.parse(at) >= STRUCTURE_FRESH_MS - REREAD_LEAD_MS;
+/**
+ * Whether a read asked for again (`again`, the read held then) that failed, or came back with none, leaves the read held as it was
+ * (fix round 1 of planner fix 2): while that read is under two hours old it still speaks, so a failed re-read never switches the prices to
+ * Goonmetrics' three minutes early. At two hours it stops speaking, as ever.
+ */
+export const rereadKeeps = (held: { at: string } | null, again: string | null, now: number): boolean =>
+  !!held && again != null && held.at === again && now - Date.parse(held.at) < STRUCTURE_FRESH_MS;
 export type HomeSpeaks = { source: 'structure' | 'goonmetrics'; at: string } | null;
 /** Which price speaks at a hub: its own market's read while under two hours old, else Goonmetrics' (whatever its age, said), else none. */
 export function homeSpeaks(book: { at: string } | null, gm: { at: string } | null, now: number): HomeSpeaks {

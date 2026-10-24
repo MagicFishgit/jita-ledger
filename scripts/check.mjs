@@ -7730,6 +7730,46 @@ console.log('\n--- Planets: the settings document and the rates learned from you
     [rateFor(both, undefined, 'Barren', 2268).perHour, rateFor({ Barren: { 2267: { ...lh(0), perHour: 900, extractors: 3 } }, Gas: { 2268: { ...lh(0), perHour: 700 } } }, undefined, 'Barren', 2268).otherType,
       rateFor({ Barren: { 2267: lh(0) }, Gas: { 2268: lh(0) } }, typed, 'Barren', 2268).from, rateFor(both, typed, 'Gas', 2268).perHour], [900, 'Gas', 'typed', 700]);
   eq('  rateFor: of two other types, the one with most extractors', rateFor({ Gas: { 2268: { ...lh(0), perHour: 700 } }, Ice: { 2268: { ...lh(0), perHour: 800, extractors: 4 } } }, undefined, 'Barren', 2268).otherType, 'Ice');
+
+  // Planner fix 2: the learned rates' record. The user rebuilt their colonies to the plan; a colony torn down took its rate out of the
+  // planner, the plan moved, and they rebuilt again (planner-bugs-report.md, Bug 2, cause 1). The record keeps every rate a read showed,
+  // updated by each read, never dropped by a teardown, and the planner reads it after the colonies kept now ("learned before").
+  {
+    const { recordOf, withRecorded } = await import('../src/lib/piLearn.ts');
+    const gasCol = col('Gas', 30004865, [ext({ pin: { id: 7 }, extractor: { product: 2268, heads: 8 } })]);
+    const barCol = col('Barren', 30004865, [ext({ pin: { id: 8 } })]);
+    const live1 = learnedRates([{ colonies: [barCol, gasCol] }], ix, 'formula');
+    const rec1 = recordOf(live1, {}, '2026-10-20T08:00:00.000Z');
+    eq('  the record: every rate a read shows, with when it was learned', [Object.keys(rec1.Gas), rec1.Gas['2268'].perHour === live1.Gas['2268'].perHour, rec1.Gas['2268'].heads, rec1.Gas['2268'].at, rec1.Barren['2267'].extractors], [['2268'], true, 8, '2026-10-20T08:00:00.000Z', 1]);
+    eq('  the record round-trips the document’s sanitizer', sanitizePlanets({ systems: {}, programHours: null, learned: rec1 }).learned, rec1);
+    eq('  junk in the record is dropped, a good entry kept', sanitizePlanets({ learned: { Gas: { 2268: { ...rec1.Gas['2268'], at: 'never' }, 2310: rec1.Gas['2268'] }, Nowhere: { 1: rec1.Gas['2268'] } } }).learned, { Gas: { 2310: rec1.Gas['2268'] } });
+    // At most 40 P0s a planet type (fix round 1's M3): no type has more than five, so a junk import or sync can't grow the doc past it.
+    eq('  the record holds at most 40 P0s a planet type', Object.keys(sanitizePlanets({ learned: { Gas: Object.fromEntries(Array.from({ length: 45 }, (_, i) => [String(1000 + i), rec1.Gas['2268']])) } }).learned.Gas).length, 40);
+    // The Gas colony torn down: the next read shows only Barren. Its rate stays in the record, as it was.
+    const live2 = learnedRates([{ colonies: [barCol] }], ix, 'formula');
+    const rec2 = recordOf(live2, rec1, '2026-10-21T08:00:00.000Z');
+    eq('  a colony torn down never drops its rate; a rate unchanged keeps its time', [rec2.Gas?.['2268'], rec2.Barren?.['2267']?.at], [rec1.Gas['2268'], '2026-10-20T08:00:00.000Z']);
+    eq('  a read that changes nothing gives the record it was given', recordOf(live1, rec1, 'later'), rec1);
+    const L2 = withRecorded(live2, rec2, 'formula');
+    const gasNow = rateFor(L2, undefined, 'Gas', 2268) ?? {};
+    eq('  rateFor falls back to the record, said as learned before (with when)', [gasNow.from, gasNow.before, gasNow.perHour === rec1.Gas['2268'].perHour, gasNow.heads, gasNow.otherP0, gasNow.otherType ?? null], ['learned', '2026-10-20T08:00:00.000Z', true, 8, false, null]);
+    eq('  a rate a colony shows now is the colony’s, never stamped with the record’s time', [L2.Barren['2267'].before ?? null, rateFor(L2, undefined, 'Barren', 2267).before ?? null], [null, null]);
+    // Its order: a rate learned now, then typed, then the record (so a torn-down planet's rate can be typed over); now before the record on
+    // another type too.
+    const gasTyped = rateFor(L2, typed, 'Gas', 2268) ?? {};
+    const gasLive = { ...lh(8), perHour: 123 };
+    eq('  rateFor: typed beats the record; a rate shown now beats typed; on another type, now before the record',
+      [gasTyped.from, rateFor(withRecorded({ Gas: { 2268: gasLive } }, rec2, 'formula'), typed, 'Gas', 2268).perHour,
+        rateFor(withRecorded({ Ice: { 2268: { ...lh(8), perHour: 456 } } }, rec2, 'formula'), undefined, 'Oceanic', 2268).perHour], ['typed', 123, 456]);
+    // Said on the planner's line: a P0 → P1 on a Gas planet resting on the record says so.
+    const { planSingle } = await import('../src/lib/piPlan.ts');
+    const gasPlanet = { planetId: 40308002, name: 'Gas VII', type: 'Gas', radiusKm: 26000, tax: { rate: 0.05, from: 'brave', npc: 0, interbus: false } };
+    const anySell = (id, q) => ({ isk: q * 10, units: q, where: ['jita'], why: null });
+    const gasPlan = planSingle({ ix, planets: [gasPlanet], char: { charId: 1, name: 'Owner', planets: 1, ccLevel: 4, alpha: false }, others: [], rateOf: (t, p0) => rateFor(L2, undefined, t, p0),
+      heads: 8, sell: anySell, buy: () => ({ isk: null, where: null, why: 'none' }), programHours: 47.5 }, 'p1');
+    const gasWhy = gasPlan.roles.find((r) => r.does === 'extract')?.why ?? '';
+    eq('  said on the line: at the rate learned before, last on its date', /at the rate learned before, last on 20 Oct: no colony of yours shows it now/.test(gasWhy) || gasWhy, true);
+  }
 }
 
 console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 → P2 and P0 → P1 on each planet) ---');
@@ -8802,6 +8842,95 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
     const morning = layoutOf(feedOf({ ...u, sell: priced(1, false) }));
     const others = [priced(0.1, false), ...Array.from({ length: 6 }, () => priced(1, true)), ...Array.from({ length: 4 }, () => priced(0.1, true))].map((sl) => layoutOf(feedOf({ ...u, sell: sl })));
     eq('  the layout: the same on the morning’s prices, the live ones and every good ±3% (11 draws)', others.filter((x) => x !== morning).length, 0);
+
+    // Planner fix 2, Keep this plan: a kept plan is worked out again on today's inputs, its planets and what each runs never moving (the
+    // user: "it would say one planet setup and configuratiion and then if you wait a bit later it completely changes planets and recipies").
+    {
+      const PK = await import('../src/lib/planKeep.ts');
+      const { sanitizePlanets } = await import('../src/lib/planetsDoc.ts');
+      const keyOf = (s) => PK.layoutKey(s.kind, PK.keptPlanetsOf(s));
+      const basis = PK.basisOf(ix, planets, owner, u.rateOf, 48);
+      const kept = PK.keptOf(f17, basis, '2026-10-24T10:00:00.000Z');
+      eq('  kept: the feed’s planets, lines and factories, as the planets doc keeps them (its sanitizer passes it whole)',
+        [kept.kind, kept.made, kept.planets.length, kept.planets.find((p) => p.does === 'factory').makes.map((m) => [nm(m.id), m.count]),
+          sanitizePlanets({ systems: { 30004865: { kept: { [GEL]: kept } } } }).systems['30004865'].kept[GEL]],
+        ['feed', 102, 5, [['Oxides', 3], ['Biocells', 3], ['Superconductors', 3], ['Gel-Matrix Biopaste', 2]], kept]);
+      // Past 20 kept plans in a system the oldest go, never the one just kept, wherever it sits in the document (fix round 1's M1).
+      {
+        const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [String(3000 + i), { ...kept, at: new Date(Date.UTC(2026, 9, 1 + i)).toISOString() }]));
+        const justKept = { [String(GEL)]: { ...kept, at: '2026-10-24T12:00:00.000Z' }, ...many };
+        const left = sanitizePlanets({ systems: { 1: { kept: justKept } } }).systems['1'].kept;
+        eq('  past 20 kept plans the oldest by when they were kept go, never the one just kept',
+          [Object.keys(left).length, String(GEL) in left, '3000' in left, '3001' in left, '3020' in left], [20, true, false, false, true]);
+      }
+      eq('  a kept plan with a part that doesn’t read is dropped whole, never kept as half a layout',
+        sanitizePlanets({ systems: { 1: { kept: { [GEL]: { ...kept, planets: [...kept.planets, { planetId: -4, charId: 1, does: 'extract', lines: [], makes: [] }] } } } } }).systems['1'].kept, {});
+      const k17 = PP.planKept({ ...u, only: GEL }, kept);
+      eq('  worked out again on the inputs it was kept on: the same layout, units and ISK as the planner’s', [keyOf(k17), k17.made.perDay, Math.round(k17.iskDay), !!k17.kept],
+        [keyOf(f17), f17.made.perDay, Math.round(f17.iskDay), true]);
+      // On the steps case's rates (Barren's two P0s learned at 10 heads, the rest borrowed or none): a borrowed rate whose heads leave no
+      // room is set aside as the planner sets it aside (Ruling T15b-12), so the kept plan is the planner's own there too. Without it, the
+      // page case's kept feed read a 2-head Aqueous Liquids line at another P0's 16,617 an hour where the planner had assumed 12,000.
+      const { rateFor } = await import('../src/lib/piLearn.ts');
+      const seeded = { Barren: { 2267: { perHour: 16_617, higher: null, which: 'formula', programHours: 47.5, heads: 10, extractors: 2, systems: [], checked: true } } };
+      const bor = { ...base, rateOf: (t, p0) => rateFor(seeded, undefined, t, p0), heads: 10, only: GEL };
+      const fb = of(PP.planSystem(bor), 'feed');
+      const kb = PP.planKept(bor, PK.keptOf(fb, PK.basisOf(ix, planets, owner, bor.rateOf, 72), '2026-10-24T10:00:00.000Z'));
+      eq('  kept where a borrowed rate is set aside: the planner’s own layout, units and ISK',
+        [fb.roles.some((r) => r.extracts.some((e) => e.setAside)), keyOf(kb), Math.round(kb.made.perDay * 100), Math.round(kb.iskDay), kb.roles.flatMap((r) => r.extracts.map((e) => [e.p0, e.perHour, !!e.setAside]))],
+        [true, keyOf(fb), Math.round(fb.made.perDay * 100), Math.round(fb.iskDay), fb.roles.flatMap((r) => r.extracts.map((e) => [e.p0, e.perHour, !!e.setAside]))]);
+      // The learned rates change (Aqueous Liquids at 12,000 an hour: the colony that taught 17,000 was rebuilt): its figures change, its
+      // planets don't. Today's planner would take a second Water line (102 a day); the kept plan stays as kept, making 72.
+      const r12 = (t, p0) => (p0 === 2268 ? { ...r17, perHour: 12_000 } : r17);
+      const k12 = PP.planKept({ ...u, rateOf: r12, only: GEL }, kept);
+      const fresh12 = PP.planSystem({ ...u, rateOf: r12, only: GEL });
+      eq('  the rates change: its figures change, never its planets or what each runs', [keyOf(k12) === keyOf(f17), Math.round(k12.made.perDay * 100) / 100, k12.iskDay < k17.iskDay, keyOf(of(fresh12, 'feed')) === keyOf(f17)],
+        [true, 72, true, false]);
+      // Shown for another character (the user switches Show for while planning): the same planets, at that character's level.
+      const k3 = PP.planKept({ ...u, char: { ...owner, charId: 3, name: 'Willi', ccLevel: 1, planets: 4 }, only: GEL }, kept);
+      const f3 = k3.roles.find((r) => r.does === 'factory');
+      eq('  shown for another character: the same planets, fitted at its level, and the planets it lacks said',
+        [keyOf(k3) === keyOf(f17), f3.fit?.fits, f3.lacks, k3.kept.notes], [true, false, 'Command Center Upgrades II', ['It takes 5 planets: Willi has 4']]);
+      // A newer layout is offered only past the margin (5% more of the good a day), never for the kept layout itself.
+      eq('  a newer layout: none while the kept plan is the best; offered at 102 against the kept plan’s 72 (42% more), with what changed',
+        [PK.newerThan(kept, k17, PP.rankSetups(PP.planSystem({ ...u, only: GEL }))), (() => { const n = PK.newerThan(kept, k12, PP.rankSetups(fresh12)); return n && [n.s.kind, Math.round(n.more * 100)]; })(),
+          PK.changedSince(kept.basis, PK.basisOf(ix, planets, owner, r12, 48), () => 'Owner', nm)],
+        [null, ['feed', 42], ['your Aqueous Liquids rates have changed']]);
+      const fake = (made, planetId = 1) => ({ kind: 'feed', why: null, iskDay: 1, made: { id: GEL, perDay: made }, perChar: [], roles: [{ planetId, charId: 1, does: 'extract', extracts: [], makes: [] }] });
+      const k100 = { ...kept, planets: PK.keptPlanetsOf(fake(100)) };
+      // Not offered is null; offered is an offer, whose `more` is null when the kept plan makes none today (fix round 1's M5).
+      const at105 = PK.newerThan(k100, fake(100), [fake(105, 2)]), none = PK.newerThan(k100, { ...fake(0), why: 'gone' }, [fake(3, 2)]);
+      eq('  the margin: 104.9 against 100 isn’t offered, 105 is (5% more); the same layout never; a kept plan that makes none today, anything',
+        [PK.newerThan(k100, fake(100), [fake(104.9, 2)]) === null, at105 !== null && Math.abs(at105.more - 0.05) < 1e-9, PK.newerThan(k100, fake(100), [fake(200)]) === null, none !== null && none.more === null],
+        [true, true, true, true]);
+      eq('  the margin is a named 5%', PK.KEEP_MARGIN, 0.05);
+      eq('  what changed: rates learned now, by planet type; the planets and level of the character shown; the program length',
+        PK.changedSince({ char: 1, planets: 5, cc: 4, programHours: 48, rates: { 'Gas:2268': { from: 'none', perHour: null }, 'Gas:2310': { from: 'otherP0', perHour: 9 }, 'Barren:2267': { from: 'learned', perHour: 100 } } },
+          { char: 1, planets: 6, cc: 5, programHours: 72, rates: { 'Gas:2268': { from: 'learned', perHour: 10 }, 'Gas:2310': { from: 'learned', perHour: 11 }, 'Barren:2267': { from: 'before', perHour: 100 } } }, () => 'Owner'),
+        ['you have 6 planets now (5 when kept)', 'Command Center Upgrades V now (IV when kept)', 'a 3-day program now (2-day when kept)', 'your Gas rates are learned now']);
+      // Bought isn't kept: it buys its inputs and runs none of the system's planets' extraction.
+      eq('  keepable: the feed, not bought, not a blocked row', [PK.keepable(f17), PK.keepable(of(PP.planSystem({ ...u, only: GEL }), 'bought')), PK.keepable(of(PP.planSystem({ ...u, only: GEL }), 'p2'))], [true, false, false]);
+      // A kept chain (Broadcast Node across the owner and an alt): the planner's own on the inputs kept, each colony with the character it was
+      // kept for, and the same shown for the alt.
+      {
+        const uc = { ...u, others: [alt], only: BROADCAST };
+        const ch = PP.planChain(uc);
+        const kc = PP.planKept(uc, PK.keptOf(ch, basis, '2026-10-24T10:00:00.000Z'));
+        const ka = PP.planKept({ ...uc, char: alt, others: [owner] }, PK.keptOf(ch, basis, '2026-10-24T10:00:00.000Z'));
+        eq('  kept chain: the planner’s own, each colony with its character; the same shown for the alt',
+          [PK.keepable(ch), keyOf(kc) === keyOf(ch), Math.round(kc.made.perDay * 100) === Math.round(ch.made.perDay * 100), Math.round(kc.iskDay) === Math.round(ch.iskDay), [...new Set(kc.roles.filter((r) => r.does !== 'unused').map((r) => r.charId))].sort(), keyOf(ka) === keyOf(ch)],
+          [true, true, true, true, [1, 2], true]);
+      }
+      // A kept P0 → P2 and a kept P0 → P1, held to Nanites and to a P1: the same as the planner's on the inputs kept, the planets fixed after.
+      for (const [good, kind] of [[NANITES, 'p2'], [NANITES, 'feed'], [3645, 'p1']]) {
+        const s0 = of(PP.planSystem({ ...u, only: good }), kind);
+        if (!PK.keepable(s0)) { eq(`  ${nm(good)}, ${kind}: keepable`, s0.why, null); continue; }
+        const k = PP.planKept({ ...u, only: good }, PK.keptOf(s0, basis, '2026-10-24T10:00:00.000Z'));
+        const kd = PP.planKept({ ...u, rateOf: () => ({ ...r17, perHour: 9000 }), only: good }, PK.keptOf(s0, basis, '2026-10-24T10:00:00.000Z'));
+        eq(`  kept ${kind} held to ${nm(good)}: as the planner had it, and on lower rates the same planets making less`,
+          [keyOf(k) === keyOf(s0), Math.round(k.made.perDay), Math.round(k.iskDay), keyOf(kd) === keyOf(s0), kd.made.perDay < k.made.perDay], [true, Math.round(s0.made.perDay), Math.round(s0.iskDay), true, true]);
+      }
+    }
   }
 }
 
@@ -11029,6 +11158,14 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
   // Review Focus 3: the two-hour boundary.
   eq('the structure\'s own read speaks while under two hours old, else Goonmetrics\', else none', [HM.homeSpeaks({ at: at(119) }, { at: at(300) }, T), HM.homeSpeaks({ at: at(121) }, { at: at(300) }, T), HM.homeSpeaks({ at: at(121) }, null, T), HM.homeSpeaks(null, null, T)],
     [{ source: 'structure', at: at(119) }, { source: 'goonmetrics', at: at(300) }, null, null]);
+  // Planner fix 2: with a page open, the hub's own read is asked for again three minutes before it turns two hours old, so its prices
+  // don't switch to Goonmetrics' mid-visit while the cloud holds a newer read; at two hours it's due all the same.
+  eq('a hub\'s own read is due again from 1 h 57 (three minutes before two hours), not at 1 h 56', [HM.rereadDue(at(116), T), HM.rereadDue(at(117), T), HM.rereadDue(at(121), T), HM.REREAD_LEAD_MS],
+    [false, true, true, 180_000]);
+  // Fix round 1's M2: a re-read that fails or finds none leaves the read it was asked over while that's under two hours; at two hours it
+  // stops speaking as ever; a re-read of another read, or none asked, keeps nothing.
+  eq('a failed re-read keeps the read asked over while under two hours, not past, not another read', [HM.rereadKeeps({ at: at(118) }, at(118), T), HM.rereadKeeps({ at: at(121) }, at(121), T), HM.rereadKeeps({ at: at(118) }, at(119), T), HM.rereadKeeps({ at: at(118) }, null, T), HM.rereadKeeps(null, at(118), T)],
+    [true, false, false, false, false]);
   const row = [[[6_900_000, 30]], [[7_200_000, 20], [7_350_000, 40]], 3, 5, [60, 20, 0, 0]];
   eq('a type in the structure\'s read: best sell and buy, its sell levels and what its orders sold; Goonmetrics\' weekly movement where it has one', HM.structureQuote(row, at(30), 5887), {
     sell: 7_200_000, buy: 6_900_000, weekly: 5887, at: at(30), source: 'structure', sells: [{ price: 7_200_000, volume: 20 }, { price: 7_350_000, volume: 40 }],

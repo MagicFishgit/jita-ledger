@@ -197,6 +197,7 @@ a tab's shell) doesn't load theirs, so Read them too:
   the Colonies section.
 - `planets-chain.md`: a real colony's chain (what it makes, followed route by route, its flags and value) and `versusBest`,
   set against the planner's best for that planet, planned beside the colony's own storage and launchpads.
+- `planets-kept.md`: Keep this plan, the learned rates' record that outlasts a colony, and Plan it's rows drawn from the live pass once.
 
 Always loaded, imported below, because they apply to any change:
 

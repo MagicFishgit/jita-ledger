@@ -182,6 +182,15 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   time a reader isn't on a market's access list (Mothership Bellicose's, likeliest). Goonmetrics' round state: `next` 0 for both hubs, nothing unread, `types`
   the 2,916; its rows read at 16:37 (159,936 and 166,329 bytes). No order placed at a home hub yet, so its broker fee's entries are still to record.
 
+- **With a page open, a hub's own read is asked for again 3 minutes before it turns two hours old** (planner fix 2; `rereadDue`,
+  `REREAD_LEAD_MS`, `useHomeBook`'s `again`, past the hold, once per read, a reader of the hub asking in the last minute counting): it
+  stopped speaking mid-visit and Goonmetrics' prices took over (the investigation's browser run, 128 s), each visit switching back. The old
+  read speaks until the new lands, and a re-read that fails or finds none leaves it speaking while under two hours (`rereadKeeps`, fix
+  round 1); with nothing newer in the cloud, Goonmetrics' speaks at two hours, as ever.
+- **The home region's history is kept by type while the region stays** (planner fix 2, `useHomeHistoryRead`): emptied on any change to the
+  goods named, a re-rank ran once with no history at all (planets-kept.md). A type held isn't asked for again; `settled` says when every type
+  asked has come back or failed.
+
 ## Limits
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.

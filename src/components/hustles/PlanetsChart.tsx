@@ -55,12 +55,14 @@ const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jitaâ€
 /** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
 const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
-export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood }: {
+export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, ready: collected = false }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
+  /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
+  ready?: boolean;
   /** Plan it: opens Plan held to this good (`hustles/planets/plan?good=<id>`). */
   onPlanGood: (id: number) => void;
 }) {
-  const p = usePlanning({ c, chars, colonies, ix, systemId });
+  const p = usePlanning({ c, chars, colonies, ix, systemId, ready: collected });
   const tiers = useMemo(() => goodsByTier(ix), [ix]);
   const [pick, setPick] = useState<number | null>(() => { const k = readPick(); return k != null && ix.byId.has(k) ? k : null; });
   // A pick made now brings its recipe into view; a kept one drawn on opening the Chart doesn't scroll past the grid.

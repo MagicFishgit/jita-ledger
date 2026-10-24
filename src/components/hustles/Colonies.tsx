@@ -163,14 +163,16 @@ function totalNotes(t: Pick<CharColoniesTotal, 'beforeTax' | 'unvalued'>): strin
   ].filter((x): x is string => !!x);
 }
 
-export function Colonies({ chars, reads, colonies, ix, pick }: {
+export function Colonies({ chars, reads, colonies, ix, pick, ready = false }: {
   chars: IndustryChar[]; reads: Record<number, ColoniesRead>; colonies: Parameters<typeof useLearned>[0]; ix: PiIndex; pick: 'all' | number;
+  /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
+  ready?: boolean;
 }) {
   const main = chars[0];
   const { busy, error } = useColonies();
   const canRead = hasScope(PLANETS_SCOPE);
   // Every character's kept colonies teach the rates a colony's best is planned at, as Plan's are (Task 16).
-  const learned = useLearned(colonies, ix);
+  const learned = useLearned(colonies, ix, ready);
   const plex = usePlexPrice();
   const settings = useData().settings;
   const plexNow = useNow(60_000);

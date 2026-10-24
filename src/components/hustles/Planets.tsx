@@ -155,12 +155,12 @@ export function Planets({ route }: { route: Route }) {
         ) : (
           <Suspense fallback={<p className="note small" style={{ margin: 0 }}>Loading this section…</p>}>
             {section === 'colonies' ? (
-              <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} />
+              <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} />
             ) : section === 'chart' ? (
-              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} />
+              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} ready={alts.ready} />
             ) : (
               <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
-                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} />
+                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} />
             )}
           </Suspense>
         )}

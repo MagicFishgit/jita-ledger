@@ -4196,6 +4196,117 @@ try {
       if (await page.evaluate(() => localStorage.getItem('jita-ledger:planets-plan-good'))) problems.push('Every product left the good kept');
     }
 
+    // --- Planner fix 2: a plan that stays put while you build it. The user (24 October 2026): "it would say one planet setup and
+    // configuratiion and then if you wait a bit later it completely changes planets and recipies even putting in a temperate planet and
+    // then later changing again". Tenerifis' history (UALX-3's region, which paces a home sale) answered slowly, so the live pass that
+    // reads it is drawn at all (the page check refuses it elsewhere); the held feed's layout polled from its first draw until it has stood
+    // still, one layout only, and that first draw already on the history (the morning pass is never drawn as the answer); then Keep this
+    // plan, and the colonies pushed through the store as a cloud pull brings them (a rate changed and a Gas colony added, then every colony
+    // torn down): the kept plan's planets never move, and the torn-down rates read "learned before"; Forget this plan lets it go.
+    {
+      const GEL = 2348;
+      const HIST = '/markets/10000061/history/';
+      const histAsked = new Set(), histAnswered = new Set();
+      ESI[HIST] = async (url, req, json) => {
+        const t = Number(url.searchParams.get('type_id'));
+        histAsked.add(t);
+        await new Promise((r) => setTimeout(r, 2500));
+        const g = byId.get(t);
+        histAnswered.add(t);
+        if (!g?.ualx) return json([]);
+        const day = (i) => iso(now - (i + 1) * 86400_000).slice(0, 10);
+        return json(Array.from({ length: 30 }, (_, i) => ({ date: day(29 - i), average: g.ualx[4], highest: g.ualx[4] * 1.02, lowest: g.ualx[2], order_count: 20, volume: Math.max(1, Math.round(g.ualx[1] / 70)) })));
+      };
+      // Fix round 1 (Ruling FX2-2): the learned rates' record is the app's own write into a newest-wins document, so it waits for this
+      // visit's first completed pull: the cloud's pull is held here until the plan has drawn, and nothing may be recorded before it lands.
+      const pullAnswer = CLOUD['/v1/pull'];
+      let releasePull = () => undefined, pullsAsked = 0;
+      const pullHeld = new Promise((r) => { releasePull = r; });
+      CLOUD['/v1/pull'] = async (url, req, json) => { pullsAsked++; await pullHeld; return pullAnswer(url, req, json); };
+      const docPlanets = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const t = q.result.transaction('kv').objectStore('kv').get('planets'); t.onsuccess = () => res(t.result); }; }));
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, planets: { systems: {}, programHours: 72 }, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan?good=${GEL}`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew (planner fix 2)'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (planner fix 2): ${e.message.split('\n')[0]}`));
+      // Every 250 ms from the first draw: the feed's layout, and whether Gel-Matrix Biopaste's own history (among the goods the held rows
+      // read live) had been answered when it first drew. Other rankings on the page read histories of their own, so only the held good's says.
+      const layouts = new Set();
+      let firstDraw = null, quiet = 0;
+      for (let i = 0; i < 240 && quiet < 12; i++) {
+        const st = await page.evaluate(() => ({ layout: document.querySelector('[data-planets="setup:feed"]')?.getAttribute('data-layout') ?? null, busy: !!document.querySelector('[data-planets="working"]') }));
+        if (st.layout) { layouts.add(st.layout); firstDraw ??= { asked: histAsked.has(GEL), answered: histAnswered.has(GEL), n: histAnswered.size }; }
+        quiet = st.layout && !st.busy ? quiet + 1 : 0;
+        await page.waitForTimeout(250);
+      }
+      if (!firstDraw) problems.push('the held feed never drew (planner fix 2)');
+      else {
+        if (layouts.size !== 1) problems.push(`the held feed drew ${layouts.size} layouts from its first draw: ${JSON.stringify([...layouts])}`);
+        if (!firstDraw.asked || !firstDraw.answered) problems.push(`the held feed first drew before Gel-Matrix Biopaste's history from UALX-3's region was in (asked ${firstDraw.asked}, answered ${firstDraw.answered}, ${firstDraw.n} histories answered): the morning pass drawn as the answer`);
+      }
+      // Nothing recorded while the first pull is held; recorded once it lands.
+      await page.waitForTimeout(1000);
+      const before = (await docPlanets())?.learned ?? {};
+      if (!pullsAsked) problems.push('the cloud was never asked for a pull (planner fix 2)');
+      if (Object.keys(before).length) problems.push(`the learned rates' record was written before this visit's first pull landed: ${JSON.stringify(before).slice(0, 200)}`);
+      releasePull();
+      CLOUD['/v1/pull'] = pullAnswer;
+      let after = {};
+      for (let i = 0; i < 40 && !after.Barren; i++) { await page.waitForTimeout(250); after = (await docPlanets())?.learned ?? {}; }
+      if (!after.Barren?.['2267']) problems.push(`the learned rates' record wasn't written once the first pull landed: ${JSON.stringify(after).slice(0, 200)}`);
+      // Keep this plan: the kept block shows it, the planets doc holds it.
+      const keptLayout = [...layouts][0] ?? null;
+      await page.locator('[data-planets="setup:feed"] [data-planets="keep"]').click().catch((e) => problems.push(`no Keep this plan on the feed: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-planets="kept"] [data-planets="kept-setup:feed"]', { timeout: 20_000 }).catch(() => problems.push('the kept plan never drew'));
+      const keptAt = () => page.evaluate(() => document.querySelector('[data-planets="kept-setup:feed"]')?.getAttribute('data-layout') ?? null);
+      if ((await keptAt()) !== keptLayout) problems.push(`the kept plan isn't the layout kept: “${await keptAt()}” against “${keptLayout}”`);
+      if (!/^Kept \d+ \w+, when it made [\d.,]+ Gel-Matrix Biopaste a day\. Its planets and what each runs stay as kept/.test((await text('[data-planets="kept-said"]')).trim())) problems.push(`the kept plan's words: “${await text('[data-planets="kept-said"]')}”`);
+      if (await page.locator('[data-planets="setup:feed"]').isVisible().catch(() => false)) problems.push('with a plan kept, today’s ranking isn’t folded under it');
+      if (SHOTS) { await page.locator('[data-planets="kept"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-kept-new.png` }); }
+      await page.waitForTimeout(600);
+      const keptDoc = (await docPlanets())?.systems?.[SYS]?.kept?.[GEL];
+      if (keptDoc?.kind !== 'feed' || keptDoc.planets?.length !== 5) problems.push(`the kept plan isn't in the planets doc: ${JSON.stringify(keptDoc ?? null).slice(0, 200)}`);
+      // The colonies change as a cloud pull brings them: Barren's extractors at four times the rate, and a Gas colony teaching Gas rates.
+      const storeUrl = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/src\/lib\/store\.ts/.test(n)));
+      const pull = async (doc) => page.evaluate(async ([u, c]) => { const m = await import(u); m.update(() => ({ colonies: c }), { origin: 'cloud' }); }, [storeUrl, doc]);
+      // Each colony two extractors at CCP's own example (16,617 an hour on 10 heads), Barren I's at four times it: every P0 the kept feed's
+      // lines take is learned now, above the 12,000 its rows had assumed, so today's best runs more Basics than the kept plan's.
+      const colOf = (planetId, planetType, typeId, p0s) => ({ planetId, systemId: SYS, planetType, level: 4, lastUpdate: iso(now - 600_000), links: [], routes: [], pins: p0s.map((p0, i) => ({ ...ecu(planetId * 10 + i, p0), typeId })) });
+      const changed = { colonies: [{ ...colonies.colonies[0], pins: colonies.colonies[0].pins.map((x) => (x.extractor ? { ...x, extractor: { ...x.extractor, qty: x.extractor.qty * 4 } } : x)) },
+        colOf(40308002, 'Gas', 3060, [2310, 2311]), colOf(40307991, 'Lava', 3062, [2306, 2308]), colOf(40307993, 'Barren', 2848, [2268, 2270]), colOf(40308073, 'Oceanic', 3063, [2287, 2288])] };
+      if (!storeUrl) problems.push('couldn’t find the app’s store module to pull colonies through');
+      else {
+        for (const [said, doc] of [['rates learned on Gas, Lava, Barren and Oceanic planets', changed], ['every colony torn down', { colonies: [] }]]) {
+          await pull(doc);
+          await page.waitForTimeout(1500);
+          await page.waitForFunction(() => !document.querySelector('[data-planets="kept"] [data-planets="working"]') && !!document.querySelector('[data-planets="kept-setup:feed"]'), null, { timeout: 30_000 }).catch(() => problems.push(`the kept plan never drew again after ${said}`));
+          for (let i = 0; i < 8; i++) {
+            const k = await keptAt();
+            if (k !== keptLayout) { problems.push(`the kept plan's planets moved after ${said}: “${k}” against “${keptLayout}”`); break; }
+            await page.waitForTimeout(250);
+          }
+          const offer = await text('[data-planets="newer"] [data-planets="newer-said"]');
+          // Every P0 of its lines learned above what its rows assumed: today's best runs more Basics than the kept plan's 2 a line, so it's
+          // offered, saying what changed. Torn down, the record keeps those rates, so it's offered still.
+          if (!/^A newer layout makes [\d.,]+ Gel-Matrix Biopaste a day, \d+% more than your kept plan’s [\d.,]+ today: .*are learned now/.test(offer.trim())) problems.push(`no newer layout offered, saying the rates are learned now (${said}): “${offer}”`);
+          if (offer && !/^A newer layout makes [\d.,]+ Gel-Matrix Biopaste a day, (?:\d+% more than your kept plan’s [\d.,]+ today|where your kept plan makes none today): .+\.$/.test(offer.trim())) problems.push(`the newer layout's words (${said}): “${offer}”`);
+          if (offer && !(await page.locator('[data-planets="newer"] [data-planets="use-new"]').count())) problems.push(`a newer layout offered with no Use the new one (${said})`);
+        }
+        // Torn down: the rates the colonies taught are the record's now, said as learned before.
+        const barren = await text('[data-planets="rate:Barren:2267"]');
+        if (!/learned before from \d+ extractors?, last on \d+ \w+: no colony of yours shows it now/.test(barren)) problems.push(`a torn-down colony's rate isn't read as learned before: “${barren}”`);
+        const rec = (await docPlanets())?.learned;
+        if (!rec?.Barren?.['2267'] || !rec?.Gas?.['2310']) problems.push(`the learned rates' record doesn't hold the torn-down rates: ${JSON.stringify(rec ?? null).slice(0, 300)}`);
+        if (SHOTS) { await page.locator('[data-planets="kept"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-kept.png` }); }
+      }
+      await page.locator('[data-planets="forget"]').click().catch((e) => problems.push(`no Forget this plan: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(800);
+      if (await page.locator('[data-planets="kept"]').count()) problems.push('Forget this plan left the kept plan');
+      if ((await docPlanets())?.systems?.[SYS]?.kept?.[GEL]) problems.push('Forget this plan left it in the planets doc');
+      if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN (planner fix 2)');
+      delete ESI[HIST];
+    }
+
     // --- Accounts (accounts.ts): Show for lists characters under their account, the main's first and those not set last, and the
     // repeat line sets what they make together against the months of Omega their accounts pay for. Owner on the main account, Alpha
     // Alt on Account 2; first Planet Alt and Unread Alt not set (bought's line counts Owner's account and Planet Alt's own: 2, one not

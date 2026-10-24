@@ -104,5 +104,9 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   "Cloud job failing" with PI alerts off too, as intended. It pushes under `who.char`, the character the colonies are of
   (the main's ledger for the main; an alt's are read by its hourly sheet and filed under the alt: planets-colonies.md).
 
+- **The `planets` doc gained `learned`, the learned rates' record, and each system's `kept` plans** (planner fix 2, planets-kept.md):
+  sanitized on load, pull and import; no new key, so no `refusedDoc`; an older build's save drops both. The record is the app's own write
+  into this newest-wins doc, so it waits for the visit's first pull (`CloudStatus.pulled`); two devices open can still cross within a pull.
+
 - **`accounts` is a synced document** (20 October 2026; characters.md), sanitized on load, pull and import (a backup without it
   leaves the one here), held back by `refusedDoc`, ignored by an older browser; no migration.

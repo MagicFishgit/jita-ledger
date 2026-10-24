@@ -58,7 +58,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   another planet type (planner fix 1, marked `otherType`, said and set aside as T15b-12 sets aside a borrowed rate: the user's Gas Aqueous
   Liquids, 16,919, had been passed over for Barren's Noble Metals, 19,062, and decided which planet made Water), then the type's other
   learned P0 (most extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no
-  box: `rateFor` would never use it). Every character's kept colonies teach it since Task 16 (the main's and each alt's, a refused alt's
+  box: `rateFor` would never use it). Since planner fix 2 a rate also outlasts its colony (the learned rates' record, "learned before",
+  after typed at each step: planets-kept.md). Every character's kept colonies teach it since Task 16 (the main's and each alt's, a refused alt's
   last read among them: `useLearned`, Plan and Colonies alike); the shown character's alone before. A typed rate needs P0 an hour, the
   programme's hours and heads, all three. The programme length defaults to the median of the learned programmes, else 72 h (the
   spec's 3 days), until typed into the `planets` doc; a rate from another length says "you chose" only for a typed one (planner fix 1),
@@ -66,7 +67,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 - **The `planets` document** (`planetsDoc.ts`, `sanitizePlanets`): per system, customs tax by planet type and by planet, which
   high-sec planets are InterBus's, "not Brave's", and typed rates by type and P0; plus the programme length. Fractions 0 to 1,
   rates and hours positive and finite, at most 40 systems. Synced like `colonies` (`DOC_KEYS` on both sides), sanitized on pull,
-  held back by `refusedDoc` while the Worker is a version behind, ignored by an older browser.
+  held back by `refusedDoc` while the Worker is a version behind, ignored by an older browser. Planner fix 2 adds each system's kept
+  plans (`kept`, by good) and the learned rates' record (`learned`): planets-kept.md.
 - **Customs tax** (`customsRate`; never 0 for not known). The owner's rate is the planet's own, else the type's typed rate.
   - **Sovereign null-sec defaults to Brave's wiki**: 2% on Barren and Temperate, 5% on every other type (`BRAVE_TAX`; "Brave
     Industry Taxes", last modified 17 July 2023, `BRAVE_TAX_SOURCE`). The user, 17 October 2026: "use the taxes brave wiki states.
@@ -209,6 +211,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
 
+- **A kept plan and the learned rates' record are fields of the `planets` doc**, which an older build's save drops (planets-kept.md).
 - **Planets' fits are CPU and powergrid at minimum-length links** (planets.md): the command centre's budget at your Command
   Center Upgrades level, extractors and heads, factories, one launchpad and the links, all from the static data on the planet's
   own radius. Not modelled: links longer than the minimum (a real layout's are, so it fits less), storage, link upgrades and

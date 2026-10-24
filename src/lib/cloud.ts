@@ -80,9 +80,15 @@ export type CloudStatus = {
   background: CloudBackground | null;
   /** When `background` was last read from the cloud in this tab (null while it's only what was saved on disk). */
   backgroundAt: number | null;
+  /**
+   * This visit has completed a pull from the cloud (or the sync is off here): what this browser holds is level with the cloud's copy
+   * as of this visit. A write the app makes by itself into a newest-wins document waits for it (the learned rates' record in the
+   * `planets` doc, planner fix 2, as `releaseOrphanLeave` waits), so a copy from before another device's change never goes up over it.
+   */
+  pulled: boolean;
 };
 
-let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null, backgroundAt: null, track: null };
+let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null, backgroundAt: null, track: null, pulled: false };
 const listeners = new Set<() => void>();
 const setStatus = (p: Partial<CloudStatus>) => { status = { ...status, ...p }; listeners.forEach((l) => l()); };
 export function useCloud(): CloudStatus {
@@ -90,6 +96,11 @@ export function useCloud(): CloudStatus {
 }
 
 export const getCloudStatus = () => status;
+
+/** `CloudStatus.pulled` alone, so a page waiting on it isn't drawn again at every step of a sync. Subscribed at module level (gotchas.md). */
+const subscribeStatus = (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb); }; };
+const pulledNow = () => status.pulled;
+export const useCloudPulled = (): boolean => useSyncExternalStore(subscribeStatus, pulledNow);
 
 /**
  * The ledger is safe in the cloud: syncing is on, this browser has met the cloud, and the last attempt
@@ -373,7 +384,7 @@ onClearAll(async () => {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
   dirtyRecords.clear(); dirtyDocs.clear(); ownRevs.clear();
-  setStatus({ rev: 0, pending: 0, started: false });
+  setStatus({ rev: 0, pending: 0, started: false, pulled: false });
   if (state) {
     // Saved at once, over the key the wipe deleted, so a reload before the first sync still knows. Until then, anything
     // written here (the ESI sync refilling trades, orders without their price history, settings rebuilt from defaults)
@@ -390,18 +401,18 @@ export function syncCloudNow(): Promise<void> {
   if (!state || !cloudEnabled()) return Promise.resolve();
   return run(async () => {
     // Plan items a ledger from before `leaveFrom` still leaves (store.ts): let go once this browser is level with the cloud.
-    if (!state!.started) { await firstSync(); releaseOrphanLeave(); return; }
+    if (!state!.started) { await firstSync(); setStatus({ pulled: true }); releaseOrphanLeave(); return; }
     await pushNow();
     setStatus({ phase: 'working', doing: 'Checking for changes' });
     await pullNow();
-    setStatus({ phase: 'idle', doing: null, error: null });
+    setStatus({ phase: 'idle', doing: null, error: null, pulled: true });
     releaseOrphanLeave();
   });
 }
 
 export function setCloudEnabled(on: boolean) {
   try { if (on) localStorage.removeItem(OFF_KEY); else localStorage.setItem(OFF_KEY, '1'); } catch { /* private window */ }
-  if (on) { setStatus({ phase: state ? 'idle' : 'waiting' }); syncCloudNow(); } else setStatus({ phase: 'off', doing: null });
+  if (on) { setStatus({ phase: state ? 'idle' : 'waiting', pulled: false }); syncCloudNow(); } else setStatus({ phase: 'off', doing: null, pulled: true });
 }
 
 /**
@@ -712,12 +723,14 @@ export function startCloud(): () => void {
     // Local testing stands in a character for the login; a real build never sets these.
     const dev = import.meta.env.VITE_CLOUD_DEV_TOKEN ? Number(import.meta.env.VITE_CLOUD_DEV_CHAR || 90000001) : null;
     const charId = dev ?? getAuth()?.characterId;
-    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false }); return; }
+    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false, pulled: false }); return; }
     if (!isReady()) return;
+    // Another character's ledger: not level with its cloud until this visit pulls it.
+    if (state && state.charId !== charId) setStatus({ pulled: false });
     await loadState(charId);
     if (!alive) return;
-    // With no cloud to be level with first, the plan items left behind are let go now (store.ts).
-    if (!cloudEnabled()) { setStatus({ phase: 'off' }); releaseOrphanLeave(); return; }
+    // With no cloud to be level with first, the plan items left behind are let go now (store.ts), and what the app writes by itself may go.
+    if (!cloudEnabled()) { setStatus({ phase: 'off', pulled: true }); releaseOrphanLeave(); return; }
     setStatus({ phase: 'idle' });
     syncCloudNow()
       .then(() => syncCloudScan().catch(() => undefined))

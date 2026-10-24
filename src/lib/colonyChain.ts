@@ -773,14 +773,17 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   // A layout resting on a rate the colony hasn't shown is said as that, each kind in its own words, never claimed (Rulings T15b-3,
   // T15b-5): none (the planner assumes what two Basics take), another P0's learned rate, or one you typed.
   const guessOf = (role: Role | undefined) => {
-    const unshown = (role?.extracts ?? []).filter((x) => !x.rate || x.rate.otherP0 || x.rate.otherType || x.rate.from === 'typed');
+    const unshown = (role?.extracts ?? []).filter((x) => !x.rate || x.rate.otherP0 || x.rate.otherType || x.rate.from === 'typed' || x.rate.before);
     const namesOf = (xs: typeof unshown) => [...new Set(xs.map((x) => name(x.p0)))];
     const none = unshown.filter((x) => !x.rate), noneNames = namesOf(none);
     const other = namesOf(unshown.filter((x) => x.rate?.otherP0)), typed = namesOf(unshown.filter((x) => x.rate?.from === 'typed'));
+    // A rate from the learned rates' record (planner fix 2): an extractor of yours showed it, but no colony kept now does.
+    const before = namesOf(unshown.filter((x) => x.rate?.before && !x.rate.otherP0 && !x.rate.otherType && x.rate.from !== 'typed'));
     // The same P0 learned on another planet type (planner fix 1), by the type.
     const onTypes = [...new Set(unshown.map((x) => x.rate?.otherType).filter((t): t is PlanetType => !!t))]
       .map((t) => `${listSaid(namesOf(unshown.filter((x) => x.rate?.otherType === t)))} at the rate learned on ${t} planets`);
-    const withSaid = [...(other.length ? [`${listSaid(other)} at the rate learned for another P0`] : []), ...onTypes, ...(typed.length ? [`${listSaid(typed)} at the rate you typed`] : [])];
+    const withSaid = [...(other.length ? [`${listSaid(other)} at the rate learned for another P0`] : []), ...onTypes, ...(typed.length ? [`${listSaid(typed)} at the rate you typed`] : []),
+      ...(before.length ? [`${listSaid(before)} at the rate learned before`] : [])];
     return (noneNames.length ? `, if it gets ${unitsSaid(none[0].perHour)} ${listSaid(noneNames)} an hour${noneNames.length > 1 ? ' each' : ''}, a rate no colony of yours has shown` : '')
       + (withSaid.length ? `, with ${listSaid(withSaid)}` : '');
   };

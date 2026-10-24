@@ -15,7 +15,7 @@ import { planet as planetInfo, system as systemInfo, typeName, type SystemInfo }
 import { loadRadii } from './planetsBundle';
 import type { IndustryChar } from './industryChars';
 import { homeSaid } from './industryFinder';
-import { useHomeHistory, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveBooks, useScanCache, type Loaded } from './industryMarket';
+import { useHomeHistoryRead, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveRead, useScanCache, type Loaded } from './industryMarket';
 
 /**
  * One unit's net at the better place, uncapped (for the chart: `sell(id, 1)` would be capped on a thin P4). `book`: what that
@@ -28,6 +28,13 @@ export type PlanetMarket = {
   sell: Sell; buy: Buy; unit: (typeId: number) => UnitNet; ready: boolean; said: string;
   /** Whether any of the goods named in `live` has its Jita book read live yet: the planner ranks again on them only then. */
   live: boolean;
+  /**
+   * Whether every read for the goods named in `live` has come back or failed: their Jita books, and with a hub, its region's history
+   * (planner fix 2: Plan it works its setups out on the live reads once they're all in, never batch by batch).
+   */
+  settled: boolean;
+  /** Reads still out when `settled` came by the bound (`LIVE_READ_BOUND_MS`) rather than every read coming back: said beside the rows. */
+  late: number;
   /** The hub → Jita route Jita's sales and purchases are priced on (null: none picked, or no hub), so `PlanInput.freight` uses the same one. */
   freight: Freight | null;
   /** What the live pass ranks again on, said after "Working them out again": Jita's books now, or the hub region's trading history when Jita isn't used. */
@@ -73,8 +80,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
   const { broker, tax } = c;
   const home = useHomeQuotes(hub, hubOrders);
   const liveTypes = useMemo(() => [...new Set(opts.live ?? [])], [opts.live]);
-  const liveBooks = useLiveBooks(liveTypes);
-  const homeHist = useHomeHistory(liveTypes, hub?.region ?? null);
+  const { books: liveBooks, settled: booksSettled, late: booksLate } = useLiveRead(liveTypes);
+  const { rows: homeHist, settled: histSettled, late: histLate } = useHomeHistoryRead(liveTypes, hub?.region ?? null);
   const now = useNow(60_000);
   const cache = scan.state === 'ok' ? scan.value : null;
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
@@ -236,7 +243,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       !usesJita ? (jitaLeg.kind !== 'none' ? `What ${hub.short} doesn’t price is valued at Jita’s, after ${jitaLeg.kind === 'route' ? jitaLeg.name : 'the carry'}, and what it doesn’t sell is bought at Jita with the freight in; each says so.`
         : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so; what it doesn’t sell can’t be bought at Jita without one.`) : null,
     ].filter(Boolean).join(' '));
-  return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
+  return { ...fns, ready: !waiting, said, live: liveCount > 0, settled: booksSettled && histSettled, late: booksLate + histLate, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
     liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region` };
 }
 

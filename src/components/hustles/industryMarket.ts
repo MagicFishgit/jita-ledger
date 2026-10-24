@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { cloudCopies, cloudEnabled, cloudHomeBook, cloudHomeMarkets, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
 import { EsiError, esi } from '../../lib/esi';
 import { shareInFlight } from '../../lib/inFlight';
@@ -6,7 +6,7 @@ import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import type { CopySummary } from '../../lib/copyMarket';
 import type { StructureRow } from '../../lib/bookFold';
-import { bookHoldMs, bookWanted, listPending, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ordersInRead, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
+import { bookHoldMs, bookWanted, listPending, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ordersInRead, ownRead, rereadDue, rereadKeeps, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
 import { useNow } from '../../lib/hooks';
 import type { HomeQuote } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
@@ -122,11 +122,28 @@ type LiveBook = { bestBuy: number | null; bestSell: number | null; topBuys: Book
  * is left on the morning's book, which the row's tip says.
  */
 export function useLiveBooks(types: readonly number[]): Record<number, LiveBook> {
+  return useLiveRead(types).books;
+}
+/**
+ * How long a batch of live reads may take before what has come in is taken as the answer (fix round 1 of planner fix 2): `esi()` and
+ * the cloud's reads set no timeout of their own, so one read that hangs without failing would leave Plan it on "Working it out…" for
+ * good. Past it the reads still out count as `late`, and still land when they come.
+ */
+export const LIVE_READ_BOUND_MS = 45_000;
+type Settled = { key: string; late: number } | null;
+/**
+ * `useLiveBooks`, and whether every book asked for has come back or failed (`settled`, for the types asked now), or `LIVE_READ_BOUND_MS`
+ * has passed with `late` still out: Plan it works its setups out on the live books once, after they're all in, rather than batch by batch
+ * (planner fix 2).
+ */
+export function useLiveRead(types: readonly number[]): { books: Record<number, LiveBook>; settled: boolean; late: number } {
   const key = types.join(',');
   const [got, setGot] = useState<Record<number, LiveBook>>({});
+  const [doneKey, setDoneKey] = useState<Settled>(null);
   useEffect(() => {
     let alive = true;
     const queue = key ? key.split(',').map(Number) : [];
+    if (!queue.length) { setDoneKey({ key, late: 0 }); return () => { alive = false; }; }
     let next = 0, done = 0;
     // Each book landing re-ranked all 1,652 rows (about 25 ms) and reordered them 70 to 150 times: the books are held back and
     // set in batches (the first sixteen, so the rows move early, then every thirty-two, and the rest when the queue drains).
@@ -140,12 +157,14 @@ export function useLiveBooks(types: readonly number[]): Record<number, LiveBook>
         if (b) buf[t] = { bestBuy: b.bestBuy, bestSell: b.bestSell, topBuys: b.topBuys, topSells: b.topSells, ...(b.sold ? { sold: b.sold } : {}), at: b.fetchedAt };
         done++;
         if (done === 16 || (done > 16 && (done - 16) % 32 === 0) || done === queue.length) flush();
+        if (done === queue.length) setDoneKey({ key, late: 0 });
       }
     };
     for (let i = 0; i < 4; i++) void work();
-    return () => { alive = false; };
+    const bound = setTimeout(() => { if (alive && done < queue.length) { flush(); setDoneKey({ key, late: queue.length - done }); } }, LIVE_READ_BOUND_MS);
+    return () => { alive = false; clearTimeout(bound); };
   }, [key]);
-  return got;
+  return { books: got, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0 };
 }
 
 /** The regions the research found NPCs seeding Tech I originals in, besides The Forge (the scan's): looked in when a row opens. */
@@ -243,13 +262,13 @@ const marketsRead = () => {
   read.then(() => { held.until = Date.now() + HOME_HOLD_MAX_MS; }, () => { if (marketsHeld === held) marketsHeld = null; });
   return read;
 };
-/** A hub's own read, held until the next hourly read could land (bookHoldMs), per hub. */
-const bookHeld = new Map<number, { until: number; read: ReturnType<typeof cloudHomeBook> }>();
+/** A hub's own read, held until the next hourly read could land (bookHoldMs), per hub; `asked` when it was asked for. */
+const bookHeld = new Map<number, { until: number; read: ReturnType<typeof cloudHomeBook>; asked: number }>();
 const bookRead = (hub: number) => {
   const h = bookHeld.get(hub);
   if (h && Date.now() < h.until) return h.read;
   const read = cloudHomeBook(hub);
-  const held = { until: Infinity, read };
+  const held = { until: Infinity, read, asked: Date.now() };
   bookHeld.set(hub, held);
   read.then((r) => { held.until = Date.now() + bookHoldMs(r?.at ?? null, Date.now()); }, () => { if (bookHeld.get(hub) === held) bookHeld.delete(hub); });
   return read;
@@ -292,21 +311,31 @@ export function useHomeHubs(on = true): { hubs: HomeHub[]; markets: MarketsState
 export type BookState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'none' } | { status: 'ok'; at: string; rows: Record<string, StructureRow> };
 const LOADING_BOOK: BookState = { status: 'loading' };
 const NO_BOOK: BookState = { status: 'none' };
-export function useHomeBook(hub: number | null): BookState {
+export function useHomeBook(hub: number | null, again: string | null = null): BookState {
   const cloud = useCloud();
   const ver = useHomeVer();
   // Kept with the hub it was read for, so a hub just picked never shows the last one's read for a render.
   const [got, setGot] = useState<{ hub: number | null; st: BookState }>({ hub: null, st: LOADING_BOOK });
+  // `again`: the read about to turn two hours old (`rereadDue`), asked for afresh once, past whatever is held for the hub, unless another
+  // reader of the hub asked for it in the last minute (each hook would otherwise ask for the same read).
+  const fresh = useRef<string | null>(null);
   useEffect(() => {
     if (hub == null) return;
+    if (again && fresh.current !== again) {
+      fresh.current = again;
+      const h = bookHeld.get(hub);
+      if (h && Date.now() - h.asked > 60_000) bookHeld.delete(hub);
+    }
     if (!cloudEnabled()) { bookHeld.clear(); setGot({ hub, st: { status: 'off' } }); return; }
     if (!cloud.started) { setGot({ hub, st: LOADING_BOOK }); return; }
     let alive = true;
     setGot((g) => (g.hub === hub ? g : { hub, st: LOADING_BOOK }));
-    bookRead(hub).then((r) => { if (alive) setGot({ hub, st: r ? { status: 'ok', at: r.at, rows: r.rows } : { status: 'none' } }); },
-      (e) => { if (alive) setGot({ hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } }); });
+    // A re-read that fails, or finds none, leaves the read it was asked for over while that's under two hours old (`rereadKeeps`).
+    const kept = (g: { hub: number | null; st: BookState }) => g.hub === hub && g.st.status === 'ok' && rereadKeeps(g.st, again, Date.now());
+    bookRead(hub).then((r) => { if (alive) setGot((g) => (!r && kept(g) ? g : { hub, st: r ? { status: 'ok', at: r.at, rows: r.rows } : { status: 'none' } })); },
+      (e) => { if (alive) setGot((g) => (kept(g) ? g : { hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } })); });
     return () => { alive = false; };
-  }, [hub, cloud.started, ver]);
+  }, [hub, cloud.started, ver, again]);
   return got.hub === hub ? got.st : LOADING_BOOK;
 }
 
@@ -345,9 +374,15 @@ export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = N
   // The hub's own read waits for the cloud's list (as the Home markets row does): a default switched to Nobody must not speak from its
   // last read meanwhile, or for good when the list fails. Goonmetrics' prices don't wait on the list's failing, only on its loading.
   const asked = !!hub && bookWanted(listKind, state);
-  const bookRead = useHomeBook(asked ? hub!.id : null);
-  const book: BookState = asked ? bookRead : NO_BOOK;
+  // The hub's own read is asked for again as it nears two hours old (planner fix 2, `rereadDue`): left alone, it stopped speaking with
+  // the page open and Goonmetrics' prices took over mid-visit (each visit read it afresh and switched back). If the cloud has nothing
+  // newer, Goonmetrics' speaks at two hours, as ever.
   const now = useNow(60_000);
+  const [again, setAgain] = useState<string | null>(null);
+  const bookRead = useHomeBook(asked ? hub!.id : null, again);
+  const book: BookState = asked ? bookRead : NO_BOOK;
+  const heldAt = book.status === 'ok' ? book.at : null;
+  useEffect(() => { if (heldAt && heldAt !== again && rereadDue(heldAt, now)) setAgain(heldAt); }, [heldAt, again, now]);
   const gm: HomeSource['gm'] = hub && !hub.goonmetrics ? UNTRACKED : gmRead;
   // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
   const own = ownRead(book.status === 'ok' ? book : null, state);
@@ -422,17 +457,31 @@ export function useCopyMarket(): CopyMarketState {
 
 /** The home region's daily history for the types asked (regionHistory: kept three hours, shared in flight), four at a time. One that can't be read is left out. */
 export function useHomeHistory(types: readonly number[], region: number | null): Record<number, HistRow[]> {
+  return useHomeHistoryRead(types, region).rows;
+}
+/**
+ * `useHomeHistory`, and whether every type asked for has come back or failed (`settled`). The rows are kept by type while the region
+ * stays (planner fix 2): emptied whenever the goods named changed, a re-rank naming other goods ran once with no history at all, the
+ * investigation's 72-a-day shape for one render before the cached histories landed (planner-bugs-report.md, Bug 2, cause 3). A type
+ * already held isn't asked for again; another region starts afresh.
+ */
+export function useHomeHistoryRead(types: readonly number[], region: number | null): { rows: Record<number, HistRow[]>; settled: boolean; late: number } {
   const key = region ? `${region}:${types.join(',')}` : '';
-  const [got, setGot] = useState<Record<number, HistRow[]>>({});
+  const [got, setGot] = useState<{ region: number | null; rows: Record<number, HistRow[]> }>({ region: null, rows: {} });
+  const [doneKey, setDoneKey] = useState<Settled>(null);
+  const held = useRef(got);
+  held.current = got;
   useEffect(() => {
-    setGot({});
-    if (!key) return;
+    if (!key) { setDoneKey({ key, late: 0 }); return; }
     let alive = true;
-    const queue = key.split(':')[1].split(',').filter(Boolean).map(Number);
+    const keep = held.current.region === region ? held.current.rows : {};
+    if (held.current.region !== region) setGot({ region, rows: {} });
+    const queue = key.split(':')[1].split(',').filter(Boolean).map(Number).filter((t) => !keep[t]);
+    if (!queue.length) { setDoneKey({ key, late: 0 }); return () => { alive = false; }; }
     let next = 0, done = 0;
     // As useLiveBooks: each history landing re-ranked all 1,652 rows, so they are held back and set in batches.
     let buf: Record<number, HistRow[]> = {};
-    const flush = () => { const b = buf; buf = {}; if (Object.keys(b).length) setGot((x) => ({ ...x, ...b })); };
+    const flush = () => { const b = buf; buf = {}; if (Object.keys(b).length) setGot((x) => ({ region, rows: x.region === region ? { ...x.rows, ...b } : b })); };
     const work = async () => {
       while (alive && next < queue.length) {
         const t = queue[next++];
@@ -441,10 +490,14 @@ export function useHomeHistory(types: readonly number[], region: number | null):
         if (rows) buf[t] = rows;
         done++;
         if (done === 8 || (done > 8 && (done - 8) % 16 === 0) || done === queue.length) flush();
+        if (done === queue.length) setDoneKey({ key, late: 0 });
       }
     };
     for (let i = 0; i < 4; i++) void work();
-    return () => { alive = false; };
+    // As useLiveRead: nothing a read could hang on times out by itself.
+    const bound = setTimeout(() => { if (alive && done < queue.length) { flush(); setDoneKey({ key, late: queue.length - done }); } }, LIVE_READ_BOUND_MS);
+    return () => { alive = false; clearTimeout(bound); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  return got;
+  return { rows: got.region === region ? got.rows : NO_ROWS, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0 };
 }
+const NO_ROWS: Record<number, HistRow[]> = {};

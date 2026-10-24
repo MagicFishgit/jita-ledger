@@ -5,17 +5,22 @@ import type { PlanetType } from './pi';
 import type { KeptColony } from './colonies';
 import type { PiIndex } from './piBundle';
 import { readings } from './piExtraction';
-import type { TypedRate } from './planetsDoc';
+import type { PlanetsDoc, RecordedRate, TypedRate } from './planetsDoc';
 
+/**
+ * `before`: from the learned rates' record, not any colony kept now (planner fix 2), with when it was last learned: the colony that
+ * taught it was torn down or rebuilt, and nothing has shown that rate since.
+ */
 export type Learned = {
   perHour: number; higher: number | null; which: 'formula' | 'perCycle'; programHours: number; heads: number;
-  extractors: number; systems: number[]; checked: boolean;
+  extractors: number; systems: number[]; checked: boolean; before?: string;
 };
+export type LearnedMap = Partial<Record<PlanetType, Record<string, Learned>>>;
 /**
  * A rate as the planner takes it. `otherP0`: learned for another P0 of the planet type; `otherType`: this P0 learned on another planet
  * type (planner fix 1), named, since its richness is another planet's.
  */
-export type Rate = { perHour: number; higher: number | null; from: 'learned' | 'typed'; programHours: number; heads: number; otherP0: boolean; checked: boolean; otherType?: PlanetType };
+export type Rate = { perHour: number; higher: number | null; from: 'learned' | 'typed'; programHours: number; heads: number; otherP0: boolean; checked: boolean; otherType?: PlanetType; before?: string };
 
 /**
  * Which reading of ESI's qty_per_cycle is right, settled by the in-game check (Task 13, 19 October 2026): CCP's formula. The main's
@@ -35,7 +40,7 @@ const median = (xs: number[]) => {
 type Acc = { formula: number[]; perCycle: number[]; hours: number[]; heads: number[]; systems: Set<number> };
 
 /** Each extractor's per hour over its whole programme (ended ones too), by planet type and product P0. */
-export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, checked: 'formula' | 'perCycle' | null): Partial<Record<PlanetType, Record<string, Learned>>> {
+export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, checked: 'formula' | 'perCycle' | null): LearnedMap {
   const acc = new Map<string, { t: PlanetType; p0: number; a: Acc }>();
   for (const col of cols) for (const c of col.colonies) {
     if (!c.planetType) continue;
@@ -53,7 +58,7 @@ export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, ch
       x.a.hours.push(r.hours); x.a.heads.push(e.heads); x.a.systems.add(c.systemId);
     }
   }
-  const out: Partial<Record<PlanetType, Record<string, Learned>>> = {};
+  const out: LearnedMap = {};
   for (const { t, p0, a } of acc.values()) {
     const f = mean(a.formula), p = mean(a.perCycle);
     let perHour: number, higher: number | null, which: 'formula' | 'perCycle';
@@ -77,7 +82,7 @@ export function learnedRates(cols: { colonies: KeptColony[] }[], ix: PiIndex, ch
  * head count your own extractors run, never one or two squeezed in beside the factories. Null with none: then the most that fit
  * (Ruling T8-1).
  */
-export function assumedHeads(learned: Partial<Record<PlanetType, Record<string, Learned>>>): number | null {
+export function assumedHeads(learned: LearnedMap): number | null {
   const hs = Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.heads)).filter((h) => h > 0);
   return hs.length ? Math.ceil(median(hs)) : null;
 }
@@ -87,15 +92,68 @@ export function assumedHeads(learned: Partial<Record<PlanetType, Record<string, 
  * best-seen one each: most extractors, then the type or P0 first in order), marked. The P0 on another type before another P0 on this one
  * (planner fix 1): the user's Aqueous Liquids, learned on Gas at 16,919 an hour, was taken on Barren at Noble Metals' 19,062, a figure
  * no Aqueous Liquids extractor of theirs had shown, and it decided which planet made Water.
+ *
+ * Planner fix 2: `learned` carries the record too (`withRecorded`), each recorded rate marked `before`. Within each step a rate a colony
+ * shows now comes first and the record after it ("learned before"): a rate learned now, then typed, then recorded, then on another type
+ * (now, then recorded), then another P0 (now, then recorded). Typed comes before the record, so a rate whose colony was torn down can be
+ * typed over (a rate a colony shows now can't: the Inputs panel offers no box for it).
  */
-export function rateFor(learned: Partial<Record<PlanetType, Record<string, Learned>>>, typed: TypedRate | undefined, t: PlanetType, p0: number): Rate | null {
-  const of = (l: Learned, otherP0: boolean, otherType?: PlanetType): Rate => ({ perHour: l.perHour, higher: l.higher, from: 'learned', programHours: l.programHours, heads: l.heads, otherP0, checked: l.checked, ...(otherType ? { otherType } : {}) });
+export function rateFor(learned: LearnedMap, typed: TypedRate | undefined, t: PlanetType, p0: number): Rate | null {
+  const of = (l: Learned, otherP0: boolean, otherType?: PlanetType): Rate => ({ perHour: l.perHour, higher: l.higher, from: 'learned', programHours: l.programHours, heads: l.heads, otherP0, checked: l.checked, ...(otherType ? { otherType } : {}), ...(l.before ? { before: l.before } : {}) });
   const mine = learned[t]?.[String(p0)];
-  if (mine) return of(mine, false);
+  if (mine && !mine.before) return of(mine, false);
   if (typed) return { perHour: typed.perHour, higher: null, from: 'typed', programHours: typed.programHours, heads: typed.heads, otherP0: false, checked: false };
+  if (mine) return of(mine, false);
+  // Now before the record, then the most extractors, then in order.
+  const nowFirst = (a: Learned, b: Learned) => (a.before ? 1 : 0) - (b.before ? 1 : 0) || b.extractors - a.extractors;
   const types = (Object.entries(learned) as [PlanetType, Record<string, Learned> | undefined][])
-    .filter(([u, by]) => u !== t && by?.[String(p0)]).sort((a, b) => b[1]![String(p0)].extractors - a[1]![String(p0)].extractors || a[0].localeCompare(b[0]));
+    .filter(([u, by]) => u !== t && by?.[String(p0)]).sort((a, b) => nowFirst(a[1]![String(p0)], b[1]![String(p0)]) || a[0].localeCompare(b[0]));
   if (types.length) return of(types[0][1]![String(p0)], false, types[0][0]);
-  const others = Object.entries(learned[t] ?? {}).sort((a, b) => b[1].extractors - a[1].extractors || Number(a[0]) - Number(b[0]));
+  const others = Object.entries(learned[t] ?? {}).sort((a, b) => nowFirst(a[1], b[1]) || Number(a[0]) - Number(b[0]));
   return others.length ? of(others[0][1], true) : null;
+}
+
+/** Two figures the same within rounding: a mean of the same programmes in another order differs in its last bits. */
+const near = (a: number | null, b: number | null) => (a == null || b == null ? a === b : Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b)));
+const sameRate = (l: Learned, r: RecordedRate) => near(l.perHour, r.perHour) && near(l.higher, r.higher) && near(l.programHours, r.programHours)
+  && near(l.heads, r.heads) && l.extractors === r.extractors && l.systems.length === r.systems.length && l.systems.every((x, i) => x === r.systems[i]);
+
+/**
+ * The learned rates' record after a read (planner fix 2): every rate a colony shows now, as it shows it, stamped `at` when it changed (or
+ * first came), and every rate recorded before that no colony shows now, as it was. A colony torn down never drops its rate: the user
+ * rebuilt their colonies to the plan, each rebuild moved the rates, and the plan moved with them (planner-bugs-report.md, Bug 2, cause
+ * 1). A rate unchanged keeps its entry and its `at`, so a read that changes nothing gives a record equal to the one held.
+ */
+export function recordOf(live: LearnedMap, record: PlanetsDoc['learned'], at: string): PlanetsDoc['learned'] {
+  const out: PlanetsDoc['learned'] = {};
+  for (const [t, byP0] of Object.entries(record) as [PlanetType, Record<string, RecordedRate> | undefined][]) if (byP0) out[t] = { ...byP0 };
+  for (const [t, byP0] of Object.entries(live) as [PlanetType, Record<string, Learned> | undefined][]) {
+    for (const [id, l] of Object.entries(byP0 ?? {})) {
+      if (l.before) continue;
+      const held = record[t]?.[id];
+      if (held && sameRate(l, held)) continue;
+      (out[t] ??= {})[id] = { perHour: l.perHour, higher: l.higher, programHours: l.programHours, heads: l.heads, extractors: l.extractors, systems: [...l.systems], at };
+    }
+  }
+  return out;
+}
+
+/**
+ * The rates the planner reads (planner fix 2): what the colonies show now, and for a planet type and P0 none shows, the record's, marked
+ * `before` with when it was last learned. A rate shown now is the colonies' own, never the record's: the two agree after the record is
+ * written, and stamping one with the record's time would change the rates the planner reads when nothing else did.
+ */
+export function withRecorded(live: LearnedMap, record: PlanetsDoc['learned'], checked: 'formula' | 'perCycle' | null): LearnedMap {
+  const out: LearnedMap = {};
+  for (const [t, byP0] of Object.entries(live) as [PlanetType, Record<string, Learned> | undefined][]) if (byP0) out[t] = { ...byP0 };
+  for (const [t, byP0] of Object.entries(record) as [PlanetType, Record<string, RecordedRate> | undefined][]) {
+    for (const [id, r] of Object.entries(byP0 ?? {})) {
+      if (out[t]?.[id]) continue;
+      (out[t] ??= {})[id] = {
+        perHour: r.perHour, higher: r.higher, which: checked ?? (r.higher != null && r.higher < r.perHour ? 'perCycle' : 'formula'),
+        programHours: r.programHours, heads: r.heads, extractors: r.extractors, systems: [...r.systems], checked: checked != null, before: r.at,
+      };
+    }
+  }
+  return out;
 }
