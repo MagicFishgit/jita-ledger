@@ -3005,6 +3005,8 @@ try {
         await page.goto(`${BASE}#hustles/industry/copies`);
         await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 20_000 }).catch(() => problems.push('after the pull case, Your copy contracts never drew'));
       }
+      // The table is the ledger's and draws at once; the state waits for the cloud to start and its 404 (a race the phone run lost).
+      await page.waitForFunction(() => (document.querySelector('[data-industry="copy-state"]')?.textContent ?? '').includes('The cloud is a version behind'), null, { timeout: 20_000 }).catch(() => undefined);
       if (!(await text('[data-industry="copy-state"]')).includes('The cloud is a version behind')) problems.push('with the cloud a version behind, Copies doesn’t say so');
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copy-business-main.png`, fullPage: true }); }
       await showFor('Builder Alt');
