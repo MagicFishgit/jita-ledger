@@ -177,8 +177,8 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `loyalty-hustles.md`: Loyalty, Freelance, Reprocessing, skills.
 - `mining.md`: the Mining side hustle, Scaling up, mining across characters.
 - `abyssal-hauling-combat.md`: Abyssal, Hauling, Combat.
-- `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
-  page, what each earned, transfers).
+- `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store,
+  the roster, transfers); `-earned` the Characters page, accounts and what each earned (`check-income`).
 - `research.md`: the Research tab, R&D agents (points a day, access, the agents bundle) and its walkthrough.
 - `industry.md`: the Industry side hustle: the static-data bundle, the job, research, copying and invention rules, the tab;
   `-build` build sites, the finder, the ladder, Tech II; `-jobs` blueprints and jobs; `-copy-round` what copies sell (the
