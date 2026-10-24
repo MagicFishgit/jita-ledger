@@ -14,7 +14,7 @@ import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { UnitBook, UnitNet } from './planetsMarket';
 import { usePlanning } from './planetsPlanning';
-import { KIND, Selling } from './PlanetsPlan';
+import { FindButton, KIND, Selling } from './PlanetsPlan';
 
 /**
  * Chart: every planetary good from P0 to P4 by tier, each valued a unit and a m³ where it sells best for the character shown (Show
@@ -55,12 +55,14 @@ const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jita�
 /** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
 const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
-export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, ready: collected = false }: {
+export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, onFind = null, ready: collected = false }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
   /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
   ready?: boolean;
   /** Plan it: opens Plan held to this good (`hustles/planets/plan?good=<id>`). */
   onPlanGood: (id: number) => void;
+  /** Find the best system for this good (the system finder, planets-finder.md). */
+  onFind?: ((id: number) => void) | null;
 }) {
   const p = usePlanning({ c, chars, colonies, ix, systemId, ready: collected });
   const tiers = useMemo(() => goodsByTier(ix), [ix]);
@@ -108,7 +110,7 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanG
           ))}
         </div>
         {pick != null && ix.byId.has(pick)
-          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} onPlanGood={onPlanGood} />
+          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} onPlanGood={onPlanGood} onFind={onFind} />
           : <p className="note small pl-tree-none">Pick a good for its recipe down to P0{sysName ? `, which of ${sysName}’s planets supply it, and which setups make it there` : ''}.</p>}
       </div>
     </section>
@@ -170,8 +172,9 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
 }
 
 /** A picked good: its recipe down to P0, what the system lacks of it, its P0s' planets here, and which setups can make it there. */
-function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan, onPlanGood }: {
+function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan, onPlanGood, onFind }: {
   id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void; onPlanGood: (id: number) => void;
+  onFind: ((id: number) => void) | null;
 }) {
   const ref = useRef<HTMLElement>(null);
   // Below the grid (a phone, a narrow window) a recipe picked now would land out of sight: brought into view when it isn't. Only
@@ -229,6 +232,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
         </div>
         <div className="pl-tree-acts">
           {g.tier !== 'P0' && <PlanIt id={id} name={g.name} onPlanGood={onPlanGood} />}
+          {onFind && (g.tier === 'P1' || g.tier === 'P2' || g.tier === 'P3') && <FindButton name={g.name} onFind={() => onFind(id)} />}
           <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
         </div>
       </div>

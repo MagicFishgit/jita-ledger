@@ -9,7 +9,7 @@ arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beate
 (Abyssal / Hauling / Planets / Mining / Freelance / Research / Industry), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets plans a system (`hustles/planets/<section>`): Plan ranks every way of setting its planets up by ISK a day and says
-which planet does what, Chart is every good from P0 to P4, Colonies your colonies, kept as a synced document.
+which planet does what, Chart is every good from P0 to P4, Colonies your colonies, kept as a synced document, Find a region's best systems for a good.
 
 The look is the HUD redesign in `docs/Jita Ledger space console redesign/` (untracked, not committed):
 `Jita Ledger HUD.dc.html` is the source of truth for layout and copy, but **every number in it was invented
@@ -199,6 +199,7 @@ a tab's shell) doesn't load theirs, so Read them too:
   set against the planner's best for that planet, planned beside the colony's own storage and launchpads.
 - `planets-kept.md`: Keep this plan, the learned rates' record that outlasts a colony, and Plan it's rows drawn from the live pass once.
 - `planets-board.md`: Plan's setups as a board of planet cards, each planet's Build it, and Check my setup against a colony.
+- `planets-finder.md`: Find, a region's systems planned for one good (the bundle's planet types and regions).
 
 Always loaded, imported below, because they apply to any change:
 

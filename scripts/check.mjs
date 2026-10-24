@@ -7546,12 +7546,115 @@ console.log('\n--- Planets: the bundle (scripts/planets-bundle.mjs, CCP static d
   eq('  CC levels at IV and V', [b.planetTypes.Barren.cc[4], b.planetTypes.Barren.cc[5]].map((c) => [c.cpu, c.pg]), [[21315, 17000], [25415, 19000]]);
   eq('  an extractor head', [b.planetTypes.Barren.pins.ecu.headCpu, b.planetTypes.Barren.pins.ecu.headPg], [110, 550]);
   eq('  radii: 5-NZNW has 12, planet I among them', [decodeRadii(radii['30004865']).length, decodeRadii(radii['30004865']).find(([id]) => id === 40307990)?.[1] > 0], [12, true]);
-  eq('  bundle budget: 60 KB raw; radii 750 KB raw, 260 KB gzipped', [raw.length <= 60_000, rRaw.length <= 750_000, gz(rRaw).length <= 260_000], [true, true, true]);
+  // The radii grew 68 KB raw and 26 KB gzipped when each planet's type joined them (the system finder, 24 October 2026: 742,967 and
+  // 254,827), which left 1% under the old 750 KB; the budget moved with them.
+  eq('  bundle budget: 60 KB raw; radii 800 KB raw, 280 KB gzipped', [raw.length <= 60_000, rRaw.length <= 800_000, gz(rRaw).length <= 280_000], [true, true, true]);
   eq('  sourced constants', [b.link.minKmPerRadiusKm, b.maxHeads], [0.012008578, 10]);
   eq('  the P0 a good is made from, sorted; Shattered and Scorched Barren have no PI type',
     [nm(p0Of(ix, b.schematics.find((s) => s.name === 'Coolant').out.id)), planetTypeOf(ix, 2016), planetTypeOf(ix, 30889), planetTypeOf(ix, 73911)], [['Aqueous Liquids', 'Ionic Solutions'], 'Barren', null, null]);
   eq('  the link and the extraction decay', [b.link.cpu, b.link.pg, b.link.cpuPerKm, b.link.pgPerKm, b.extraction.decay, b.extraction.noise], [15, 10, 0.2, 0.15, 0.012, 0.8]);
   eq('  sorted, so a rebuild of one build changes nothing', [b.schematics.every((s, i, a) => !i || a[i - 1].id < s.id), Object.values(b.planetTypes).every((t) => t.p0.every((x, i, a) => !i || a[i - 1] < x))], [true, true]);
+}
+
+console.log('\n--- Planets: the system finder (piFinder.ts; the bundle’s planet types and regions) ---');
+{
+  const fsP = await import('node:fs');
+  const zlibP = await import('node:zlib');
+  const B = await import('../src/lib/piBundle.ts');
+  const F = await import('../src/lib/piFinder.ts');
+  const PP = await import('../src/lib/piPlan.ts');
+  const { DEFAULT_PLANETS } = await import('../src/lib/planetsDoc.ts');
+  const readP = (p) => fsP.readFileSync(new URL(p, import.meta.url));
+  const ix = B.indexPlanets(JSON.parse(readP('../src/data/planets.json')));
+  const rRaw = readP('../src/data/planetRadii.json'), gRaw = readP('../src/data/planetRegions.json');
+  const radii = JSON.parse(rRaw);
+  const regions = B.decodeRegions(JSON.parse(gRaw));
+  const graph = JSON.parse(readP('../src/data/universeGraph.json')).systems;
+  const FX = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
+  // Every planet of 5-NZNW carries the type ESI gives it (the fixture is ESI's answer of 17 October 2026): the last digit's order
+  // (PI_TYPE_IDS) and the bundle script's agree.
+  const nz = B.decodeRadii(radii['30004865']);
+  eq('  bundle: 5-NZNW’s 12 planets carry ESI’s type IDs', nz.map(([id, , t]) => [id, t]), FX.planets.map((p) => [p.planet_id, p.type_id]));
+  eq('  bundle: 5-NZNW I is Barren, 1,950 km', [nz[0][1], B.planetTypeOf(ix, nz[0][2])], [1950, 'Barren']);
+  const ten = F.regionOf(regions, 30004865);
+  eq('  regions: 5-NZNW and UALX-3 are in Tenerifis, 81 systems with PI planets', [ten?.id, ten?.name, ten?.systems.length, F.regionOf(regions, 30004807)?.name], [10000061, 'Tenerifis', 81, 'Tenerifis']);
+  eq('  regions: 100 with PI planets, every system of planetRadii.json in one', [regions.length, regions.reduce((n, r) => n + r.systems.length, 0), Object.keys(radii).length], [100, 7983, 7983]);
+  const wh = regions.find((r) => r.name === 'A-R00001');
+  eq('  regions: a wormhole region names its systems (no stargate map has them), securities beside', [!!wh?.names, wh?.names?.length === wh?.systems.length, wh?.names?.every((n) => /^J\d{6}$/.test(n)), wh?.securities?.every((x) => x < 0)], [true, true, true, true]);
+  eq('  regions: a stargate region carries no names (the map has them)', [ten?.names, ten?.securities], [null, null]);
+  eq('  bundle budget: regions 70 KB raw, 15 KB gzipped (the radii with their types: the bundle’s own budget, above)', [gRaw.length <= 70_000, zlibP.gzipSync(gRaw).length <= 15_000], [true, true]);
+  const tSys = F.regionSystems(ix, ten, radii, graph);
+  const nzS = tSys.find((x) => x.id === 30004865);
+  eq('  regionSystems: 5-NZNW from the map, its planets from the bundle', [nzS?.name, nzS?.security, nzS?.onMap, nzS?.planets.length, nzS?.planets.filter((x) => x.type === 'Gas').length], ['5-NZNW', -0.22, true, 12, 4]);
+  const whS = F.regionSystems(ix, wh, radii, graph)[0];
+  eq('  regionSystems: a wormhole system named by its region, off the map', [/^J\d{6}$/.test(whS.name ?? ''), whS.onMap, whS.security < 0], [true, false, true]);
+
+  // The kinds the finder runs: one character's setups only.
+  const byName = (n) => ix.commodities.find((c) => c.name === n).id;
+  eq('  kinds: a P1, a P2, a P3, a P4', ['Plasmoids', 'Coolant', 'Gel-Matrix Biopaste', 'Broadcast Node'].map((n) => F.finderKinds(ix, byName(n))), [['p1'], ['p2', 'feed'], ['feed'], []]);
+  has('  a P4 says why it isn’t found', F.finderWhy(ix, byName('Broadcast Node')) ?? '', 'which the finder doesn’t run');
+
+  // A synthetic region of five systems for Plasmoids (Suspended Plasma: Storm, Lava and Plasma planets): A and B alike (two Storm
+  // planets), C three, D Barren and Gas (no Suspended Plasma), E as A with a colony of yours on its first planet, which gave half again
+  // the type's rate a head (18,000 an hour, three Basics where A's planets run two). Jumps from home: A 5, B 2, C 9, E 7.
+  const PLASMOIDS = byName('Plasmoids'), SP = byName('Suspended Plasma');
+  const pl = (id, t, km = 6000) => ({ planetId: id, radiusKm: km, typeId: ix.planetTypes[t].typeId, type: t });
+  const sys = (id, name, security, ps) => ({ id, name, security, onMap: true, planets: ps });
+  const A = sys(1, 'A', -0.3, [pl(11, 'Storm'), pl(12, 'Storm')]), Bs = sys(2, 'B', -0.3, [pl(21, 'Storm'), pl(22, 'Storm')]);
+  const C = sys(3, 'C', -0.3, [pl(31, 'Storm'), pl(32, 'Storm'), pl(33, 'Storm')]), D = sys(4, 'D', -0.3, [pl(41, 'Barren'), pl(42, 'Gas')]);
+  const E = sys(5, 'E', -0.3, [pl(51, 'Storm'), pl(52, 'Storm')]);
+  const split = F.splitByP0(ix, PLASMOIDS, [A, Bs, C, D, E]);
+  eq('  a system lacking a P0 is left out with what it lacks; the commonest said', [split.plan.map((x) => x.name), split.out, split.commonest], [['A', 'B', 'C', 'E'], [{ systemId: 4, missing: [SP] }], { p0: SP, count: 1 }]);
+  const L = { perHour: 12000, higher: null, which: 'formula', programHours: 48, heads: 5, extractors: 4, systems: [], checked: true };
+  const learned = { Storm: { [SP]: L } }, own = { 51: { [SP]: { ...L, perHour: 18000, extractors: 1, factor: 1.5 } } };
+  const price = new Map([[PLASMOIDS, 500]]);
+  const sell = (id, perDay) => { const p = price.get(id); return p ? { isk: p * perDay, units: perDay, where: ['jita'], why: null } : { isk: null, units: 0, where: [], why: 'no price read' }; };
+  const buy = () => ({ isk: null, where: null, why: 'none listed' });
+  const owner = { charId: 1, name: 'Owner', planets: 3, ccLevel: 4, alpha: false };
+  const base = { ix, char: owner, others: [], heads: 5, sell, buy, programHours: 48, programFrom: 'median', only: PLASMOIDS };
+  const doc = DEFAULT_PLANETS;
+  const inputOf = (x, d = doc, ownR = own) => F.systemInput(base, x, F.finderTaxOf(d, 0), F.finderRateOf(learned, ownR, d));
+  const run = (systems, input = inputOf) => { const out = []; for (const r of F.finderSteps(systems, input, F.finderKinds(ix, PLASMOIDS))) if (r) out.push(r); return out; };
+  const rows = run(split.plan);
+  const jumps = new Map([[1, 5], [2, 2], [3, 9], [5, 7]]);
+  const ranked = F.rankRows(rows, jumps);
+  eq('  every system planned, P0 → P1, a figure for each', [rows.length, rows.every((r) => r.made > 0 && r.best?.kind === 'p1')], [4, true]);
+  eq('  ranked by the good a day, then the fewest jumps: C (three planets), E (its own richer planet), then B before A (alike, nearer)', ranked.map((r) => r.system.name), ['C', 'E', 'B', 'A']);
+  const made = Object.fromEntries(rows.map((r) => [r.system.name, r.made]));
+  eq('  A and B alike, 1,920 a planet; C 5,760; E 4,800 on its own planet’s rate', [made.A, made.B, made.C, made.E], [3840, 3840, 5760, 4800]);
+  eq('  with no colony on E, E is A', run([E], (x) => inputOf(x, doc, {}))[0].made, made.A);
+  // Fix round 1 (the review's Important 1): a row says when its figure rests on a rate its own planet type hasn't shown. A, B, C and E
+  // extract Suspended Plasma on Storm, which is learned (E's planet its own); F's Lava planets borrow Storm's. A Storm planet's other
+  // line (Base Metals at another P0's rate) makes another P1, so it isn't counted.
+  const F_ = sys(7, 'F', -0.3, [pl(71, 'Lava'), pl(72, 'Lava')]);
+  eq('  borrowed: none on A, B, C or E; F’s Lava planets on Storm’s Suspended Plasma', [rows.map((r) => r.borrowed.length), run([F_])[0].borrowed], [[0, 0, 0, 0], [{ type: 'Lava', p0: SP, from: 'Storm' }]]);
+  // The review's Minor 4: a system that makes the good but isn't valued ranks by its units, its ISK not known, never "Makes none of it".
+  const unv = F.rowOf(C, [{ ...rows.find((r) => r.system.name === 'C').best, iskDay: null, why: null }]);
+  eq('  a system making the good, not valued: ranked by units, its ISK not known, why said', [unv.made, unv.iskDay, unv.iskWhy, unv.why, F.rankRows([...rows.filter((r) => r.system.name !== 'C'), unv], jumps).map((r) => r.system.name)],
+    [5760, null, '1 of what it makes isn’t valued', null, ['C', 'E', 'B', 'A']]);
+  eq('  no home: rows by the good a day, then by name', F.rankRows(rows, null).map((r) => r.system.name), ['C', 'E', 'A', 'B']);
+  // Customs follow security: Brave's rates in null-sec, none assumed in high-sec, low-sec or a wormhole (ranked before it, said),
+  // a rate typed for that system counted.
+  const at = (security, id = 6) => run([sys(id, 'X', security, [pl(id * 10 + 1, 'Storm'), pl(id * 10 + 2, 'Storm')])])[0];
+  const nul = at(-0.3), high = at(0.8), low = at(0.3), worm = at(-0.99, 31_000_100);
+  eq('  customs: null-sec on Brave’s rates; high, low and a wormhole before the tax', [nul.beforeTax, high.beforeTax, low.beforeTax, worm.beforeTax], [false, true, true, true]);
+  eq('  customs: the taxes each planet pays follow', [nul.best.taxes.every((t) => t.perDay > 0), high.perPct > 0, high.iskDay > nul.iskDay], [true, true, true]);
+  const typed = { ...DEFAULT_PLANETS, systems: { 6: { tax: { Storm: 0.04 }, planetTax: {}, interbus: {}, notBrave: false, rates: {}, kept: {} } } };
+  const lowTyped = run([sys(6, 'X', 0.3, [pl(61, 'Storm'), pl(62, 'Storm')])], (x) => inputOf(x, typed))[0];
+  eq('  customs: a rate typed for a low-sec system counts', [lowTyped.beforeTax, lowTyped.iskDay < low.iskDay], [false, true]);
+  eq('  a held good unpriced: every row says why, none ranked at 0', (() => { price.delete(PLASMOIDS); const r = run([A])[0]; price.set(PLASMOIDS, 500); return [r.made, r.iskDay, /isn’t priced/.test(r.why ?? '')]; })(), [null, null, true]);
+  // A real region: Tenerifis for Gel-Matrix Biopaste on round rates, sliced as the page drives it (the feed's search yields between steps).
+  const GEL = byName('Gel-Matrix Biopaste');
+  const tSplit = F.splitByP0(ix, GEL, tSys);
+  eq('  Tenerifis for Gel-Matrix Biopaste: 62 of 81 planned, 19 left out', [tSplit.plan.length, tSplit.out.length], [62, 19]);
+  let steps = 0;
+  const allP = new Map(ix.commodities.map((c) => [c.id, c.tier === 'P3' ? 30000 : c.tier === 'P2' ? 9000 : c.tier === 'P1' ? 600 : 5]));
+  const gSell = (id, perDay) => { const p = allP.get(id); return { isk: p * perDay, units: perDay, where: ['jita'], why: null }; };
+  const flat = { Storm: {}, Gas: {}, Barren: {}, Lava: {}, Temperate: {}, Ice: {}, Oceanic: {}, Plasma: {} };
+  const gIn = (x) => F.systemInput({ ...base, sell: gSell, only: GEL, char: { ...owner, planets: 5 } }, x, F.finderTaxOf(DEFAULT_PLANETS, 0), F.finderRateOf(flat, {}, DEFAULT_PLANETS));
+  const tRows = [];
+  for (const r of F.finderSteps(tSplit.plan.slice(0, 6), gIn, F.finderKinds(ix, GEL))) { steps++; if (r) tRows.push(r); }
+  eq('  Tenerifis: six systems planned as a fed factory, each with a figure, in steps', [tRows.length, tRows.every((r) => r.made > 0 && r.best?.kind === 'feed'), steps > tRows.length], [6, true, true]);
 }
 
 console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down to P0, what a system can supply, which setups make a good) ---');

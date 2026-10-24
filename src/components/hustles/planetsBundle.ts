@@ -1,4 +1,4 @@
-import { indexPlanets, type PiIndex, type PlanetsBundle } from '../../lib/piBundle';
+import { decodeRegions, indexPlanets, type PiIndex, type PlanetsBundle, type Region, type RegionRow } from '../../lib/piBundle';
 
 /**
  * Planetary Interaction's static data (src/data/planets.json, scripts/planets-bundle.mjs) and the planets' radii, each a chunk of
@@ -12,3 +12,8 @@ export const loadPlanets = (): Promise<PiIndex> =>
 let radiiP: Promise<Record<string, number[]>> | null = null;
 export const loadRadii = (): Promise<Record<string, number[]>> =>
   (radiiP ??= import('../../data/planetRadii.json').then((m) => m.default as unknown as Record<string, number[]>).catch((e) => { radiiP = null; throw e; }));
+
+/** Every region with PI planets and its systems (src/data/planetRegions.json), a chunk of its own that only the system finder loads. */
+let regionsP: Promise<Region[]> | null = null;
+export const loadRegions = (): Promise<Region[]> =>
+  (regionsP ??= import('../../data/planetRegions.json').then((m) => decodeRegions(m.default as unknown as RegionRow[])).catch((e) => { regionsP = null; throw e; }));

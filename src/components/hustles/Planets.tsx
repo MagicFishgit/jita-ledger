@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { byAccount } from '../../lib/accounts';
 import { altLedger } from '../../lib/altLedger';
 import { getAlts, refreshAlts, useAlts } from '../../lib/altStore';
@@ -11,6 +11,7 @@ import { SCOPE } from '../../lib/config';
 import { navigate, type Route } from '../../lib/hooks';
 import type { Graph } from '../../lib/jumps';
 import type { PiIndex } from '../../lib/piBundle';
+import { regionOf } from '../../lib/piFinder';
 import { reloadApp } from '../../lib/reload';
 import { jobOk, loginState } from '../../lib/roster';
 import { PI_SKILLS } from '../../lib/skills';
@@ -20,8 +21,9 @@ import { Seg } from '../ui';
 import type { Colonies as ColoniesSection } from './Colonies';
 import { loadGraph } from './industryBundle';
 import { useIndustryChars } from './industryChars';
-import { loadPlanets } from './planetsBundle';
+import { loadPlanets, loadRegions } from './planetsBundle';
 import type { PlanetsChart as ChartSection } from './PlanetsChart';
+import type { PlanetsFind as FindSection } from './PlanetsFind';
 import type { PlanetsPlan as PlanSection } from './PlanetsPlan';
 import { SkillPanel } from './SkillPanel';
 
@@ -56,12 +58,15 @@ function SectionFailed() {
 const PlanetsPlan = section<Parameters<typeof PlanSection>[0]>(() => import('./PlanetsPlan'), 'PlanetsPlan');
 const PlanetsChart = section<Parameters<typeof ChartSection>[0]>(() => import('./PlanetsChart'), 'PlanetsChart');
 const Colonies = section<Parameters<typeof ColoniesSection>[0]>(() => import('./Colonies'), 'Colonies');
+const PlanetsFind = section<Parameters<typeof FindSection>[0]>(() => import('./PlanetsFind'), 'PlanetsFind');
 const SECTION_KEY = 'jita-ledger:planets-section';
 const SHOW_KEY = 'jita-ledger:planets-show';
 const COLONIES_SHOW_KEY = 'jita-ledger:planets-colonies-show';
 const SYSTEM_KEY = 'jita-ledger:planets-system';
 /** Plan it: the good Plan is held to, kept per browser until Every product lets it go. */
 const GOOD_KEY = 'jita-ledger:planets-plan-good';
+/** Find: the region the system finder last looked in, kept per browser. */
+const REGION_KEY = 'jita-ledger:planets-find-region';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
 const forget = (k: string) => { try { localStorage.removeItem(k); } catch { /* just not kept */ } };
@@ -73,6 +78,7 @@ export const SECTIONS = [
   { key: 'plan', label: 'Plan', tip: 'Give it a system: each way of setting planets up, ranked by ISK a day, and which planet does what' },
   { key: 'chart', label: 'Chart', tip: 'Every planetary good from P0 to P4, and how each is made' },
   { key: 'colonies', label: 'Colonies', tip: 'Every character’s colonies as last read: what each makes a day, what’s wrong at its root, when each program ends, and how it compares with the planner’s best' },
+  { key: 'find', label: 'Find', tip: 'The best systems in a region for one good: each planned at your skills and rates, the most of it a day first' },
 ] as const;
 type Section = (typeof SECTIONS)[number]['key'];
 
@@ -101,11 +107,36 @@ export function Planets({ route }: { route: Route }) {
 
   // Plan it (19 October 2026): the good Plan is held to, from the address (hustles/planets/plan?good=<id>, the Chart's Plan it) and
   // kept per browser, so coming back to Plan keeps it; Every product lets it go, back to the ranking of every product.
-  const asked = Number(route.query.get('good')) || null;
+  // The address's good holds Plan only on Plan: Find's (hustles/planets/find?good=<id>) is the finder's own, until Plan it here.
+  const asked = section === 'plan' ? Number(route.query.get('good')) || null : null;
   const [keptGood, setKeptGood] = useState<number | null>(() => Number(readKept(GOOD_KEY)) || null);
   useEffect(() => { if (asked != null) { setKeptGood(asked); keep(GOOD_KEY, String(asked)); } }, [asked]);
   const planGood = (id: number) => { setKeptGood(id); keep(GOOD_KEY, String(id)); keep(SECTION_KEY, 'plan'); navigate(`hustles/planets/plan?good=${id}`); };
   const everyProduct = () => { setKeptGood(null); forget(GOOD_KEY); navigate('hustles/planets/plan'); };
+
+  // Find (the system finder, planets-finder.md): the good and the region from the address (hustles/planets/find?good=<id>&region=<id>),
+  // else the good Plan is held to and the region kept; Plan it here sets Plan's system and holds Plan to the good.
+  const findGood = section === 'find' ? Number(route.query.get('good')) || null : null;
+  const askedRegion = section === 'find' ? Number(route.query.get('region')) || null : null;
+  const [keptRegion, setKeptRegion] = useState<number | null>(() => Number(readKept(REGION_KEY)) || null);
+  useEffect(() => { if (askedRegion != null) { setKeptRegion(askedRegion); keep(REGION_KEY, String(askedRegion)); } }, [askedRegion]);
+  const regionNow = askedRegion ?? keptRegion;
+  const findFor = (good: number | null, region: number | null) => {
+    const q = [good != null ? `good=${good}` : '', region != null ? `region=${region}` : ''].filter(Boolean).join('&');
+    keep(SECTION_KEY, 'find');
+    navigate(`hustles/planets/find${q ? `?${q}` : ''}`);
+  };
+  // Plan it here: what chooseSystem and planGood do, with nothing but setters and storage in it, so one function for good (Find's rows are
+  // memoised on it: the review's Minor 5).
+  const planHere = useCallback((sysId: number, good: number) => {
+    setSystemId(sysId); keep(SYSTEM_KEY, String(sysId));
+    setKeptGood(good); keep(GOOD_KEY, String(good)); keep(SECTION_KEY, 'plan'); navigate(`hustles/planets/plan?good=${good}`);
+  }, []);
+  // From Plan and the Chart: the region of the system chosen on Plan, read from the regions' chunk on the click; with none, the finder's own.
+  const findNear = (good: number) => {
+    if (systemId == null) { findFor(good, null); return; }
+    loadRegions().then((rs) => findFor(good, regionOf(rs, systemId)?.id ?? null), () => findFor(good, null));
+  };
 
   // Each character's kept colonies: the main's document, an alt's from its pulled copy (altLedger, sanitized once a copy), which the
   // cloud's hourly sheet keeps (Task 14). Every character's teach the planner its rates (Task 16).
@@ -169,10 +200,13 @@ export function Planets({ route }: { route: Route }) {
             {section === 'colonies' ? (
               <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} />
             ) : section === 'chart' ? (
-              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} ready={alts.ready} />
+              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} onFind={findNear} ready={alts.ready} />
+            ) : section === 'find' ? (
+              <PlanetsFind key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} good={heldTo(ix, findGood ?? keptGood)} regionId={regionNow} planSystem={systemId}
+                onGood={(id) => findFor(id, regionNow)} onRegion={(id) => { setKeptRegion(id); keep(REGION_KEY, String(id)); findFor(findGood ?? keptGood, id); }} onPlanHere={planHere} ready={alts.ready} />
             ) : (
               <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
-                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} />
+                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} onFind={findNear} />
             )}
           </Suspense>
         )}

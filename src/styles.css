@@ -1154,6 +1154,10 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-ptypes .pl-ico { margin: 0; }
 .pl-ptype { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; padding: 1px 8px 1px 2px; border: 1px solid var(--line-soft); background: var(--inset); border-radius: 999px; color: var(--ink); line-height: 1.4; }
 .pl-ptype .ticon { width: 16px; height: 16px; border-radius: 50%; }
+/* The system finder's rank: the table's own count, so a row isn't drawn again as rows land above it (PlanetsFind.tsx). */
+.pl-find tbody { counter-reset: find-row; }
+.pl-find tbody tr { counter-increment: find-row; }
+.pl-find .find-rank::before { content: counter(find-row); }
 
 /* The plan board (PlanetBoard.tsx, docs/notes/planets-board.md): a setup folds to one row; opened, the plan at a glance and a card a
    planet, a fed setup's feeders on the left joined to its factory planet on the right. The board scrolls sideways in its own box when
@@ -1793,6 +1797,8 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .pl-good { padding: 5px 7px; }
   .pl-good .ticon { display: none; }
   .pl-tree { padding: 12px; }
+  /* The recipe's actions (Plan it, Find the best system, close) under its name: beside it they ran past the screen's edge. */
+  .pl-tree-acts { grid-column: 1 / -1; flex-wrap: wrap; }
   /* Colonies on a phone: an opened colony stays in the table's visible width, pinned to its left edge while the row scrolls. */
   .tbl tr.detail td.col-detail { padding-left: 12px; }
   .col-unfold { position: sticky; left: 0; max-width: calc(100vw - 180px); }

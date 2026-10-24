@@ -7,7 +7,7 @@ import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Buy, Fallback, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
 import { boughtAtHome, boughtOf, jitaSteps, soldAtHome, soldOf, type BuyPlace } from '../../lib/piPlan';
-import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
+import { planetTypeOf, radiusMap, type PiIndex } from '../../lib/piBundle';
 import { customsRate, type Tax } from '../../lib/planetsDoc';
 import { reloadApp } from '../../lib/reload';
 import { useData } from '../../lib/store';
@@ -290,7 +290,7 @@ export function useSystemPlanets(systemId: number | null, ix: PiIndex | null, cc
           // A type the bundle lacks has no PI: its name only says which it is ("Planet (Shattered)"), so a failed read leaves it unnamed.
           return { planetId: id, name: p.name, typeId: p.typeId, typeName: known ? null : await typeName(p.typeId).catch(() => null) };
         }));
-        if (alive) setGot({ id: systemId, st: { state: 'ok', raw: { system: sys, planets, radii: new Map(radiiRow ? decodeRadii(radiiRow) : []) } } });
+        if (alive) setGot({ id: systemId, st: { state: 'ok', raw: { system: sys, planets, radii: radiusMap(radiiRow) } } });
       } catch (e) {
         if (alive) setGot({ id: systemId, st: { state: 'failed', error: `couldn’t read the system from ESI: ${e instanceof Error ? e.message : String(e)}`, reload: false } });
       }

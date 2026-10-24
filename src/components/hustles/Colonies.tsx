@@ -10,7 +10,7 @@ import { hasScope } from '../../lib/auth';
 import { ago, iskBig, units } from '../../lib/format';
 import { useNow, useStable } from '../../lib/hooks';
 import { monthOfOmega, omegaShare, periods, shareSaid, type Periods } from '../../lib/iskPeriods';
-import { decodeRadii, type PiIndex } from '../../lib/piBundle';
+import { radiusMap, type PiIndex } from '../../lib/piBundle';
 import { readings } from '../../lib/piExtraction';
 import { PI_READING, PI_UNCHECKED, rateFor } from '../../lib/piLearn';
 import { customsLevel, fallbackGoods, listSaid, planCharOf, type PlanInput, type Sell, type Setup } from '../../lib/piPlan';
@@ -263,7 +263,7 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
     const radius = (k: KeptColony) => {
       if (!rowsOf || !radii || radii === 'failed') return null;
       let m = rowsOf.get(k.systemId);
-      if (!m) { const row = radii[String(k.systemId)]; rowsOf.set(k.systemId, m = new Map(row ? decodeRadii(row) : [])); }
+      if (!m) { const row = radii[String(k.systemId)]; rowsOf.set(k.systemId, m = radiusMap(row)); }
       return m.get(k.planetId) ?? null;
     };
     const step = () => {

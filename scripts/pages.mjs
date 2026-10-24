@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/colonies', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/colonies', 'hustles/planets/find', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -3581,6 +3581,7 @@ try {
       sample: { at: iso(now - 3600_000), totalPages: 400, sampledPages: 400, minSampled: 1, counts: {} }, runs: { cloud: iso(now - 3600_000) } };
     const page = await browser.newPage(VIEW);
     let esiAsked = 0, located = 0;
+    const esiPaths = [];
     const SKILL_IDS = { 'Interplanetary Consolidation': 2495, 'Command Center Upgrades': 2505, Planetology: 2406, 'Advanced Planetology': 2403, 'Remote Sensing': 13279 };
     const ESI = {
       '/characters/95210486/location/': (url, req, json) => (located++, json({ solar_system_id: SYS })),
@@ -3606,7 +3607,7 @@ try {
       if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
       const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1' }, body: JSON.stringify(body) });
       if (url.hostname === 'esi.evetech.net') {
-        esiAsked++;
+        esiAsked++; esiPaths.push(url.pathname);
         if (url.pathname === '/markets/10000002/orders/') {
           const g = byId.get(Number(url.searchParams.get('type_id')));
           if (!g || g.bid == null) return json([]);
@@ -4771,6 +4772,78 @@ try {
       if (!/–/.test(noPlex) || !/PLEX price not read yet/.test(noPlex) || /\b0%/.test(noPlex)) problems.push(`with no PLEX price, All's Omega share should be “–” with why: “${noPlex}”`);
       if (!(money(await text('[data-planets="all-figures"] [data-planets="month"] .tile-v') + ' ISK') > 0)) problems.push('with no PLEX price, All’s month is gone too');
       if (/\bNaN\b/.test(await text('[data-planets="colonies"]'))) problems.push('Colonies shows NaN with no PLEX price');
+    }
+
+    // --- Find (the system finder, planets-finder.md): Plan held to Gel-Matrix Biopaste at 5-NZNW, then Find the best system beside the
+    // system chooser: every Tenerifis system planned from the bundle alone (no ESI read), the progress line clearing, the rows ranked by
+    // the good a day then jumps from UALX-3, 5-NZNW among them with the seeded colony said, nothing NaN or a 0 for not known; Plan it
+    // here on 5-NZNW sets Plan's system and keeps the good held.
+    {
+      // The app's address in full: `BASE` is Base Metals' type ID in this case's scope.
+      const GEL = 2348, TENERIFIS = 10000061, APP = `http://localhost:${PORT}/jita-ledger/`;
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+      await page.goto(`${APP}#hustles/planets/plan?good=${GEL}`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Find: Plan never drew'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no “Where Owner is”: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('Find: 5-NZNW’s planets never listed'));
+      await page.locator('[data-planets="system"] [data-planets="find-it"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Find the best system beside the system chooser: ${e.message.split('\n')[0]}`));
+      await page.waitForFunction(() => /#\/hustles\/planets\/find/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
+      const hash = await page.evaluate(() => location.hash);
+      if (hash !== `#/hustles/planets/find?good=${GEL}&region=${TENERIFIS}`) problems.push(`Find from Plan: the address “${hash}”, not Gel-Matrix Biopaste in Tenerifis`);
+      const esiBefore = esiPaths.length;
+      await page.waitForSelector('[data-planets="find"]', { timeout: 30_000 }).catch(() => problems.push('Find never drew'));
+      const sawProgress = await page.waitForSelector('[data-planets="find-progress"]', { timeout: 10_000 }).then(() => true, () => false);
+      await page.waitForFunction(() => document.querySelectorAll('[data-planets^="find-row:"]').length > 0 && !document.querySelector('[data-planets="find-progress"]'), null, { timeout: 60_000 })
+        .catch(async () => problems.push(`Find never finished: “${await text('[data-planets="find-progress"]')}”, ${await page.locator('[data-planets^="find-row:"]').count()} rows`));
+      if (!sawProgress) problems.push('Find never said how far it had got');
+      if (!/^Best systems in Tenerifis for Gel-Matrix Biopaste$/i.test((await text('[data-planets="find-head"]')).trim())) problems.push(`Find's head: “${await text('[data-planets="find-head"]')}”`);
+      if (!/^A planet’s richness isn’t in the game’s data: each system is planned on your learned rates for each planet type, and your own planets’ readings where you have colonies there\.$/.test((await text('[data-planets="find-lead"]')).trim())) problems.push(`Find's honest words: “${await text('[data-planets="find-lead"]')}”`);
+      const out = await text('[data-planets="find-out"]');
+      if (!/^\d+ of 81 systems left out: their planets can’t supply every P0 Gel-Matrix Biopaste needs \(\d+ lack [A-Z][\w -]+, the commonest\)\.$/.test(out.trim())) problems.push(`Find's left-out line: “${out}”`);
+      if (!/Brave’s rates assumed in sovereign null-sec; a system that isn’t Brave’s may charge otherwise\./.test(await text('[data-planets="find-brave"]'))) problems.push(`Find doesn't say Brave's rates are assumed: “${await text('[data-planets="find-brave"]')}”`);
+      const rows = await page.locator('[data-planets^="find-row:"]').evaluateAll((trs) => trs.map((tr) => ({
+        id: Number(tr.getAttribute('data-planets').split(':')[1]), made: tr.querySelector('[data-planets="find-made"] b')?.textContent ?? '',
+        jumps: tr.querySelector('[data-planets="find-jumps"]')?.textContent ?? '', yours: tr.querySelector('[data-planets="find-yours"]')?.textContent ?? '', text: tr.textContent ?? '' })));
+      const left = Number(/^(\d+)/.exec(out.trim())?.[1] ?? NaN);
+      const unworked = await page.locator('[data-planets^="find-unranked:"]').count();
+      if (rows.length + unworked !== 81 - left) problems.push(`Find: ${rows.length} ranked and ${unworked} not worked out, where ${81 - left} were planned`);
+      const nz = rows.find((r) => r.id === SYS);
+      if (!nz) problems.push('Find: 5-NZNW isn’t among the ranked systems');
+      else if (!/^1 colony$/.test(nz.yours.trim())) problems.push(`Find: 5-NZNW's row doesn't say the colony there: “${nz.yours}”`);
+      if (rows.some((r) => !(Number(r.made.replace(/,/g, '')) > 0))) problems.push(`Find: a row's good a day isn't a figure over 0: ${JSON.stringify(rows.filter((r) => !(Number(r.made.replace(/,/g, '')) > 0)).map((r) => r.made))}`);
+      if (rows.some((r) => !/^(?:\d+|–)$/.test(r.jumps.trim()))) problems.push(`Find: a row's jumps aren't a count or “–”: ${JSON.stringify(rows.map((r) => r.jumps).slice(0, 5))}`);
+      const ord = rows.map((r) => [Number(r.made.replace(/,/g, '')), r.jumps.trim() === '–' ? Infinity : Number(r.jumps)]);
+      if (ord.some(([m, j], i) => i && (m > ord[i - 1][0] || (m === ord[i - 1][0] && j < ord[i - 1][1])))) problems.push(`Find's rows aren't by the good a day, then jumps: ${JSON.stringify(ord.slice(0, 12))}`);
+      // The seeded colony teaches Barren's Base Metals and Microorganisms alone, so every system's figure rests partly on a rate borrowed or
+      // assumed (fix round 1): each row says so, and the count line says how many.
+      const tagged = await page.locator('[data-planets^="find-row:"] [data-planets="find-borrowed"]').count();
+      const bc = (await text('[data-planets="find-borrowed-count"]')).trim();
+      const bn = /^Every system here is/.test(bc) ? rows.length : Number(/^(\d+) of these systems are/.exec(bc)?.[1] ?? NaN);
+      if (!tagged || bn !== tagged || !/planned partly on a rate learned on another planet type or P0/.test(bc)) problems.push(`Find's borrowed rates: ${tagged} rows tagged, the count line “${bc}”`);
+      const ft = await text('[data-planets="find"]');
+      if (/\bNaN\b|\b0 ISK\b|\bundefined\b/.test(ft)) problems.push('Find shows NaN, 0 ISK or undefined');
+      // Plan's own reads of the books it was pricing can still be landing (they aren't cancelled when the section changes); what Find
+      // mustn't do is read a system or a planet.
+      const universe = esiPaths.slice(esiBefore).filter((x) => /^\/universe\/(systems|planets)\//.test(x));
+      if (universe.length) problems.push(`Find read ${universe.length} systems or planets from ESI: every system should come from the bundle. Every ESI read during Find: ${JSON.stringify(esiPaths.slice(esiBefore))}`);
+      if (!PHONE) {
+        const box = await page.evaluate(() => { const b = document.querySelector('[data-planets="find"] .tbl-scroll'); return b ? [b.scrollWidth, b.clientWidth] : null; });
+        if (!box || box[0] > box[1] + 1) problems.push(`Find's table scrolls sideways at 1440: ${JSON.stringify(box)} (its Plan it here would be cut off)`);
+      }
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(400); await page.screenshot({ path: `${SHOTS}-planets-find.png` }); }
+      // Plan it here: Plan's system is 5-NZNW, held to the good.
+      await page.locator(`[data-planets="plan-here:${SYS}"]`).click().catch((e) => problems.push(`Find: no Plan it here on 5-NZNW: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 20_000 }).catch(() => problems.push('Plan it here: Plan never drew held to the good'));
+      if (await page.evaluate(() => location.hash) !== `#/hustles/planets/plan?good=${GEL}`) problems.push(`Plan it here's address: “${await page.evaluate(() => location.hash)}”`);
+      await page.waitForFunction(() => /at 5-NZNW/.test(document.querySelector('[data-planets="planning-head"]')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      if (!/^Planning Gel-Matrix Biopaste for Owner at 5-NZNW/.test((await text('[data-planets="planning-head"]')).trim())) problems.push(`Plan it here didn't set Plan's system: “${await text('[data-planets="planning-head"]')}”`);
+      // The Chart's Find beside Plan it: the region of Plan's system again.
+      await page.goto(`${APP}#hustles/planets/chart`);
+      await page.locator(`[data-planets="chart"] [data-planets="good:${GEL}"]`).first().click().catch(() => undefined);
+      await page.locator('[data-planets="tree"] [data-planets="find-it"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Find the best system beside the Chart's Plan it: ${e.message.split('\n')[0]}`));
+      await page.waitForFunction(() => /#\/hustles\/planets\/find/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
+      if (await page.evaluate(() => location.hash) !== `#/hustles/planets/find?good=${GEL}&region=${TENERIFIS}`) problems.push(`Find from the Chart: the address “${await page.evaluate(() => location.hash)}”`);
     }
     }
 

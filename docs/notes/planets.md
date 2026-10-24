@@ -18,8 +18,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   costs, command centre levels or radii. `src/data/planets.json` (27 KB, 3 KB gzipped; `piBundle.ts`) holds the 83 goods (15 /
   15 / 24 / 21 / 8 by tier) with volumes and tax bases, the 68 schematics, each planet type's P0s (group 1026's `harvesterType`),
   command centre levels 0–V (1,675 CPU / 6,000 MW at 0, 25,415 / 19,000 at V) and every pin's and the link's cost, all
-  eve-planets.md's figures. `src/data/planetRadii.json` (675 KB, about 230 KB gzipped, 7,983 systems): every PI planet's radius,
-  delta-encoded by system (the plain pairs were 1.21 MB / 362 KB), loaded only when a system is planned. The link's minimum
+  eve-planets.md's figures. `src/data/planetRadii.json` (743 KB, 255 KB gzipped, 7,983 systems): every PI planet's radius and,
+  since the system finder, its type (planets-finder.md), delta-encoded by system (the plain pairs were 1.21 MB / 362 KB), loaded only when a system is planned. The link's minimum
   length and the 10 heads an extractor aren't in the static data: named constants with their source. Both chunks load through
   `planetsBundle.ts`; a failed one offers "Reload to try again" (gotchas.md: a failed dynamic import can't be retried in place). `pi.ts` keeps only `PLANET_TYPES`,
   `parsePlanetType`, `PI_LINKS` and `setupSteps`: its hand-typed tables went (one spelled "Micro Organisms"; CCP's is
@@ -186,6 +186,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     greyed there; 5-NZNW has all 15. Scrolls to the recipe only on a pick, never on opening with a good kept
     (`jita-ledger:planets-good`).
     - **The picked good's panel is drawn** (the user, 24 October 2026: "hard to read and process… use some icons or images or graphics"; 600 px beside the grid): ISK a unit and a m³ as tiles; the recipe as a left-to-right tree of icon cards (`recipeTree`, a good used twice appears once per parent, so no line crosses; paths are the ship trees' `edgeShape`, and check.mjs runs `treeProblems` over all 83 goods at the card size `RECIPE_BOX`); each step as an equation of icons with a facility badge and its cycle; P0s with their planet types' icons (images.evetech.net serves `/types/<planet type id>/icon`). The sums "in all" stay as chips.
+  - **Find**, the best systems in a region for one good: planets-finder.md.
   - **Phone**: the Chart's tiers wrap two goods a row; a setup's planet lines stack; Colonies in planets-colonies.md.
 - **The page case** (`scripts/pages.mjs`, the `planets` ledger; `scripts/fixtures/planets-5nznw.json`, committed so the deploy
   can read it: 5-NZNW's and UALX-3's planets as ESI answered, the goods' books and Goonmetrics rows from the research's prices)

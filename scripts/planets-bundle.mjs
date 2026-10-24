@@ -4,15 +4,21 @@
 //   node scripts/planets-bundle.mjs <folder>
 //   SDE_ZIP=<a build's JSONL zip> node scripts/planets-bundle.mjs     (that build, already downloaded; nothing fetched)
 //
-// Writes two files (types in src/lib/piBundle.ts):
+// Writes three files (types in src/lib/piBundle.ts):
 // src/data/planets.json: { build, released, commodities, schematics, planetTypes, link, maxHeads, extraction }
 //   commodities: every P0-P4 good [{ id, name, tier, volume, taxBase }] (groups 1032/1033/1035 P0, 1042 P1, 1034 P2, 1040 P3,
 //     1041 P4; taxBase is exportTaxMultiplier); schematics: planetSchematics.jsonl with the facility and the planet types
 //     whose pins can run it; planetTypes: each of the eight PI planet types' P0 (group 1026's harvesterType), command centre
 //     levels 0-5 (group 1027: cpuOutput, powerOutput) and pins (1028 factories, 1029 storage, 1030 launchpads, 1063 ECUs:
 //     cpuLoad, powerLoad, capacity, ecuExtractorHeadCPU / Power); link: type 2280's cpuLoad, powerLoad and per-km loads.
-// src/data/planetRadii.json: { "<systemId>": [firstId, r0, delta id1, r1, ...] } the planets of the eight PI types only,
-//   sorted by ID, radius in whole km, ids delta-encoded (the plain pairs were 1.21 MB raw, 362 KB gzipped).
+// src/data/planetRadii.json: { "<systemId>": [firstId, v0, delta id1, v1, ...] } the planets of the eight PI types only,
+//   sorted by ID, ids delta-encoded (the plain pairs were 1.21 MB raw, 362 KB gzipped). Each v is the radius in whole km times
+//   ten plus the planet's type, an index into PI_TYPE_IDS (its last digit): the smallest gzipped of the encodings tried for the
+//   system finder (24 October 2026; a third number a planet, the type ID, the radius times eight, a type string a system).
+// src/data/planetRegions.json: [[regionId, name, [firstSystemId, delta id1, ...], names?, securities?], ...] every region with a
+//   system holding PI planets, sorted by ID, its systems those of planetRadii.json, sorted and delta-encoded. A region with a system
+//   no stargate reaches (wormhole space, and the closed Jove regions) carries every system's name and security (to 3 decimals, as
+//   the stargate map rounds them) in the same order, since the stargate map (universeGraph.json) has neither for them.
 // Every list is sorted, so a rebuild of the same SDE build changes nothing.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -75,6 +81,8 @@ const MIN_LINK_KM_PER_RADIUS_KM = 0.012008578;
 const MAX_HEADS = 10;
 
 const PLANETS = { 11: 'Temperate', 12: 'Ice', 13: 'Gas', 2014: 'Oceanic', 2015: 'Lava', 2016: 'Barren', 2017: 'Storm', 2063: 'Plasma' };
+/** The planet types in planetRadii.json's last digit, in this order: src/lib/piBundle.ts's PI_TYPE_IDS is the same list. */
+const PI_TYPE_IDS = [11, 12, 13, 2014, 2015, 2016, 2017, 2063];
 const TIER = { 1032: 'P0', 1033: 'P0', 1035: 'P0', 1042: 'P1', 1034: 'P2', 1040: 'P3', 1041: 'P4' };
 const FACILITY = { 'Basic Industry Facility': 'basic', 'Advanced Industry Facility': 'advanced', 'High-Tech Production Plant': 'hightech' };
 
@@ -146,24 +154,45 @@ const extraction = { decay: need(attrs.get(1683)?.defaultValue, 'ecuDecayFactor'
 
 const planetsOut = { build: sde.buildNumber, released: sde.releaseDate, commodities, schematics, planetTypes, link, maxHeads: MAX_HEADS, extraction };
 
-// Radii: per system, the planets of the eight PI types, sorted by ID, delta-encoded.
+// Radii and types: per system, the planets of the eight PI types, sorted by ID, delta-encoded, radius × 10 + type.
 const bySystem = new Map();
 for await (const p of lines('mapPlanets.jsonl')) {
   if (!PLANETS[p.typeID]) continue;
   if (!bySystem.has(p.solarSystemID)) bySystem.set(p.solarSystemID, []);
-  bySystem.get(p.solarSystemID).push([p._key, Math.round(p.radius / 1000)]);
+  bySystem.get(p.solarSystemID).push([p._key, Math.round(p.radius / 1000), PI_TYPE_IDS.indexOf(p.typeID)]);
 }
 const radii = {};
 for (const sys of [...bySystem.keys()].sort((a, b) => a - b)) {
   const ps = bySystem.get(sys).sort((a, b) => a[0] - b[0]);
   const row = [];
-  ps.forEach(([id, km], i) => row.push(i ? id - ps[i - 1][0] : id, km));
+  ps.forEach(([id, km, t], i) => row.push(i ? id - ps[i - 1][0] : id, km * 10 + t));
   radii[sys] = row;
 }
 
+// Regions: every region holding a system of radii, its systems sorted and delta-encoded; names and securities where a system has no gate.
+const regionNames = new Map();
+for await (const r of lines('mapRegions.jsonl')) regionNames.set(r._key, r.name.en);
+const byRegion = new Map();
+const sysInfo = new Map();
+for await (const s of lines('mapSolarSystems.jsonl')) {
+  if (!bySystem.has(s._key)) continue;
+  sysInfo.set(s._key, { name: s.name.en, security: Math.round(s.securityStatus * 1000) / 1000, gated: (s.stargateIDs?.length ?? 0) > 0 });
+  if (!byRegion.has(s.regionID)) byRegion.set(s.regionID, []);
+  byRegion.get(s.regionID).push(s._key);
+}
+if ([...bySystem.keys()].some((id) => !sysInfo.has(id))) throw new Error('a system with planets isn’t in mapSolarSystems');
+const regionsOut = [];
+for (const reg of [...byRegion.keys()].sort((a, b) => a - b)) {
+  const ss = byRegion.get(reg).sort((a, b) => a - b);
+  const row = [reg, need(regionNames.get(reg), `region ${reg}’s name`), ss.map((id, i) => (i ? id - ss[i - 1] : id))];
+  if (ss.some((id) => !sysInfo.get(id).gated)) row.push(ss.map((id) => sysInfo.get(id).name), ss.map((id) => sysInfo.get(id).security));
+  regionsOut.push(row);
+}
+
 const out = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'data');
-const a = JSON.stringify(planetsOut), r = JSON.stringify(radii);
+const a = JSON.stringify(planetsOut), r = JSON.stringify(radii), g = JSON.stringify(regionsOut);
 fs.writeFileSync(path.join(out, 'planets.json'), a);
 fs.writeFileSync(path.join(out, 'planetRadii.json'), r);
+fs.writeFileSync(path.join(out, 'planetRegions.json'), g);
 const gz = (s) => zlib.gzipSync(s).length;
-console.log(`build ${sde.buildNumber}: planets.json ${a.length} B (${gz(a)} gzipped); planetRadii.json ${r.length} B (${gz(r)} gzipped), ${bySystem.size} systems`);
+console.log(`build ${sde.buildNumber}: planets.json ${a.length} B (${gz(a)} gzipped); planetRadii.json ${r.length} B (${gz(r)} gzipped), ${bySystem.size} systems; planetRegions.json ${g.length} B (${gz(g)} gzipped), ${regionsOut.length} regions`);
