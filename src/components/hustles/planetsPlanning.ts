@@ -35,6 +35,8 @@ export type LearnedFrom = {
   learned: Partial<Record<PlanetType, Record<string, Learned>>>; ownHours: number[]; defaultHours: number; programHours: number;
   /** The heads a line whose heads aren't known sits on: the median of the learned rates' heads (Ruling T15b-5). */
   heads: number | null;
+  /** Where the program length came from (piPlan's `PlanInput.programFrom`): typed, the median of your programmes, or the 3-day default. */
+  programFrom: 'typed' | 'median' | 'default';
 };
 /**
  * What the planet gives, learned from every character's kept colonies (Task 16: the main's, and each alt's the cloud keeps,
@@ -50,8 +52,9 @@ export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix
   const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
   const heads = useMemo(() => assumedHeads(learned), [learned]);
   const programHours = doc.programHours ?? defaultHours;
+  const programFrom = doc.programHours != null ? 'typed' : ownHours.length ? 'median' : 'default';
   // One object while nothing in it moves: Colonies plans each colony's best again when it does.
-  return useMemo(() => ({ learned, ownHours, defaultHours, programHours, heads }), [learned, ownHours, defaultHours, programHours, heads]);
+  return useMemo(() => ({ learned, ownHours, defaultHours, programHours, heads, programFrom }), [learned, ownHours, defaultHours, programHours, heads, programFrom]);
 }
 
 type Planned = { setups: Setup[] | null; working: boolean };
@@ -134,15 +137,15 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
 
-  const { learned, ownHours, defaultHours, programHours, heads } = useLearned(colonies, ix);
+  const { learned, ownHours, defaultHours, programHours, heads, programFrom } = useLearned(colonies, ix);
   const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
   const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, prefs.rates[t]?.[String(p0)], t, p0), [learned, prefs.rates]);
 
   const morning = usePlanetMarket(c, ix);
   const planets = value?.planets ?? null;
   const inputM = useMemo((): PlanInput | null => (planets && morning.ready
-    ? { ix, planets, char: planChar, others, rateOf, heads, sell: morning.sell, buy: morning.buy, programHours, freight: morning.freight } : null),
-  [ix, planets, planChar, others, rateOf, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours]);
+    ? { ix, planets, char: planChar, others, rateOf, heads, sell: morning.sell, buy: morning.buy, programHours, programFrom, freight: morning.freight } : null),
+  [ix, planets, planChar, others, rateOf, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours, programFrom]);
   const first = usePlanned(inputM, systemId);
   // The goods to read live come from the ranking on the morning's books, never the live one: each live re-rank could name more.
   const goodsKey = goodsOf(first.setups);

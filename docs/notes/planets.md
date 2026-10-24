@@ -54,12 +54,15 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   rate, the other `higher`; with `PI_READING` set, that reading alone, `higher` null. Programme hours and heads are the medians of
   what was averaged, heads over the extractors that said how many (0 is not known, Ruling T8-1: [0, 10] read 5, a count neither
   had, until the final review; now 10, and all zeros not known). A rate is for the head count and programme length it was measured
-  at: never scaled, never decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the type's other
+  at: never scaled, never decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the same P0 learned on
+  another planet type (planner fix 1, marked `otherType`, said and set aside as T15b-12 sets aside a borrowed rate: the user's Gas Aqueous
+  Liquids, 16,919, had been passed over for Barren's Noble Metals, 19,062, and decided which planet made Water), then the type's other
   learned P0 (most extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no
   box: `rateFor` would never use it). Every character's kept colonies teach it since Task 16 (the main's and each alt's, a refused alt's
   last read among them: `useLearned`, Plan and Colonies alike); the shown character's alone before. A typed rate needs P0 an hour, the
   programme's hours and heads, all three. The programme length defaults to the median of the learned programmes, else 72 h (the
-  spec's 3 days), until typed into the `planets` doc.
+  spec's 3 days), until typed into the `planets` doc; a rate from another length says "you chose" only for a typed one (planner fix 1),
+  else "the median of your programmes" or the default (`programFrom`).
 - **The `planets` document** (`planetsDoc.ts`, `sanitizePlanets`): per system, customs tax by planet type and by planet, which
   high-sec planets are InterBus's, "not Brave's", and typed rates by type and P0; plus the programme length. Fractions 0 to 1,
   rates and hours positive and finite, at most 40 systems. Synced like `colonies` (`DOC_KEYS` on both sides), sanitized on pull,
@@ -126,9 +129,31 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     make Superconductors: no planet here gives Aqueous Liquids and Suspended Plasma together", a good with no price "isn’t priced".
     - **What choosing it costs** (the user: "max profit will probably be best to use planner as it is currently"): every product's
     ranking is worked out beside the held one, each on live books of its own (one set for both would rank the full one again for the
-    held one's goods), and once both are in for these inputs: "Every product’s best here: 71.86 M ISK a day (bought, Broadcast Node);
-    Gel-Matrix Biopaste’s best is 59.9 M ISK a day under it" (the page case). Held to a subset, never over it where neither search was
-    cut (check.mjs, every good); a full search cut short says so.
+    held one's goods), and once both are in for these inputs, said side by side, each on its own footing, since units first values the
+    good with no market cap: "Every product’s best here: 25.14 M ISK a day (bought, Organic Mortar Applicators), at what the markets
+    take at your share. Gel-Matrix Biopaste’s best makes 104 a day (a fed factory), 16.73 M ISK a day if every one sells at today’s
+    price" (the user's 23 October rates on the page case's prices, at UALX-3). Until planner fix 1 it said the gap ("… under it").
+    - **Units first** (planner fix 1, 24 October 2026; `heldInput`, `UNITS_WEIGHT`, `Setup.made`, `extraOf`, `fitLevel` in piPlan.ts).
+    The user: "the more it makes the better", "we don't need to estimae how long the output takes to sell … have the planner maximise
+    the system i have chosen … so i can pump out as much as possible. the selling is my problem", and "i think the plan showed me to
+    make electrolytes and chiral structures at one time and so i went with it and thought they needed it". Plan it ranked on ISK with
+    the good held to what UALX-3 takes at a 10% share, 12 Gel-Matrix Biopaste a day, a sixth of a factory, the rest P1 sold as surplus
+    (planner-bugs-report.md). Now:
+      - the searches value the good at 1e7 a unit, uncapped (planets-searches.md), so the most units win and extras break ties by ISK;
+        what's shown values it at its first unit's net with no cap or pace (planets-market.md). The head figure is its units a day, the
+        ISK beside; rows rank by units. Bought makes as many as pay and stands apart, below: "Or buy the inputs instead";
+      - the factory draws each good fill-first (lowest tax, then the planet listed first), never in proportion: split in proportion,
+        163 Precious Metals from III and 163 from IV read as two planets feeding it, and both were built. A second planet gives a good
+        only where the first can't cover the need (Ruling FX1-1), and its line says it tops up ("Tops up Water: the factory takes all of
+        5-NZNW III’s 2,707 a day and the last 54 a day from here; the rest is sold": the user's own rates, Water the scarcest P1, the
+        second line lifting 101.5 a day to 103.5). A line the factory draws nothing from says "Extra: Gel-Matrix Biopaste doesn’t use
+        Chiral Structures; it’s sold" or "Extra: the factory takes all its Precious Metals from 5-NZNW IV". At 5 planets two of eight
+        lines can't add a unit whatever the arrangement, so two extras are chosen by ISK (Ruling FX1-2);
+      - the factory is sized for all its planets ship and must fit at the character's own level (a chain's highest), not V (T9-3
+        stands for every product); "How to build it" names what to route into a P3 or P4 factory (one of the user's three had none);
+      - check.mjs pins 102 a day and 3/3/3 and 2 factories on round 17,000 rates, the same with Jita capped at 50, P1s at 30 times
+        their price, and 11 draws of pace and ±3%, and a top-up (Aqueous Liquids at 12,000: 1,920 and 800 Water, fill-first, said);
+        the page check Lava II's "Extra", one planet a good and the units head.
     - **Repeated on each character** (the user: "i will rarely go cross character setups and mostly repeat the P3 setup on each
     character to make things simple to manage and scale"): a line on P0 → P1, P0 → P2, feed and bought rows, never a chain's: "On each
     of your 3 characters doing planetary industry: about X a day together (Y a month)". Counted: skills read, not Alpha, a clone not

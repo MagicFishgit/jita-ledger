@@ -60,6 +60,9 @@ planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/202
   Jita is priced through the `industry` doc's freight route from the home hub (`legFor`); a Jita pace of 0 or null is unpriced
   with its reason, never a freight minimum spread over nothing (Ruling T10-2). With no hub picked nothing is priced (Ruling
   T10-3). A character whose fees aren't read is waited on, in Industry's words.
+  - **Plan it holds the good to no market** (planner fix 1, `uncappedSell`): its every unit is valued at its first unit's net (its side,
+    places and Jita fallback as `sell` gives them), so nothing caps the factory's run or says how fast it sells ("the selling is my
+    problem"); every other good keeps `soldOf` at your share. Not priced at a sliver, or nothing selling at your share: not priced.
   - **Sell at the hub: a good it doesn't price is valued at Jita's, warned** (Ruling F11, the user's own: "just pull the jita figure
     instead and warn, that way i can put it up for that price locally or store it for shipping to jita"; `soldAtHome`, once in
     `usePlanetMarket`'s `sell` and `unit`): on the route, what it nets shipped; with none, Jita's own before freight. Per good and
@@ -107,5 +110,8 @@ Moved here from planets-planner.md with the rules above: state these rather than
   under what sells, on purpose. Buying at Jita is held to your industry share of the good's day in The Forge, walked up the
   book (seven levels, the morning scan's or the live one) for a week's need; at a hub, its own read's levels spread over a
   week, or a tenth of Goonmetrics' weekly movement. A deeper book isn't seen.
+- **Under Plan it a good priced but with no measured pace is still "not priced"** (planner fix 1's round 1): the held good is valued at
+  its first unit's net from `sell`, and `soldOf` at a pace of 0 sells nothing, so no net comes back; valuing it at its listed net with no
+  pace would need the listing's price passed through `Sold`.
 - **An input bought at Jita for want of the hub** (F11b) is priced on Jita's asks and the freight in, as at Either;
   whether a hub seller appears later isn't known until it lists, and with no freight route it isn't bought at all.

@@ -15,7 +15,7 @@ import { PI_LINKS, setupSteps, type PlanetType } from '../../lib/pi';
 import type { Facility, PiIndex } from '../../lib/piBundle';
 import { PI_UNCHECKED, rateFor, type Learned } from '../../lib/piLearn';
 import {
-  boughtFallbackSaid, fallbackGoods, fallbackSaid, shippedOutput,
+  boughtFallbackSaid, factoryRoutes, fallbackGoods, fallbackSaid, shippedOutput,
   ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
   type Bought, type Output, type PlanChar, type Repeat, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
@@ -93,7 +93,7 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
   return (
     <section className="col" style={{ gap: 16 }} data-planets="plan">
       <div className="col" style={{ gap: 8 }}>
-        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Give it a system: every way of setting its planets up is ranked by ISK a day, with the upkeep beside it and which planet does what.</p>
+        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Give it a system: every way of setting its planets up is ranked by {good != null ? `how much ${name(good)} it makes a day` : 'ISK a day'}, with the upkeep beside it and which planet does what.</p>
         <Points compact items={[
           { kind: 'info', icon: ListOrdered, lead: 'Five setups', text: 'P0 → P1 or P0 → P2 on each planet, planets feeding a factory planet, a factory on bought inputs, and chains across characters.' },
           { kind: 'info', icon: Pickaxe, lead: 'Extraction', text: 'is learned from your own extractors by planet type, or typed; with neither, a setup is worked out at what its factories can take, and says so.' },
@@ -159,25 +159,23 @@ function makesSaid(s: Setup, ix: PiIndex): string {
 
 /**
  * Plan it: which good Plan is held to, for whom and where, with Every product to let it go; and what choosing it costs (the user: "max
- * profit will probably be best to use planner as it is currently"): every product's best here and how far the good's best is under it,
- * said only once both rankings are worked out for these inputs, never a guess. Held to a subset of the candidates, the good's best can't
- * be over every product's, except where that search ran out of its budget (a held search spends its own on the one good): then said so.
+ * profit will probably be best to use planner as it is currently"): every product's best here beside what the good's best makes, said
+ * only once both rankings are worked out for these inputs, never a guess. Since planner fix 1 the good's setups make the most of it and
+ * value it with no market cap, where every product's are held to what the markets take at your share, so the two figures are said side
+ * by side, each on its own footing, never one taken from the other. Bought is apart (it uses none of the system's planets).
  */
 function PlanningGood({ ix, good, name, who, system, all, held, onEvery }: {
   ix: PiIndex; good: number; name: (id: number) => string; who: string; system: string | null; all: Setup[] | null; held: Setup[] | null; onEvery: () => void;
 }) {
   const best = all?.find((s) => s.iskDay != null) ?? null;
-  const mine = held?.find((s) => s.iskDay != null) ?? null;
+  const mine = held?.find((s) => s.iskDay != null && s.kind !== 'bought') ?? null;
   const g = name(good);
   const perChar = (s: Setup) => (s.kind === 'chain' ? ' per character' : '');
   let cost: string | null = null;
   if (best && held) {
-    const head = `Every product’s best here: ${iskBig(best.iskDay)} a day${perChar(best)} (${SHORT[best.kind]}, ${makesSaid(best, ix)})`;
-    const gap = best.iskDay! - (mine?.iskDay ?? 0);
-    cost = !mine ? `${head}; nothing here makes ${g} with a figure.`
-      : Math.abs(gap) < 1 ? `${head}, and that is ${g}’s best.`
-        : gap > 0 ? `${head}; ${g}’s best is ${iskBig(gap)} a day under it${mine.kind === 'chain' && best.kind !== 'chain' ? ' (its figure a chain’s, per character)' : ''}.`
-          : all!.some((s) => s.cut) ? `${head}; ${g}’s best is ${iskBig(-gap)} a day over it: the search of every product ran out of its budget before it reached it.` : `${head}.`;
+    const head = `Every product’s best here: ${iskBig(best.iskDay)} a day${perChar(best)} (${SHORT[best.kind]}, ${makesSaid(best, ix)}), at what the markets take at your share`;
+    cost = !mine ? `${head}. Nothing here makes ${g} from the system’s planets with a figure.`
+      : `${head}. ${g}’s best${mine.made ? ` makes ${aDay(mine.made.perDay)} a day${mine.kind === 'chain' ? ' in all' : ''}` : ''} (${SHORT[mine.kind]}), ${iskBig(mine.iskDay)} a day${perChar(mine)} if every one sells at today’s price.`;
   }
   return (
     <div className="col" style={{ gap: 4 }} data-planets="planning">
@@ -321,14 +319,16 @@ function PlanetList({ ix, systemId, security, planets, prefs, learned }: { ix: P
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   /** How the planet's extraction is known, P0 by P0: learned from your extractors, typed, another P0's learned rate, or none. */
   const extractionSaid = (t: PlanetType): string => {
-    const by = { own: [] as string[], typed: [] as string[], other: [] as string[], none: [] as string[] };
+    const by = { own: [] as string[], typed: [] as string[], onType: [] as string[], other: [] as string[], none: [] as string[] };
     for (const p0 of ix.planetTypes[t].p0) {
-      const k = learned[t]?.[String(p0)] ? 'own' : prefs.rates[t]?.[String(p0)] ? 'typed' : rateFor(learned, undefined, t, p0) ? 'other' : 'none';
-      by[k].push(name(p0));
+      const r = learned[t]?.[String(p0)] || prefs.rates[t]?.[String(p0)] ? null : rateFor(learned, undefined, t, p0);
+      const k = learned[t]?.[String(p0)] ? 'own' : prefs.rates[t]?.[String(p0)] ? 'typed' : r?.otherType ? 'onType' : r ? 'other' : 'none';
+      by[k].push(k === 'onType' ? `${name(p0)} at ${r!.otherType} planets’ learned rate` : name(p0));
     }
     return [
       by.own.length ? `learned for ${listSaid(by.own)}` : null,
       by.typed.length ? `typed for ${listSaid(by.typed)}` : null,
+      by.onType.length ? listSaid(by.onType) : null,
       by.other.length ? `${listSaid(by.other)} at another ${t} P0’s learned rate` : null,
       by.none.length ? `no rate for ${listSaid(by.none)}: worked out at what the factories take, if your extractors deliver that` : null,
     ].filter(Boolean).join('; ');
@@ -418,14 +418,26 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
                 );
               })}
               {(() => {
-                const rest = ix.planetTypes[t].p0.filter((p0) => !learned[t]?.[String(p0)] && !prefs.rates[t]?.[String(p0)]);
-                if (!rest.length) return null;
-                const other = rateFor(learned, undefined, t, rest[0]);
+                const all = ix.planetTypes[t].p0.filter((p0) => !learned[t]?.[String(p0)] && !prefs.rates[t]?.[String(p0)]);
+                const pill = (p0: number) => <span key={p0} data-planets={`rate:${t}:${p0}`}><button type="button" className="pill-btn" onClick={() => setEdit({ t, p0 })} data-tip={`Type ${name(p0)}’s rate on ${t} planets`}>{name(p0)}</button></span>;
+                // The same P0 learned on another planet type comes before another P0's rate here (planner fix 1): each said with its type.
+                const onType = all.map((p0) => ({ p0, r: rateFor(learned, undefined, t, p0) })).filter((x) => x.r?.otherType);
+                const rest = all.filter((p0) => !onType.some((x) => x.p0 === p0));
+                const other = rest.length ? rateFor(learned, undefined, t, rest[0]) : null;
                 return (
-                  <span className="pl-rate">
-                    <span className="note small">{other ? `At another ${t} P0’s learned rate (${units(other.perHour)} an hour):` : 'No rate, so worked out at what the factories take:'}</span>
-                    {rest.map((p0) => <span key={p0} data-planets={`rate:${t}:${p0}`}><button type="button" className="pill-btn" onClick={() => setEdit({ t, p0 })} data-tip={`Type ${name(p0)}’s rate on ${t} planets`}>{name(p0)}</button></span>)}
-                  </span>
+                  <>
+                    {onType.map(({ p0, r }) => (
+                      <span key={p0} className="pl-rate">
+                        <span className="note small">{`At ${r!.otherType} planets’ learned rate (${units(r!.perHour)} an hour):`}</span>{pill(p0)}
+                      </span>
+                    ))}
+                    {rest.length > 0 && (
+                      <span className="pl-rate">
+                        <span className="note small">{other ? `At another ${t} P0’s learned rate (${units(other.perHour)} an hour):` : 'No rate, so worked out at what the factories take:'}</span>
+                        {rest.map(pill)}
+                      </span>
+                    )}
+                  </>
                 );
               })()}
               {edit && edit.t === t && <RateEdit key={`${edit.t}:${edit.p0}`} systemId={systemId} t={t} p0={edit.p0} p0Name={name(edit.p0)} typed={prefs.rates[t]?.[String(edit.p0)]} programHours={programHours} onDone={() => setEdit(null)} />}
@@ -501,15 +513,28 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   const settings = useData().settings;
   const omega = { price: plex.price, perMonth: settings.plexPerMonth, typed: settings.plexPrice > 0, at: plex.read?.at, now: plexNow };
   if (!setups) return <p className="note small" style={{ margin: 0 }} data-planets="working">Working out each setup…</p>;
-  const best = setups.find((s) => s.iskDay != null) ?? null;
+  // Plan it: the setups that make the good from the system's planets, the most a day first; bought apart, below them (planner fix 1):
+  // it buys its inputs and doesn't use the system's planets for them.
+  const ranked = good != null ? setups.filter((s) => s.kind !== 'bought') : setups;
+  const buyInstead = good != null ? setups.find((s) => s.kind === 'bought') ?? null : null;
+  const best = ranked.find((s) => s.iskDay != null) ?? null;
+  const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} />;
   return (
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-        <span className="panel-title">{good != null ? `The setups that make ${name(good)}, best first` : 'The setups, best first'}</span>
+        <span className="panel-title">{good != null ? `The setups that make ${name(good)}, the most first` : 'The setups, best first'}</span>
         {working && <span className="note small" data-planets="working">{working}</span>}
       </div>
       <span className="note small">Worked out at the program length above and the customs tax and extraction rates below; change any and they are worked out again.</span>
-      {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} />)}
+      {good != null && <span className="note small" data-planets="units-first">Each makes as much {name(good)} as its planets can at your skills; what else it makes is said, with what it fetches. Its ISK is every {name(good)} at today’s price: how fast they sell is yours to judge.</span>}
+      {ranked.map((s, i) => row(s, i + 1))}
+      {buyInstead && (
+        <div className="col" style={{ gap: 10 }} data-planets="buy-instead">
+          <span className="panel-title">Or buy the inputs instead</span>
+          <span className="note small">Factory planets that buy what {name(good!)} is made from and make it, as many as pay, without the system’s planets extracting anything.</span>
+          {row(buyInstead, null)}
+        </div>
+      )}
     </div>
   );
 }
@@ -517,7 +542,8 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
 function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf }: {
-  s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
+  /** Its place in the ranking; null for one shown apart (Plan it's bought). */
+  s: Setup; rank: number | null; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
   accountOf: (charId: number) => AccountRef | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -562,24 +588,35 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   if (priced && unfit.length) notes.push(`${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.`);
   // What fixes each planet that doesn't fit, a planet at a time (Ruling T11-2): a level is named only for the planets it fixes.
   const lacks = trainSaid(used, pname);
+  // Plan it ranks by the good's units (planner fix 1), so the gap is said in them.
   const gapSaid = s.kind !== 'p2' ? null : !priced ? 'No figure to set against the best here.'
-    : best === s || !best || best.iskDay == null ? 'The best here.' : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
+    : best === s || !best || best.iskDay == null ? 'The best here.'
+      : s.made && best.made ? `${aDay(Math.max(0, best.made.perDay - s.made.perDay))} ${name(s.made.id)} a day under the best here${best.kind === 'chain' ? ' (a chain’s in all)' : ''}.`
+        : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
   const steps = open ? setupSteps(s.kind, {
     p0s: [...new Set(used.flatMap((r) => r.extracts.map((e) => name(e.p0))))],
     makes: [...new Set(used.filter((r) => r.does === 'factory' || s.kind === 'p2').flatMap((r) => r.makes.filter((m) => m.facility !== 'basic').map((m) => name(m.id))))],
     takesIn: [...new Set(used.flatMap((r) => (r.imports ?? []).filter((x) => x.from === 'market').map((x) => name(x.id))))],
+    topFrom: factoryRoutes(ix, s),
   }) : [];
 
   return (
     <article className={'pl-setup' + (rank === 1 && priced ? ' best' : '')} data-planets={`setup:${s.kind}`}>
       <div className="pl-setup-head">
-        <span className="pl-rank">{rank}</span>
+        <span className="pl-rank">{rank ?? '·'}</span>
         <div className="pl-setup-name">
           <b>{label}</b>{s.kind === 'p2' && <span className="pl-yours">your setup</span>}<Tip title={KIND[s.kind].label} text={KIND[s.kind].tip} />
           {perChar && <span className="sub">{listSaid(inChain)}: {inChain.length} characters, ranked per character</span>}
         </div>
         <div className="pl-isk">
-          {priced ? <><b>{iskBig(s.iskDay)}</b><span className="sub">a day{perChar ? ' per character' : ''}</span></> : <b>–</b>}
+          {/* Plan it: the head figure is the good's units a day, the ISK beside it as information (planner fix 1). */}
+          {priced && s.made ? (
+            <>
+              <b data-planets="made">{aDay(s.made.perDay)}</b><span className="sub">{name(s.made.id)} a day{perChar ? ' in all' : ''}</span>
+              <span className="sub" data-planets="made-isk">{iskBig(s.iskDay)} a day{perChar ? ' per character' : ''} at today’s price
+                <Tip title="At today’s price" text={`Every ${name(s.made.id)} made, at what its first unit fetches today, with no market cap: how fast they sell is yours to judge.\n\n• What else it makes is valued at your share of its own market.\n• Customs on what each planet exports, the factory’s import and export too.`} /></span>
+            </>
+          ) : priced ? <><b>{iskBig(s.iskDay)}</b><span className="sub">a day{perChar ? ' per character' : ''}</span></> : <b>–</b>}
           {per && (
             <span className="sub" data-planets="periods">
               <span data-planets="week">{iskBig(per.week)} a week</span> · <span data-planets="month">{iskBig(per.month)} a month</span>{perChar ? ' per character' : ''}
@@ -628,7 +665,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
           )}
           <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
           {detail && <>
-          <Outputs outputs={s.outputs} name={name} />
+          <Outputs outputs={s.outputs} name={name} held={s.made?.id ?? null} />
           {s.inputs.length > 0 && (
             <div className="col pl-lines">
               <span className="lbl">Bought</span>
@@ -675,7 +712,11 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
  * doesn't take.
  */
 /** What a setup makes, or a real colony (Colonies), valued: each output's line, sold, kept or not valued, and why. */
-export function Outputs({ outputs, name, label = 'What it makes, valued' }: { outputs: readonly Output[]; name: (id: number) => string; label?: string }) {
+export function Outputs({ outputs, name, label = 'What it makes, valued', held = null }: {
+  outputs: readonly Output[]; name: (id: number) => string; label?: string;
+  /** Plan it's good (planner fix 1): valued at today's price with no market cap, so its line says that, never that it sells. */
+  held?: number | null;
+}) {
   return (
     <div className="col pl-lines">
       <span className="lbl">{label}</span>
@@ -692,6 +733,7 @@ export function Outputs({ outputs, name, label = 'What it makes, valued' }: { ou
               : stuck ? <span className="pl-up">, none of it leaves: {clause(o.sold.why!)}</span>
               : o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
                 : o.sold.fallback ? (o.sold.units > 0 ? `, ${aDay(o.sold.units)} for ${iskBig(o.sold.isk)} a day` : ', none valued: nothing sells at Jita at your share')
+                  : o.id === held ? `, ${iskBig(o.sold.isk)} a day at today’s price ${o.sold.where.length ? `at ${listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub')))}` : ''}`.trimEnd()
                   : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
             {!all && o.sold.isk != null && o.sold.fallback && <span className="pl-up" data-planets="fallback">. {fallbackSaid(o.sold)}</span>}
             {!all && kept && <span className="pl-up">; {aDay(kept.perDay)} a day stay on the planet, untaxed: {clause(kept.why)}</span>}
@@ -710,8 +752,8 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   // It doesn't fit, and no Command Center Upgrades level fits it either: judged on this planet alone (Ruling T11-2).
   const noLevel = !!r.fit && !r.fit.fits && !r.lacks;
   const extract = r.extracts.map((e) => {
-    const from = e.setAside ? `${e.setAside.from === 'typed' ? 'your typed rate' : 'another P0’s rate'} set aside, its heads more than fit: if your extractors deliver it`
-      : !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : 'learned';
+    const from = e.setAside ? `${e.setAside.from === 'typed' ? 'your typed rate' : e.setAside.otherType ? `the rate learned on ${e.setAside.otherType} planets` : 'another P0’s rate'} set aside, its heads more than fit: if your extractors deliver it`
+      : !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : e.rate.otherType ? `learned on ${e.rate.otherType} planets` : 'learned';
     const heads = e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : e.rate && !(e.rate.heads > 0) ? 'heads not known: the colony didn’t say how many' : 'heads not known';
     return `${name(e.p0)} at ${units(e.perHour)} an hour (${from}; ${heads})`;
   });
@@ -732,6 +774,10 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
       <div className="pl-role-name"><b>{pname(r.planetId)}</b><span className="pl-type">{[planet?.type ?? 'no planetary industry', r.does === 'factory' ? 'factory planet' : null, whose ? `${whose}’s` : null].filter(Boolean).join(' · ')}</span></div>
       <div className="pl-role-parts">
         {parts.map(([k, v]) => <span key={k} className="pl-line"><span className="pl-k">{k}</span> {v}</span>)}
+        {/* Plan it: a line the factory draws nothing from, said as an extra (planner fix 1), so it isn't built as if the recipe needed it. */}
+        {r.extracts.filter((e) => e.extra).map((e) => <span key={`extra:${e.p0}`} className="pl-line pl-up" data-planets="extra">{e.extra}.</span>)}
+        {/* A line the factory draws from only after another planet's all of the same good (Ruling FX1-1). */}
+        {r.extracts.filter((e) => e.topsUp).map((e) => <span key={`tops-up:${e.p0}`} className="pl-line pl-why" data-planets="tops-up">{e.topsUp}.</span>)}
         {r.does === 'factory' && untaxed && <span className="pl-line pl-up">Picked before its customs tax, which isn’t known here.</span>}
         {r.why && <span className="pl-line pl-why">{r.why}.</span>}
         {noLevel && <span className="pl-line pl-up">No Command Center Upgrades level fits it on this planet: {r.extracts.some((e) => e.rate && e.rate.heads > 0) ? 'the heads its rate was measured with are more than this layout leaves room for' : 'its factories are more than the planet holds'}.</span>}

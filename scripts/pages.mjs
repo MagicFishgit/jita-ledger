@@ -4143,25 +4143,41 @@ try {
       // The stylesheet upper-cases a link button, so compared without case.
       if (head.toLowerCase() !== 'planning gel-matrix biopaste for owner at 5-nznw · every product') problems.push(`Plan it's head line: “${head}”`);
       await settled();
-      // What choosing it costs, once both rankings are worked out: every product's best (bought, on this fixture) and how far under it
-      // Gel-Matrix Biopaste's best is.
+      // What choosing it costs, once both rankings are worked out: every product's best (bought, on this fixture) beside what Gel-Matrix
+      // Biopaste's best makes, each on its own footing (planner fix 1: the good is valued with no market cap, every product's at what the
+      // markets take).
       await page.waitForSelector('[data-planets="planning-cost"]', { timeout: 30_000 }).catch(() => problems.push('Plan it never said what choosing the good costs'));
       const cost = await text('[data-planets="planning-cost"]');
-      if (!/^Every product’s best here: [\d.,]+ (?:[kMB] )?ISK a day \(bought, [A-Z][\w -]+\); Gel-Matrix Biopaste’s best is [\d.,]+ (?:[kMB] )?ISK a day under it\.$/.test(cost)) problems.push(`Plan it's cost line: “${cost}”`);
-      if (!/The setups that make Gel-Matrix Biopaste, best first/i.test(await text('[data-planets="plan"]'))) problems.push('the held setups aren’t headed with the good');
+      if (!/^Every product’s best here: [\d.,]+ (?:[kMB] )?ISK a day \(bought, [A-Z][\w -]+\), at what the markets take at your share\. Gel-Matrix Biopaste’s best makes [\d.,]+ a day \(a fed factory\), [\d.,]+ (?:[kMB] )?ISK a day if every one sells at today’s price\.$/.test(cost)) problems.push(`Plan it's cost line: “${cost}”`);
+      if (!/The setups that make Gel-Matrix Biopaste, the most first/i.test(await text('[data-planets="plan"]'))) problems.push('the held setups aren’t headed with the good');
+      // Planner fix 1: the head figure is the good's units a day, the ISK beside it; bought apart, below the rest, "Or buy the inputs instead".
+      const made = (await text('[data-planets="setup:feed"] [data-planets="made"]')).trim();
+      if (!/^[\d.,]+$/.test(made) || !/Gel-Matrix Biopaste a day/.test(await text('[data-planets="setup:feed"] .pl-isk'))) problems.push(`the feed's head figure isn't units of the good: “${await text('[data-planets="setup:feed"] .pl-isk')}”`);
+      if (!/at today’s price/.test(await text('[data-planets="setup:feed"] [data-planets="made-isk"]'))) problems.push('the feed’s ISK isn’t beside its units');
+      if (!(await page.locator('[data-planets="buy-instead"] [data-planets="setup:bought"]').count()) || !/^Or buy the inputs instead/i.test((await text('[data-planets="buy-instead"]')).trim())) problems.push('bought isn’t apart, under “Or buy the inputs instead”');
+      const order = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets')));
+      if (order[order.length - 1] !== 'setup:bought') problems.push(`bought isn't below the setups that use the system's planets: ${JSON.stringify(order)}`);
       // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
       const feedOpen = page.locator('[data-planets="setup:feed"] button[aria-expanded="false"]', { hasText: 'What it makes' });
       if (await feedOpen.count()) await feedOpen.click().catch(() => undefined);
       await page.waitForTimeout(300);
       const feedRoles = (await page.locator('[data-planets="setup:feed"] [data-planets^="role:"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!feedRoles.some((t) => /factory planet/.test(t) && /Makes .*Gel-Matrix Biopaste a day/i.test(t))) problems.push(`the feed's factory planet doesn't make Gel-Matrix Biopaste: ${JSON.stringify(feedRoles.map((t) => t.slice(0, 200)))}`);
+      // Planner fix 1: Lava II's second line, which the recipe doesn't use, says it's an extra; the factory takes each good from one planet.
+      const lavaExtra = await page.locator('[data-planets="setup:feed"] [data-planets="role:40307991"] [data-planets="extra"]').allInnerTexts();
+      if (lavaExtra.length !== 1 || !/^Extra: Gel-Matrix Biopaste doesn’t use [A-Z][\w -]+; it’s sold\.$/.test(lavaExtra[0])) problems.push(`5-NZNW II's second line isn't said to be an extra: ${JSON.stringify(lavaExtra)} in “${feedRoles.find((t) => t.startsWith('5-NZNW II '))?.slice(0, 400)}”`);
+      // The parts' labels are upper-cased by the stylesheet.
+      const takesIn = /Takes in (.*?)(?: Makes |$)/i.exec(feedRoles.find((t) => /factory planet/.test(t)) ?? '')?.[1] ?? '';
+      const goodsIn = [...takesIn.matchAll(/[\d.,]+ ([A-Z][\w -]+?) a day from/g)].map((m) => m[1]);
+      if (!goodsIn.length || new Set(goodsIn).size !== goodsIn.length) problems.push(`the factory takes a good from two planets, or nothing: “${takesIn}” in ${JSON.stringify(feedRoles.find((t) => /factory planet/.test(t))?.slice(0, 400))}`);
       if (!/Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only\./.test(await text('[data-planets="setup:p2"] .pl-notes'))) problems.push(`P0 → P2 doesn't say why it can't make Gel-Matrix Biopaste: “${await text('[data-planets="setup:p2"] .pl-notes')}”`);
       // The repeat line, counting the main and Planet Alt (Command Center Upgrades III, its clone not read): the feed's layout doesn't
-      // fit at III, so it suits only the main, said; bought's factories do, so the two together, its clone said, and what holds them.
+      // fit at III, so it suits only the main, said. Since planner fix 1 nor do bought's factories: held to the good, it runs every one
+      // that pays at the main's IV (its Gel-Matrix Biopaste held to no market), more than III holds; the accounts' case below counts both.
       const rep = await text('[data-planets="setup:feed"] [data-planets="repeat"]');
       if (!/^On each of your 2 characters doing planetary industry: it suits only Owner\. Planet Alt: Command Center Upgrades III\./.test(rep)) problems.push(`the feed's repeat line: “${rep}”`);
       const repB = await text('[data-planets="setup:bought"] [data-planets="repeat"]');
-      if (!/^On each of your 2 characters doing planetary industry: about [\d.,]+ (?:[kMB] )?ISK a day together \([\d.,]+ (?:[kMB] )?ISK a month\)\. .*Planet Alt’s clone state isn’t read: counted as Omega\./.test(repB)) problems.push(`bought's repeat line: “${repB}”`);
+      if (!/^On each of your 2 characters doing planetary industry: it suits only Owner\. Planet Alt: Command Center Upgrades III\./.test(repB)) problems.push(`bought's repeat line: “${repB}”`);
       if (await page.locator('[data-planets="setup:chain"] [data-planets="repeat"]').count()) problems.push('a chain has a repeat line');
       // Resets at the typed 72 hours: every 3 days, the feed's planets each time, and the week's sittings and planet resets.
       const feedUp = await text('[data-planets="setup:feed"] [data-planets="upkeep"]');
@@ -4183,11 +4199,13 @@ try {
     // --- Accounts (accounts.ts): Show for lists characters under their account, the main's first and those not set last, and the
     // repeat line sets what they make together against the months of Omega their accounts pay for. Owner on the main account, Alpha
     // Alt on Account 2; first Planet Alt and Unread Alt not set (bought's line counts Owner's account and Planet Alt's own: 2, one not
-    // set, and Planet Alt's clone isn't read); then Planet Alt on the main account (1 account, and its clone comes from it).
+    // set, and Planet Alt's clone isn't read); then Planet Alt on the main account (1 account, and its clone comes from it). Planet Alt at
+    // Command Center Upgrades IV here, as the main: since planner fix 1 bought held to the good runs every factory that pays at IV, which
+    // III doesn't hold, and the line counts only the characters it suits.
     {
       const GEL = 2348, PLANET_ALT = 900103, OWNER = ownerAuth().characterId;
       const plAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(PLANET_ALT, 'Planet Alt')] },
-        [`alt:${PLANET_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 3, 2406: 3 }, meta: { attributes: ATTRS } } } };
+        [`alt:${PLANET_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 4, 2406: 3 }, meta: { attributes: ATTRS } } } };
       const cases = [
         { said: 'Planet Alt not set', byChar: { [OWNER]: 'a1', [ALPHA]: 'a2' }, groups: ['Main account', 'Account 2', 'Account not set'], order: ['Owner', 'Alpha Alt', 'Unread Alt', 'Planet Alt'],
           omega: /^(?:\d+%|[\d.]+×) of a month of Omega for their 2 accounts, 1 character’s account not set\.i?$/, unread: true },

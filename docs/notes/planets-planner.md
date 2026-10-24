@@ -45,7 +45,8 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
   12-planet shape at 15,000–20,000 an hour and 5 heads, CCU IV, random prices and caps, P0 at a loss or unpriced; every set of 2 and
   3 of the 12 planets and of 4 of the first 6, P0 → P1 and P0 → P2, seeds 1–8 × 5): 240 of 240 equal.
 - **The ranking** (`rankSetups`): ISK a day rounded to the cent, then less upkeep (a chain's per character), then the order run,
-  so it's transitive. P0 → P2 always shows.
+  so it's transitive. P0 → P2 always shows. Plan it (planner fix 1): the held good's units a day first, to a hundredth (a chain's per
+  character), then as above; bought is drawn apart, below.
 - **It runs again only when what it reads changes** (the final review's I2; `useStable` in hooks.ts, over `sameValue`). Its inputs
   were keyed on the character objects, which `useIndustryChars` rebuilds on every write to the ledger (meta every few minutes: the
   last visit, the balance, each sync and cloud pull), so the whole planner ran twice for nothing, a chain of two characters a

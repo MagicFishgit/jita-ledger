@@ -7720,7 +7720,16 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   const other = rateFor(L, undefined, 'Barren', 2268);
   eq('  rateFor: another P0 of the type is marked', [other.from, other.otherP0, other.perHour], ['learned', true, 661675 / 47.5]);
   eq('  rateFor: typed beats another P0', rateFor(L, typed, 'Barren', 2268).from, 'typed');
-  eq('  rateFor: none is null', [rateFor(L, undefined, 'Gas', 2267), rateFor({}, undefined, 'Barren', 1)], [null, null]);
+  eq('  rateFor: none is null', [rateFor(L, undefined, 'Gas', 1), rateFor({}, undefined, 'Barren', 1)], [null, null]);
+  // Planner fix 1: the same P0 learned on another planet type comes before another P0 of this type (the user's Aqueous Liquids, learned
+  // on Gas, was taken on Barren at Noble Metals' rate, a figure no Aqueous Liquids extractor of theirs had shown), marked with the type.
+  const onGas = rateFor(L, undefined, 'Gas', 2267);
+  eq('  rateFor: this P0 on another type, marked with it, not as another P0', [onGas.from, onGas.otherP0, onGas.otherType, onGas.perHour], ['learned', false, 'Barren', 661675 / 47.5]);
+  const both = { Barren: { 2267: lh(0), 2268: { ...lh(0), perHour: 900, extractors: 3 } }, Gas: { 2268: { ...lh(0), perHour: 700 } } };
+  eq('  rateFor: on another type beats another P0 of this type; typed beats both; its own beats all',
+    [rateFor(both, undefined, 'Barren', 2268).perHour, rateFor({ Barren: { 2267: { ...lh(0), perHour: 900, extractors: 3 } }, Gas: { 2268: { ...lh(0), perHour: 700 } } }, undefined, 'Barren', 2268).otherType,
+      rateFor({ Barren: { 2267: lh(0) }, Gas: { 2268: lh(0) } }, typed, 'Barren', 2268).from, rateFor(both, typed, 'Gas', 2268).perHour], [900, 'Gas', 'typed', 700]);
+  eq('  rateFor: of two other types, the one with most extractors', rateFor({ Gas: { 2268: { ...lh(0), perHour: 700 } }, Ice: { 2268: { ...lh(0), perHour: 800, extractors: 4 } } }, undefined, 'Barren', 2268).otherType, 'Ice');
 }
 
 console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 → P2 and P0 → P1 on each planet) ---');
@@ -8633,14 +8642,15 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   eq('  Gel-Matrix Biopaste at 5-NZNW: P0 → P1 and P0 → P2 say why they can’t, the chain that the feed plans it',
     ['p1', 'p2', 'chain'].map((k) => of(held, k).why),
     ['Can’t make Gel-Matrix Biopaste, a P3: it sells P1 only', 'Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only',
-      'Gel-Matrix Biopaste fits in your 5 planets, so the feed plans it: a chain makes a P3 only when one character’s planets can’t']);
+      'Gel-Matrix Biopaste fits in your 5 planets, so the feed plans it, or says why it can’t: a chain makes a P3 only when one character’s planets can’t']);
   // The feed: its factory planet makes Gel-Matrix Biopaste from Oxides, Biocells and Superconductors its four planets feed it; bought,
-  // every factory makes it on bought inputs. Pinned (read from this run): 11,532,535 and 79,512,359 ISK a day.
+  // every factory makes it on bought inputs. Pinned (read from this run): 11,532,535 and 80,814,306 ISK a day (bought read 79,512,359
+  // before planner fix 1, its Gel-Matrix Biopaste held to what Jita takes at your share; now uncapped at its first unit's net).
   const feed = of(held, 'feed'), bought = of(held, 'bought');
   eq('  held to it: the feed’s factory and every bought factory make Gel-Matrix Biopaste, and their figures',
     [feed.roles.filter((r) => r.does === 'factory').map((r) => r.makes.map((m) => nm(m.id))), feed.roles.filter((r) => r.does === 'extract').length,
       [...new Set(bought.roles.filter((r) => r.does === 'factory').flatMap((r) => r.makes.map((m) => nm(m.id))))], Math.round(feed.iskDay), Math.round(bought.iskDay), held.map((s) => s.kind)],
-    [[['Oxides', 'Biocells', 'Superconductors', 'Gel-Matrix Biopaste']], 4, ['Gel-Matrix Biopaste'], 11_532_535, 79_512_359, ['bought', 'feed', 'p1', 'p2', 'chain']]);
+    [[['Oxides', 'Biocells', 'Superconductors', 'Gel-Matrix Biopaste']], 4, ['Gel-Matrix Biopaste'], 11_532_535, 80_814_306, ['bought', 'feed', 'p1', 'p2', 'chain']]);
   // A P2 held: P0 → P2 makes only it, on every planet that makes it alone (5-NZNW's four Barren), and the planet that can't says so.
   const nan = of(PP.planSystem({ ...base, only: NANITES }), 'p2');
   eq('  Nanites: every planet P0 → P2 uses makes it, the one left can’t make it alone', [makes(nan).filter((x) => ix.byId.get(x).tier === 'P2').map(nm), nan.roles.filter((r) => r.does === 'unused' && r.why === 'It can’t make Nanites alone').length > 0],
@@ -8655,17 +8665,22 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   eq('  a good with no price: every setup that could make it says so', ['feed', 'bought'].map((k) => of(unp, k).why), ['Gel-Matrix Biopaste isn’t priced: none listed in Jita', 'Gel-Matrix Biopaste isn’t priced: none listed in Jita']);
   eq('  a P4 at a system with no Barren or Temperate planet: bought says no planet takes its plant',
     of(PP.planSystem({ ...base, planets: planets.filter((p) => p.type === 'Gas'), only: BROADCAST }), 'bought').why, 'Can’t make Broadcast Node: only Barren and Temperate planets take its High-Tech Production Plant, and none is here');
-  // Held to a subset of the candidates, a setup's best can't be over every product's best, where neither search was cut (a held
-  // search spends its whole budget on one product, so it can find more than a full one that ran out). Every good, one character and two.
+  // Planner fix 1: held to a good, every setup makes the most of it (units first). Searched on ISK with the good uncapped at its first
+  // unit's net (the investigation's way A) instead, a feed or a chain can trade units of it for P1 sold, so units first never makes fewer
+  // where neither search was cut (both searches are exact then). Every good, one character and two. (Until the fix this compared ISK
+  // with every product's best: the held good is now valued with no market cap, every product's at what the markets take, so their ISK
+  // isn't like for like.)
   for (const [label, input] of [['one character', base], ['two characters', { ...base, others: [alt] }]]) {
-    const all = PP.planSystem(input);
-    const best = all.find((s) => s.iskDay != null);
-    const over = ix.commodities.filter((c) => c.tier !== 'P0').flatMap((c) => {
-      const ss = PP.planSystem({ ...input, only: c.id });
-      const b = ss.find((s) => s.iskDay != null);
-      return b && b.iskDay > best.iskDay + 0.01 && !ss.some((s) => s.cut) && !all.some((s) => s.cut) ? [`${c.name} ${b.kind} ${b.iskDay} over ${best.iskDay}`] : [];
+    const fewer = ix.commodities.filter((c) => c.tier === 'P2' || c.tier === 'P3' || c.tier === 'P4').flatMap((c) => {
+      const units = PP.planSystem({ ...input, only: c.id });
+      const shown = PP.uncappedSell(sell, c.id);
+      const isk = PP.planSystem({ ...input, only: c.id, sell: shown, searchSell: shown });
+      return ['feed', 'chain'].flatMap((k) => {
+        const u = of(units, k), i = of(isk, k);
+        return u.made && i.made && !u.cut && !i.cut && u.made.perDay < i.made.perDay - 1e-6 ? [`${c.name} ${k}: ${u.made.perDay} under ${i.made.perDay}`] : [];
+      });
     });
-    eq(`  ${label}: no good held is over every product’s best`, over, []);
+    eq(`  ${label}: held to a good, units first never makes fewer of it than ISK first`, fewer, []);
     // And the filter holds: what each setup makes as its own product is the good (a P0 → P1 line, a P0 → P2 Advanced, a factory).
     const strays = ix.commodities.filter((c) => c.tier !== 'P0').flatMap((c) => PP.planSystem({ ...input, only: c.id }).filter((s) => s.why == null && s.iskDay != null).flatMap((s) => {
       const top = s.kind === 'p1' ? s.roles.filter((r) => r.does !== 'unused').map((r) => r.makes.map((m) => m.id))
@@ -8688,14 +8703,106 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   const rb = of(rep, 'bought').repeat;
   eq('  repeated bought: two characters buy no more Oxides than Jita supplies at your share, so no more than one makes',
     [Math.round(rb.iskDay), rb.caps.filter((c) => c.side === 'bought').map((c) => [nm(c.id), c.at, c.said])],
-    [79_512_359, [['Oxides', 'Jita', 'your 10% share of the 249,535 traded a day in The Forge']]]);
+    [80_814_306, [['Oxides', 'Jita', 'your 10% share of the 249,535 traded a day in The Forge']]]);
   eq('  no repeat for a chain, nor with one character doing planetary industry', [of(PP.planSystem({ ...base, others: [alt] }), 'chain').repeat, of(held, 'feed').repeat], [undefined, undefined]);
-  // A market that can't take twice as much: Gel-Matrix Biopaste capped at 100 a day, so two feeds (72 a day each) sell 100, said.
+  // A market that can't take twice as much: Gel-Matrix Biopaste capped at 100 a day. Since planner fix 1 Plan it holds the good to no
+  // market ("the selling is my problem"), so two feeds (72 a day each) make and value 144, and the repeat names no cap on it.
   const capped = (id, q) => (id === GEL ? (() => { const s = sell(id, Math.min(q, 100)); return { ...s, units: Math.min(q, 100) }; })() : sell(id, q));
-  const rc = of(PP.planSystem({ ...base, sell: capped, others: [alt], only: GEL }), 'feed').repeat;
-  eq('  repeated where the market takes less than twice: the cap named, the figure under twice one’s',
-    [rc.caps.map((c) => [nm(c.id), Math.round(c.perDay), Math.round(c.one), c.market]), rc.iskDay < 2 * of(PP.planSystem({ ...base, sell: capped, only: GEL }), 'feed').iskDay - 1],
-    [[['Gel-Matrix Biopaste', 100, 72, true]], true]);
+  const rcs = of(PP.planSystem({ ...base, sell: capped, others: [alt], only: GEL }), 'feed'), rc = rcs.repeat;
+  eq('  repeated where the market takes less than twice: no cap on the good under Plan it, one feed’s 72 a day made and valued',
+    [rc.n, rc.caps.filter((c) => c.id === GEL).length, Math.round(rcs.made.perDay), Math.round(rcs.outputs.find((o) => o.id === GEL).sold.units)], [2, 0, 72, 72]);
+
+  // Planner fix 1 (24 October 2026): Plan it makes the most of the good it's held to (the user: "the more it makes the better", "the
+  // selling is my problem"), each good drawn from one feeder, every line the factory draws nothing from called an extra, the factory
+  // sized for everything its planets ship, at the character's own level. 5-NZNW at Command Center Upgrades IV on fixed round rates of the
+  // user's size (every P0 17,000 an hour on 4 heads; their 23 October colonies ran 16,919 to 21,589): a line fills 3 Basics, 2,720 P1 a
+  // day, and Gel-Matrix Biopaste takes 80/3 of each of its six P1s, so they allow 102 a day.
+  {
+    const r17 = { perHour: 17_000, higher: null, from: 'learned', programHours: 48, heads: 4, otherP0: false, checked: true };
+    const u = { ...base, rateOf: () => r17, heads: 4, programHours: 48 };
+    const feedOf = (input) => of(PP.planSystem({ ...input, only: GEL }), 'feed');
+    // The feeders' bound: each recipe P1 the planets make (a P2 made on a feeder carries its P1s, so the Basics' output is the P1 in all)
+    // over what one Gel-Matrix Biopaste takes of it, the least of them.
+    const gs = ix.makes.get(GEL), need = new Map();
+    for (const i of gs.inputs) { const p2 = ix.makes.get(i.id); for (const j of p2.inputs) need.set(j.id, (need.get(j.id) ?? 0) + (i.qty / gs.out.qty) * (j.qty / p2.out.qty)); }
+    const boundOf = (s) => Math.min(...[...need].map(([k, q]) => s.roles.filter((r) => r.does === 'extract').reduce((n, r) => n + r.makes.filter((m) => m.id === k && m.facility === 'basic').reduce((t, m) => t + m.perDay, 0), 0) / q));
+    const f17 = feedOf(u);
+    // What Jita takes of it at your share isn't a cap any more: the same with its sale capped at 50 a day (planted against the old run,
+    // held to the market, both read 50).
+    const cap50 = (id, q) => (id === GEL ? { ...sell(id, Math.min(q, 50)), units: Math.min(q, 50) } : sell(id, q));
+    const c17 = feedOf({ ...u, sell: cap50 });
+    eq('  units first: the feed makes the feeders’ bound, 102 a day, and the same with Jita’s market for it capped at 50',
+      [Math.round(boundOf(f17) * 100) / 100, Math.abs(f17.made.perDay - boundOf(f17)) < 1e-6, Math.abs(c17.made.perDay - boundOf(c17)) < 1e-6, Math.round(c17.made.perDay * 100) / 100], [102, true, true, 102]);
+    const fac = f17.roles.find((r) => r.does === 'factory');
+    eq('  units first: the factory sized for all its planets ship, 3 Oxides, 3 Biocells, 3 Superconductors and 2 Gel-Matrix Biopaste',
+      fac.makes.map((m) => [nm(m.id), m.count]), [['Oxides', 3], ['Biocells', 3], ['Superconductors', 3], ['Gel-Matrix Biopaste', 2]]);
+    // At the character's own level, not V (Ruling T9-3 stands for every product): every level from 0 up, the factory fits where it's
+    // placed, or the feed says it's too big at that level.
+    eq('  units first: the factory fits at the character’s own level, or says so, at every level',
+      [0, 1, 2, 3, 4, 5].flatMap((cc) => { const s = feedOf({ ...u, char: { ...owner, ccLevel: cc } }); const r = s.roles.find((x) => x.does === 'factory');
+        return (r ? r.fit?.fits === true && !r.lacks : /^Every factory these planets could feed is too big for its planet (at Command Center Upgrades [IV]+|without Command Center Upgrades), your level$/.test(s.why ?? '')) ? [] : [[cc, s.why, r?.fit?.fits]]; }), []);
+    // Each good the factory takes from one planet; every line it draws nothing from is an extra, and says why.
+    const from = new Map();
+    for (const i of fac.imports) from.set(i.id, [...(from.get(i.id) ?? []), i.from]);
+    const p1Of = (p0) => ix.schematics.find((x) => x.facility === 'basic' && x.inputs[0].id === p0).out.id;
+    const lines = f17.roles.filter((r) => r.does === 'extract').flatMap((r) => r.extracts.map((e) => {
+      const p1 = p1Of(e.p0), adv = r.makes.find((m) => m.facility === 'advanced');
+      const drawn = r.ships.some((x) => x.to === fac.planetId && (x.id === p1 || x.id === adv?.id));
+      return { planet: r.planetId, p1: nm(p1), drawn, extra: e.extra ?? null };
+    }));
+    eq('  each good the factory takes, from one planet', [...from].filter(([, ps]) => ps.length !== 1).map(([id, ps]) => [nm(id), ps]), []);
+    eq('  every line the factory draws nothing from is an extra, and only those', lines.filter((l) => l.drawn === !!l.extra).map((l) => [l.planet, l.p1, l.extra]), []);
+    eq('  the extras say why: Lava’s second line, which Gel-Matrix Biopaste doesn’t use', lines.filter((l) => l.extra).map((l) => l.extra.replace(/[A-Z][a-z]+(?: [A-Z][a-z]+)*;/, 'X;')),
+      lines.filter((l) => l.extra).map(() => 'Extra: Gel-Matrix Biopaste doesn’t use X; it’s sold'));
+    // "How to build it" routes a P3 or P4 factory's inputs in by name (`factoryRoutes`, fix round 1's move into the lib): a fed P3, yes;
+    // a fed P2 or a single-planet setup, nothing.
+    eq('  factoryRoutes: Gel-Matrix Biopaste’s three P2s; none for a fed P2 or P0 → P2',
+      [PP.factoryRoutes(ix, f17), PP.factoryRoutes(ix, of(PP.planSystem({ ...u, only: NANITES }), 'feed')), PP.factoryRoutes(ix, of(PP.planSystem({ ...u, only: NANITES }), 'p2'))].map((x) => x && { top: x.top, from: [...x.from].sort() }),
+      [{ top: 'Gel-Matrix Biopaste', from: ['Biocells', 'Oxides', 'Superconductors'] }, null, null]);
+    // Ruling FX1-1 (fix round 1): a recipe good comes from a second planet only where the first can't cover the factory's need, drawn
+    // fill-first (the lowest tax, then the planet listed first), never in proportion, and the second planet's line says it tops up (the
+    // user's own rates: all of III's 2,707 Water a day and the last 54 of IV's, 101.5 a day lifted to 103.5). Aqueous Liquids at 12,000 an
+    // hour (two Basics, 1,920 Water a day) where every other P0 gives 2,720: a second Water line lifts the run from 72 a day to 102.
+    {
+      const WATER_P1 = 3645, AQUEOUS = 2268;
+      const tw = feedOf({ ...u, rateOf: (t, p0) => (p0 === AQUEOUS ? { ...r17, perHour: 12_000 } : r17) });
+      const twFac = tw.roles.find((r) => r.does === 'factory');
+      const place = new Map(planets.map((p, i) => [p.planetId, i]));
+      const water = twFac.imports.filter((i) => i.id === WATER_P1).sort((a, b) => place.get(a.from) - place.get(b.from));
+      const roleOf = (id) => tw.roles.find((r) => r.planetId === id && r.does === 'extract');
+      eq('  top-up: Water from two planets, fill-first: all the first ships, the rest from the second; 102 a day',
+        [water.map((i) => Math.round(i.perDay)), Math.round(roleOf(water[0].from).makes.find((m) => m.id === WATER_P1).perDay), Math.round(tw.made.perDay * 100) / 100], [[1920, 800], 1920, 102]);
+      const lineOf = (id) => roleOf(id).extracts.find((e) => e.p0 === AQUEOUS);
+      const first = planets.find((p) => p.planetId === water[0].from).name;
+      eq('  top-up: the second planet’s line says so; the first’s says nothing; neither is an extra',
+        [lineOf(water[1].from).topsUp, lineOf(water[0].from).topsUp ?? null, [lineOf(water[0].from).extra ?? null, lineOf(water[1].from).extra ?? null]],
+        [`Tops up Water: the factory takes all of ${first}’s 1,920 a day and the last 800 a day from here; the rest is sold`, null, [null, null]]);
+      // The tax per feeder is unchanged by the draw: each still exports what it did (the search's figure is the shown taxes' to the ISK).
+      const exported = (r, id) => r.ships.filter((x) => x.id === id).reduce((n, x) => n + x.perDay, 0);
+      eq('  top-up: each Water planet exports all it makes; the figure equals what sells less the taxes shown',
+        [water.map((i) => Math.round(exported(roleOf(i.from), WATER_P1) - roleOf(i.from).makes.find((m) => m.id === WATER_P1).perDay)),
+          Math.abs(tw.outputs.reduce((n, o) => n + (o.sold.isk ?? 0), 0) - tw.taxDay - tw.iskDay) < 1], [[0, 0], true]);
+    }
+    // P1s paying more than the P3 route (each P1 at thirty times its price) doesn't lower the units; searched on ISK with the good uncapped
+    // (the investigation's way A), it does.
+    const rich = (id, q) => { const g = goods.get(id), t = ix.byId.get(id)?.tier; if (!g || t !== 'P1') return sell(id, q);
+      return PP.soldOf(q, { jita: { place: 'jita', list: g.ask * 30, listNet: g.ask * 30 * (1 - TAX - BROKER), bid: g.bid * 30, bidNet: g.bid * 30 * (1 - TAX), pace: g.perDay, listPace: g.perDay / 2, bidPace: g.perDay / 2 }, home: null }, 'jita', SHARE); };
+    const richShown = PP.uncappedSell(rich, GEL);
+    eq('  P1s paying more than the P3 route: units first still makes 102; ISK first makes fewer',
+      [Math.round(feedOf({ ...u, sell: rich }).made.perDay * 100) / 100, feedOf({ ...u, sell: richShown, searchSell: richShown }).made.perDay < 102 - 1], [102, true]);
+    // The layout is the same on the morning's prices, on the live ones (another pace: the home history read a tenth of Goonmetrics'), and
+    // with every good's price moved up to 3% either way (the investigation's probe6).
+    const layoutOf = (s) => s.roles.filter((r) => r.does !== 'unused').map((r) => `${r.planetId}:${r.does}:${r.extracts.map((e) => e.p0).sort().join('+')}:${r.makes.map((m) => `${m.id}x${m.count}`).join(',')}`).join(' | ');
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const priced = (paceK, jitter) => { const k = new Map(); return (id, q) => { const g = goods.get(id); if (!g) return sell(id, q);
+      if (!k.has(id)) k.set(id, jitter ? 1 + (rnd() * 2 - 1) * 0.03 : 1);
+      const m = k.get(id);
+      return PP.soldOf(q, { jita: { place: 'jita', list: g.ask * m, listNet: g.ask * m * (1 - TAX - BROKER), bid: g.bid * m, bidNet: g.bid * m * (1 - TAX), pace: g.perDay * paceK, listPace: (g.perDay * paceK) / 2, bidPace: (g.perDay * paceK) / 2 }, home: null }, 'jita', SHARE); }; };
+    const morning = layoutOf(feedOf({ ...u, sell: priced(1, false) }));
+    const others = [priced(0.1, false), ...Array.from({ length: 6 }, () => priced(1, true)), ...Array.from({ length: 4 }, () => priced(0.1, true))].map((sl) => layoutOf(feedOf({ ...u, sell: sl })));
+    eq('  the layout: the same on the morning’s prices, the live ones and every good ±3% (11 draws)', others.filter((x) => x !== morning).length, 0);
+  }
 }
 
 console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---');
