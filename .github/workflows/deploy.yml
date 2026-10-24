@@ -14,6 +14,8 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# The build and the three checks run side by side, each on its own machine; the site is published only when all four pass.
+# The checks open the app on Vite's dev server from the source, so none of them needs the build's output.
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,18 +31,31 @@ jobs:
           # Set these under Settings > Secrets and variables > Actions > Variables.
           VITE_EVE_CLIENT_ID: ${{ vars.EVE_CLIENT_ID }}
           VITE_TOKEN_PROXY: ${{ vars.TOKEN_PROXY }}
-      # Every page, opened with an empty, a small and a large ledger: a page that crashes doesn't deploy.
-      - run: npx playwright-core install --with-deps --only-shell chromium
-      - run: npm run check-pages
-      # The same at a phone's width, where nothing may stick out past the screen's edge.
-      - run: npm run check-phone
-      - run: npm run check-income
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
+  # Every page, opened with an empty, a small and a large ledger: a page that crashes doesn't deploy. The same at a phone's
+  # width, where nothing may stick out past the screen's edge. And the main's income figures against their recording.
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        run: [check-pages, check-phone, check-income]
+    name: ${{ matrix.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright-core install --with-deps --only-shell chromium
+      - run: npm run ${{ matrix.run }}
+
   deploy:
-    needs: build
+    needs: [build, check]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
