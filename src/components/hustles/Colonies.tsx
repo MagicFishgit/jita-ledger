@@ -274,7 +274,7 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
         // The colony's own system and planet, never the system Plan is planning: a colony elsewhere would get no setup (the re-review).
         const input: PlanInput = {
           ix, planets: [{ planetId: k.planetId, name: names[k.planetId] ?? `Planet ${k.planetId}`, type: k.planetType, radiusKm: radius(k), tax }],
-          char: planChar, others: [], heads: learned.heads, programHours: learned.programHours,
+          char: planChar, others: [], heads: learned.heads, programHours: learned.programHours, programFrom: learned.programFrom,
           rateOf: (t, p0) => rateFor(learned.learned, planetsDoc.systems[String(k.systemId)]?.rates[t]?.[String(p0)], t, p0),
           sell: market.sell, buy: market.buy, freight: market.freight,
         };

@@ -507,7 +507,7 @@ function lineOf(b: Schematic, rate: Rate | null, high: boolean, basics?: number,
  * The rate is never scaled to fewer heads. A line on its own learned rate keeps its heads: its colony had them.
  */
 function setAsideBorrowed(input: PlanInput, p: Plan, at: FitAt, high: boolean): Plan {
-  const borrowed = p.lines.filter((l) => l.rate && l.rate.heads > 0 && (l.rate.otherP0 || l.rate.from === 'typed'));
+  const borrowed = p.lines.filter((l) => l.rate && l.rate.heads > 0 && (l.rate.otherP0 || l.rate.otherType || l.rate.from === 'typed'));
   if (!borrowed.length) return p;
   const least: Counts = { basics: p.lines.map(() => 1), advanced: p.advanced ? 1 : 0 };
   // The least layout with these lines at one head (an unknown line counts one, as `fitsAt` reserves).
@@ -1051,13 +1051,19 @@ function rateNotes(input: PlanInput, p: Plan): string[] {
     const aside = p.lines.filter((l) => l.setAside && (l.setAside.from === 'typed') === typed);
     if (!aside.length) continue;
     const hs = Math.max(...aside.map((l) => l.setAside!.heads));
-    notes.push(`${listSaid(aside.map((l) => name(l.p0)))}: ${typed ? 'your typed rate' : 'another P0’s rate'} is at ${hs} head${hs === 1 ? '' : 's'}, more than fit here, so ranked at what the factories make if your extractors deliver ${unitsSaid(aside[0].perHour)} P0 an hour each, ${aside[0].headsAssumed ? headsSaid(aside[0]) : unknownHeads(p)}`);
+    const whose = typed ? 'your typed rate' : aside.every((l) => l.setAside!.otherType) ? `the rate learned on ${listSaid([...new Set(aside.map((l) => l.setAside!.otherType!))])} planets` : 'another P0’s rate';
+    notes.push(`${listSaid(aside.map((l) => name(l.p0)))}: ${whose} is at ${hs} head${hs === 1 ? '' : 's'}, more than fit here, so ranked at what the factories make if your extractors deliver ${unitsSaid(aside[0].perHour)} P0 an hour each, ${aside[0].headsAssumed ? headsSaid(aside[0]) : unknownHeads(p)}`);
   }
   if (none.length) notes.push(`no rate for ${listSaid(none.map((l) => name(l.p0)))}: ranked at what the factories make if your extractors deliver ${unitsSaid(none[0].perHour)} P0 an hour each, ${none[0].headsAssumed ? headsSaid(none[0]) : unknownHeads(p)}`);
   const other = [...new Set(p.lines.filter((l) => l.rate && Math.abs(l.rate.programHours - input.programHours) > EPS).map((l) => l.rate!.programHours))].sort((a, b) => a - b);
-  if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: you chose ${chosenSaid(input.programHours)}, and nothing says what another length gives`);
+  // "You chose" only for a length typed (planner fix 1): the default is the median of your programmes, or 3 days with none.
+  const here = input.programFrom === 'median' ? `${chosenSaid(input.programHours)} here is the median of your programmes`
+    : input.programFrom === 'default' ? `${chosenSaid(input.programHours)} here is the default until you type one` : `you chose ${chosenSaid(input.programHours)}`;
+  if (other.length) notes.push(`rates from ${listSaid(other.map(programSaid))} programs: ${here}, and nothing says what another length gives`);
   const others = p.lines.filter((l) => l.rate?.otherP0);
   if (others.length) notes.push(`${listSaid(others.map((l) => name(l.p0)))} at the rate learned for another P0 of ${p.t} planets`);
+  // The same P0 learned on another planet type (planner fix 1): said with the type, since its richness is another planet's.
+  for (const l of p.lines) if (l.rate?.otherType) notes.push(`${name(l.p0)} at the rate learned on ${l.rate.otherType} planets, none of your ${p.t} extractors having shown one`);
   return notes;
 }
 
@@ -3361,18 +3367,22 @@ export function onlyWhy(input: PlanInput, kind: SetupKind, sold: (id: number, pe
 
 // ---- The ranking ----
 
-type Rankable = { kind?: SetupKind; iskDay: number | null; upkeep: { resetsPerWeek: number; restocksPerWeek: number }; perChar?: unknown[] };
+type Rankable = { kind?: SetupKind; iskDay: number | null; upkeep: { resetsPerWeek: number; restocksPerWeek: number }; perChar?: unknown[]; made?: { perDay: number } };
 /**
  * Best first by ISK a day to the cent (a chain's per character in it), the ones without a figure last; at the same cent,
  * less upkeep first (a chain's per character in it too, as its ISK is). By the cent rather than "within a cent of each
  * other", which isn't transitive (5.000 is within a cent of 5.008, and 5.008 of 5.016, but 5.000 isn't of 5.016).
+ * Plan it (`Setup.made`): the most of the held good a day first, to a hundredth of a unit (a chain's per character in it), then as above.
  */
 export function rankSetups<T extends Rankable>(setups: T[]): T[] {
-  const upkeep = (s: T) => (s.upkeep.resetsPerWeek + s.upkeep.restocksPerWeek) / (s.kind === 'chain' && s.perChar?.length ? s.perChar.length : 1);
+  const per = (s: T) => (s.kind === 'chain' && s.perChar?.length ? s.perChar.length : 1);
+  const upkeep = (s: T) => (s.upkeep.resetsPerWeek + s.upkeep.restocksPerWeek) / per(s);
+  const units = (s: T) => (s.made && s.iskDay != null ? Math.round((s.made.perDay / per(s)) * 100) : null);
   return setups.map((s, i) => ({ s, i })).sort((a, b) => {
     const x = a.s.iskDay, y = b.s.iskDay;
     if (x == null || y == null) return x == null && y == null ? a.i - b.i : x == null ? 1 : -1;
-    return Math.round(y * 100) - Math.round(x * 100) || upkeep(a.s) - upkeep(b.s) || a.i - b.i;
+    const ua = units(a.s), ub = units(b.s);
+    return (ua != null && ub != null ? ub - ua : 0) || Math.round(y * 100) - Math.round(x * 100) || upkeep(a.s) - upkeep(b.s) || a.i - b.i;
   }).map((e) => e.s);
 }
 

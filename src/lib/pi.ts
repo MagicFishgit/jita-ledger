@@ -25,7 +25,15 @@ export type BuildKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
  * What a setup's steps name, as the page reads them off its planets' roles: the P0s its extractors pull, the goods its factories
  * make, and what a factory planet takes in. Names, not IDs: this file has no bundle.
  */
-export type BuildNames = { p0s: string[]; makes: string[]; takesIn: string[] };
+export type BuildNames = {
+  p0s: string[]; makes: string[]; takesIn: string[];
+  /**
+   * A factory planet making a P3 or P4 on its own planet's goods (feed, chain): the product and the inputs its factories need, each
+   * routed in by name (planner fix 1: one of the user's Gel-Matrix Biopaste factories had none of its three P2 routed in, so it made
+   * nothing). Absent otherwise.
+   */
+  topFrom?: { top: string; from: string[] } | null;
+};
 
 const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
@@ -111,6 +119,13 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       body: `The launchpad is the hub: it holds ${kind === 'p2' ? 'the P0, the P1 in between and the P2' : 'the P0 and the P1'} (10,000 m³), and you export through it. This layout keeps no storage facility. Link each extractor and each factory to the launchpad; links cost powergrid by their length, so keep the structures close. Then route: open each extractor, choose its product and route it into the launchpad; from the launchpad, route each P0 to its Basics; route their P1 back to the launchpad${kind === 'p2' ? ', and from there to the Advanced; route the P2 to the launchpad' : ''}. P0 the Basics don’t use stays in the launchpad, and the line says what becomes of it. A storage facility as the hub, with the launchpad for export, works the same, but it costs the room of a factory. Without routes the colony moves nothing.`,
       tip: 'If a structure shows a warning triangle, it has an input or output with nowhere to go.',
     });
+  const t = n.topFrom;
+  if (t && (kind === 'feed' || kind === 'chain')) {
+    steps.push({
+      title: `Route ${listSaid(t.from)} into every ${t.top} factory`,
+      body: `Each ${t.top} factory needs ${t.from.length === 2 ? 'both' : `all ${t.from.length === 3 ? 'three' : t.from.length}`} of its inputs: route ${listSaid(t.from)} into each one, from the factories making them or the launchpad, and ${t.top} back to the launchpad. One input not routed in, and that factory makes nothing, while the rest of the colony looks fine.`,
+    });
+  }
   if (fed) {
     steps.push({
       title: kind === 'bought' ? `Bring in ${n.takesIn.length ? listSaid(n.takesIn) : 'the inputs'}` : 'Carry what each extraction planet ships to the factory planet',

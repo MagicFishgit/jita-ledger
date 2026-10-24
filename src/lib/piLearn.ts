@@ -11,7 +11,11 @@ export type Learned = {
   perHour: number; higher: number | null; which: 'formula' | 'perCycle'; programHours: number; heads: number;
   extractors: number; systems: number[]; checked: boolean;
 };
-export type Rate = { perHour: number; higher: number | null; from: 'learned' | 'typed'; programHours: number; heads: number; otherP0: boolean; checked: boolean };
+/**
+ * A rate as the planner takes it. `otherP0`: learned for another P0 of the planet type; `otherType`: this P0 learned on another planet
+ * type (planner fix 1), named, since its richness is another planet's.
+ */
+export type Rate = { perHour: number; higher: number | null; from: 'learned' | 'typed'; programHours: number; heads: number; otherP0: boolean; checked: boolean; otherType?: PlanetType };
 
 /**
  * Which reading of ESI's qty_per_cycle is right, settled by the in-game check (Task 13, 19 October 2026): CCP's formula. The main's
@@ -78,12 +82,20 @@ export function assumedHeads(learned: Partial<Record<PlanetType, Record<string, 
   return hs.length ? Math.ceil(median(hs)) : null;
 }
 
-/** Learned for that P0, then typed, then learned for another P0 of the planet type (the best-seen one, marked). */
+/**
+ * Learned for that P0, then typed, then that P0 learned on another planet type, then learned for another P0 of the planet type (the
+ * best-seen one each: most extractors, then the type or P0 first in order), marked. The P0 on another type before another P0 on this one
+ * (planner fix 1): the user's Aqueous Liquids, learned on Gas at 16,919 an hour, was taken on Barren at Noble Metals' 19,062, a figure
+ * no Aqueous Liquids extractor of theirs had shown, and it decided which planet made Water.
+ */
 export function rateFor(learned: Partial<Record<PlanetType, Record<string, Learned>>>, typed: TypedRate | undefined, t: PlanetType, p0: number): Rate | null {
-  const of = (l: Learned, otherP0: boolean): Rate => ({ perHour: l.perHour, higher: l.higher, from: 'learned', programHours: l.programHours, heads: l.heads, otherP0, checked: l.checked });
+  const of = (l: Learned, otherP0: boolean, otherType?: PlanetType): Rate => ({ perHour: l.perHour, higher: l.higher, from: 'learned', programHours: l.programHours, heads: l.heads, otherP0, checked: l.checked, ...(otherType ? { otherType } : {}) });
   const mine = learned[t]?.[String(p0)];
   if (mine) return of(mine, false);
   if (typed) return { perHour: typed.perHour, higher: null, from: 'typed', programHours: typed.programHours, heads: typed.heads, otherP0: false, checked: false };
+  const types = (Object.entries(learned) as [PlanetType, Record<string, Learned> | undefined][])
+    .filter(([u, by]) => u !== t && by?.[String(p0)]).sort((a, b) => b[1]![String(p0)].extractors - a[1]![String(p0)].extractors || a[0].localeCompare(b[0]));
+  if (types.length) return of(types[0][1]![String(p0)], false, types[0][0]);
   const others = Object.entries(learned[t] ?? {}).sort((a, b) => b[1].extractors - a[1].extractors || Number(a[0]) - Number(b[0]));
   return others.length ? of(others[0][1], true) : null;
 }
