@@ -130,9 +130,9 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     - **What choosing it costs** (the user: "max profit will probably be best to use planner as it is currently"): every product's
     ranking is worked out beside the held one, each on live books of its own (one set for both would rank the full one again for the
     held one's goods), and once both are in for these inputs, said side by side, each on its own footing, since units first values the
-    good with no market cap: "Every product’s best here: 71.86 M ISK a day (bought, Broadcast Node), at what the markets take at your
-    share. Gel-Matrix Biopaste’s best makes 72 a day (a fed factory), 11.5 M ISK a day if every one sells at today’s price". Until
-    planner fix 1 it said the gap ("59.9 M ISK a day under it").
+    good with no market cap: "Every product’s best here: 25.14 M ISK a day (bought, Organic Mortar Applicators), at what the markets
+    take at your share. Gel-Matrix Biopaste’s best makes 104 a day (a fed factory), 16.73 M ISK a day if every one sells at today’s
+    price" (the user's 23 October rates on the page case's prices, at UALX-3). Until planner fix 1 it said the gap ("… under it").
     - **Units first** (planner fix 1, 24 October 2026; `heldInput`, `UNITS_WEIGHT`, `Setup.made`, `extraOf`, `fitLevel` in piPlan.ts).
     The user: "the more it makes the better", "we don't need to estimae how long the output takes to sell … have the planner maximise
     the system i have chosen … so i can pump out as much as possible. the selling is my problem", and "i think the plan showed me to
