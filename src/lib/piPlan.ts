@@ -2488,6 +2488,8 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     }
   }
   const xSold = v.soldX.isk == null ? v.run : Math.min(v.run, v.soldX.units);
+  // Plan it: the factory is sized for all its planets ship (planner fix 1), and only placed where it fits (`fitLevel`).
+  if (input.only != null && fFit?.fits) fNotes.push(`its factories are sized for everything its planets ship it, and fit ${atCcu(fw.cc)}`);
   if (v.R - v.run > 1e-6) fNotes.push(`the market takes ${amountSaid(v.run)} ${name(tree.x)} a day, so the factory runs for that: what its planets ship beyond it goes to market as it is, or stays on them`);
   if (v.run - xSold > 1e-6) fNotes.push(stayNote([`${amountSaid(v.run - xSold)} ${name(tree.x)}`]));
   const imports: NonNullable<Role['imports']> = [];

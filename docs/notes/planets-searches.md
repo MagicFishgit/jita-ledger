@@ -63,6 +63,22 @@ setup in planets-market.md. Each ruling's number is the ledger's (`.superpowers/
   brute's own best product and one other, seeds 7, 42, 99 and 1234 × 30, 456 checked, 0 differ, none cut; Task 11's planner-vs-brute
   on bought held to each product, seeds 1–8 × 50, 1,386 checked, 0 differ, none cut. A held search spends its whole budget on one
   good, so it can find more than a full one that ran out (said on the page).
+- **Held to one good, the searches are units first** (planner fix 1, 24 October 2026; `heldInput`, `unitsSell`, `UNITS_WEIGHT` 1e7,
+  the investigation's probe6). P0 → P1, P0 → P2, the feed and the chain search on `searchSell`: the good at 1e7 a unit, uncapped,
+  every other good at its price, so the most units win and the extras break ties by ISK; what they chose is valued again on `sell`
+  for the page (the good uncapped at its first unit's net: planets-market.md). The feeders are the same on both (the good is never on
+  a feeder's line). Bought searches on `sell`: it buys its inputs, so it makes as many as pay. The fed factory is judged at the
+  characters' own level (`fitLevel`) and placed only with one it fits (`placeFed`'s `strict`).
+  - **Why the bounds still bound**: `Sell`'s contract holds (linear), and each bound uses a good only through its first unit's net,
+    `pX` the good's own. `boundFed`'s `worth` counts each unit at the better of its net and its share of X (X a day is at most the P1
+    content shipped over what one X takes, at any `pX`); `boundByMargin` counts every unit at its net after export tax, less `cmin` (the
+    least the goods making one X fetch) and plus `pX` for each X, times the most X the feeders left could allow (`limitOf` rises with
+    what's shipped), and a unit drawn into X pays its export tax, so it stays over the figure. `searchFed` prunes only on these, and
+    sums near 1e10 hold `SAME_ISK`'s cent (a double carries about 2e-6 there).
+  - **Gates** (HEAD GATE_HEAD, one seed at a time under 2 GB, `.playwright-mcp/plan-units/`): Task 9's brute force held to three goods a
+    trial (the brute's best and two others), valued on the same weighted sale with the same factory guard, units and ISK shown compared,
+    seeds 7, 42, 99 and 1234 × 30: GATE_FEED; every product unchanged: GATE_EVERY; bought's planner-vs-brute held on the uncapped sale,
+    seeds 1–8 × 50: GATE_BOUGHT.
 
 ## Limits
 

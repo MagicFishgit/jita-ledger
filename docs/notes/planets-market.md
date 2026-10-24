@@ -60,6 +60,9 @@ planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/202
   Jita is priced through the `industry` doc's freight route from the home hub (`legFor`); a Jita pace of 0 or null is unpriced
   with its reason, never a freight minimum spread over nothing (Ruling T10-2). With no hub picked nothing is priced (Ruling
   T10-3). A character whose fees aren't read is waited on, in Industry's words.
+  - **Plan it holds the good to no market** (planner fix 1, `uncappedSell`): its every unit is valued at its first unit's net (its side,
+    places and Jita fallback as `sell` gives them), so nothing caps the factory's run or says how fast it sells ("the selling is my
+    problem"); every other good keeps `soldOf` at your share. Not priced at a sliver, or nothing selling at your share: not priced.
   - **Sell at the hub: a good it doesn't price is valued at Jita's, warned** (Ruling F11, the user's own: "just pull the jita figure
     instead and warn, that way i can put it up for that price locally or store it for shipping to jita"; `soldAtHome`, once in
     `usePlanetMarket`'s `sell` and `unit`): on the route, what it nets shipped; with none, Jita's own before freight. Per good and

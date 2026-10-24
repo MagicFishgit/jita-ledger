@@ -4143,18 +4143,32 @@ try {
       // The stylesheet upper-cases a link button, so compared without case.
       if (head.toLowerCase() !== 'planning gel-matrix biopaste for owner at 5-nznw · every product') problems.push(`Plan it's head line: “${head}”`);
       await settled();
-      // What choosing it costs, once both rankings are worked out: every product's best (bought, on this fixture) and how far under it
-      // Gel-Matrix Biopaste's best is.
+      // What choosing it costs, once both rankings are worked out: every product's best (bought, on this fixture) beside what Gel-Matrix
+      // Biopaste's best makes, each on its own footing (planner fix 1: the good is valued with no market cap, every product's at what the
+      // markets take).
       await page.waitForSelector('[data-planets="planning-cost"]', { timeout: 30_000 }).catch(() => problems.push('Plan it never said what choosing the good costs'));
       const cost = await text('[data-planets="planning-cost"]');
-      if (!/^Every product’s best here: [\d.,]+ (?:[kMB] )?ISK a day \(bought, [A-Z][\w -]+\); Gel-Matrix Biopaste’s best is [\d.,]+ (?:[kMB] )?ISK a day under it\.$/.test(cost)) problems.push(`Plan it's cost line: “${cost}”`);
-      if (!/The setups that make Gel-Matrix Biopaste, best first/i.test(await text('[data-planets="plan"]'))) problems.push('the held setups aren’t headed with the good');
+      if (!/^Every product’s best here: [\d.,]+ (?:[kMB] )?ISK a day \(bought, [A-Z][\w -]+\), at what the markets take at your share\. Gel-Matrix Biopaste’s best makes [\d.,]+ a day \(a fed factory\), [\d.,]+ (?:[kMB] )?ISK a day if every one sells at today’s price\.$/.test(cost)) problems.push(`Plan it's cost line: “${cost}”`);
+      if (!/The setups that make Gel-Matrix Biopaste, the most first/i.test(await text('[data-planets="plan"]'))) problems.push('the held setups aren’t headed with the good');
+      // Planner fix 1: the head figure is the good's units a day, the ISK beside it; bought apart, below the rest, "Or buy the inputs instead".
+      const made = (await text('[data-planets="setup:feed"] [data-planets="made"]')).trim();
+      if (!/^[\d.,]+$/.test(made) || !/Gel-Matrix Biopaste a day/.test(await text('[data-planets="setup:feed"] .pl-isk'))) problems.push(`the feed's head figure isn't units of the good: “${await text('[data-planets="setup:feed"] .pl-isk')}”`);
+      if (!/at today’s price/.test(await text('[data-planets="setup:feed"] [data-planets="made-isk"]'))) problems.push('the feed’s ISK isn’t beside its units');
+      if (!(await page.locator('[data-planets="buy-instead"] [data-planets="setup:bought"]').count()) || !/^Or buy the inputs instead/.test((await text('[data-planets="buy-instead"]')).trim())) problems.push('bought isn’t apart, under “Or buy the inputs instead”');
+      const order = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets')));
+      if (order[order.length - 1] !== 'setup:bought') problems.push(`bought isn't below the setups that use the system's planets: ${JSON.stringify(order)}`);
       // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
       const feedOpen = page.locator('[data-planets="setup:feed"] button[aria-expanded="false"]', { hasText: 'What it makes' });
       if (await feedOpen.count()) await feedOpen.click().catch(() => undefined);
       await page.waitForTimeout(300);
       const feedRoles = (await page.locator('[data-planets="setup:feed"] [data-planets^="role:"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!feedRoles.some((t) => /factory planet/.test(t) && /Makes .*Gel-Matrix Biopaste a day/i.test(t))) problems.push(`the feed's factory planet doesn't make Gel-Matrix Biopaste: ${JSON.stringify(feedRoles.map((t) => t.slice(0, 200)))}`);
+      // Planner fix 1: Lava II's second line, which the recipe doesn't use, says it's an extra; the factory takes each good from one planet.
+      const lavaExtra = await page.locator('[data-planets="setup:feed"] [data-planets="role:40307991"] [data-planets="extra"]').allInnerTexts();
+      if (lavaExtra.length !== 1 || !/^Extra: Gel-Matrix Biopaste doesn’t use [A-Z][\w -]+; it’s sold\.$/.test(lavaExtra[0])) problems.push(`5-NZNW II's second line isn't said to be an extra: ${JSON.stringify(lavaExtra)} in “${feedRoles.find((t) => t.startsWith('5-NZNW II '))?.slice(0, 400)}”`);
+      const takesIn = /Takes in (.*?)(?: Makes |$)/.exec(feedRoles.find((t) => /factory planet/.test(t)) ?? '')?.[1] ?? '';
+      const goodsIn = [...takesIn.matchAll(/[\d.,]+ ([A-Z][\w -]+?) a day from/g)].map((m) => m[1]);
+      if (!goodsIn.length || new Set(goodsIn).size !== goodsIn.length) problems.push(`the factory takes a good from two planets, or nothing: “${takesIn}”`);
       if (!/Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only\./.test(await text('[data-planets="setup:p2"] .pl-notes'))) problems.push(`P0 → P2 doesn't say why it can't make Gel-Matrix Biopaste: “${await text('[data-planets="setup:p2"] .pl-notes')}”`);
       // The repeat line, counting the main and Planet Alt (Command Center Upgrades III, its clone not read): the feed's layout doesn't
       // fit at III, so it suits only the main, said; bought's factories do, so the two together, its clone said, and what holds them.
