@@ -75,10 +75,11 @@ setup in planets-market.md. Each ruling's number is the ledger's (`.superpowers/
     least the goods making one X fetch) and plus `pX` for each X, times the most X the feeders left could allow (`limitOf` rises with
     what's shipped), and a unit drawn into X pays its export tax, so it stays over the figure. `searchFed` prunes only on these, and
     sums near 1e10 hold `SAME_ISK`'s cent (a double carries about 2e-6 there).
-  - **Gates** (HEAD GATE_HEAD, one seed at a time under 2 GB, `.playwright-mcp/plan-units/`): Task 9's brute force held to three goods a
-    trial (the brute's best and two others), valued on the same weighted sale with the same factory guard, units and ISK shown compared,
-    seeds 7, 42, 99 and 1234 × 30: GATE_FEED; every product unchanged: GATE_EVERY; bought's planner-vs-brute held on the uncapped sale,
-    seeds 1–8 × 50: GATE_BOUGHT.
+  - **Gates** (HEAD 7feaa05, one seed at a time under 2 GB, `.playwright-mcp/plan-units/`): Task 9's brute force held to up to three
+    goods a trial (the brute's best and two others), feed and chain, valued on the same weighted sale with the same factory guard, units
+    and ISK shown compared, seeds 7, 42, 99 and 1234 × 30: 662 checked, 0 differ (108 with nothing on either side), none cut; every
+    product, 240 and bought's 120, 0 differ; bought's planner-vs-brute held on the uncapped sale, seeds 1–8 × 50: 1,386, 0 differ, and
+    every product 400, 0 differ.
 
 ## Limits
 

@@ -8736,6 +8736,11 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
     const fac = f17.roles.find((r) => r.does === 'factory');
     eq('  units first: the factory sized for all its planets ship, 3 Oxides, 3 Biocells, 3 Superconductors and 2 Gel-Matrix Biopaste',
       fac.makes.map((m) => [nm(m.id), m.count]), [['Oxides', 3], ['Biocells', 3], ['Superconductors', 3], ['Gel-Matrix Biopaste', 2]]);
+    // At the character's own level, not V (Ruling T9-3 stands for every product): every level from 0 up, the factory fits where it's
+    // placed, or the feed says it's too big at that level.
+    eq('  units first: the factory fits at the character’s own level, or says so, at every level',
+      [0, 1, 2, 3, 4, 5].flatMap((cc) => { const s = feedOf({ ...u, char: { ...owner, ccLevel: cc } }); const r = s.roles.find((x) => x.does === 'factory');
+        return (r ? r.fit?.fits === true && !r.lacks : /too big for its planet at your Command Center Upgrades/.test(s.why ?? '')) ? [] : [[cc, s.why, r?.fit?.fits]]; }), []);
     // Each good the factory takes from one planet; every line it draws nothing from is an extra, and says why.
     const from = new Map();
     for (const i of fac.imports) from.set(i.id, [...(from.get(i.id) ?? []), i.from]);
