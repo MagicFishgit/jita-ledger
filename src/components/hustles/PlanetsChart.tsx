@@ -227,7 +227,10 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
           <span className="sub">{u.isk != null ? `Valued ${valueSaid(u, hub)}` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
           {u.isk != null && u.fallback && <span className="sub pl-up" data-planets="tree-fallback">{fallbackUnit(u)}.</span>}
         </div>
-        <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
+        <div className="pl-tree-acts">
+          {g.tier !== 'P0' && <PlanIt id={id} name={g.name} onPlanGood={onPlanGood} />}
+          <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
+        </div>
       </div>
       <div data-planets="tree-value">
         <Tiles inset min={140} items={[
@@ -261,7 +264,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
           </div>
           <span className="lbl" style={{ marginTop: 4 }}>In all, one {g.name} takes</span>
           {TIERS.filter((t) => parts.some((s) => s.tier === t)).reverse().map((t) => (
-            <span key={t} className="pl-need"><b>{t}</b>{parts.filter((s) => s.tier === t).map((s) => <span key={s.id} className="pill-tag pl-chip-ic"><ItemIcon id={s.id} size="sm" />{needSaid(s.need)} {name(s.id)}</span>)}</span>
+            <div key={t} className="pl-need"><b>{t}</b><div className="pl-need-grid">{parts.filter((s) => s.tier === t).map((s) => <span key={s.id} className="pl-need-cell"><ItemIcon id={s.id} size="sm" /><span className="nm">{name(s.id)}</span><span className="n">{needSaid(s.need)}</span></span>)}</div></div>
           ))}
         </div>
       )}
@@ -302,14 +305,16 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
             <div key={s.id} className="pl-stepcard" data-planets={`p0:${s.id}`}>
               <div className="pl-eq"><span className="pl-term out"><ItemIcon id={s.id} size="sm" /><b>{name(s.id)}</b></span>
                 <span className="sub">P0{s.id !== id ? ` · ${needSaid(s.need)} for each ${g.name}` : ''}</span></div>
-              <span className="pl-line"><Pickaxe aria-hidden="true" className="pl-ico" />On {types.map((t, k) => <span key={t}>{k > 0 && (k === types.length - 1 ? ' and ' : ', ')}<span className="pl-ptype"><ItemIcon id={ix.planetTypes[t].typeId} size="sm" />{t}</span></span>)} planets.
-                {sysName && (here ? <> At {sysName}: {here}.</> : <span className="pl-up"> None of {sysName}’s planets has it.</span>)}</span>
+              {/* The planet types as chips in a row (the user, 24 October 2026: a sentence of icons, commas and "and" "looks a bit off"). */}
+              <div className="pl-ptypes" aria-label={`On ${listSaid(types)} planets`}><Pickaxe aria-hidden="true" className="pl-ico" /><span className="sub">On</span>
+                {types.map((t) => <span key={t} className="pl-ptype"><ItemIcon id={ix.planetTypes[t].typeId} size="sm" />{t}</span>)}</div>
+              {sysName && (here ? <span className="pl-line">At {sysName}: {here}.</span> : <span className="pl-line pl-up">None of {sysName}’s planets has it.</span>)}
             </div>
           );
         })}
       </div>
       {sysName ? <Makes id={id} ix={ix} p={p} sysName={sysName} onPlan={onPlan} onPlanGood={onPlanGood} />
-        : g.tier !== 'P0' && <div className="row" style={{ gap: 8, alignItems: 'baseline' }}><PlanIt id={id} name={g.name} onPlanGood={onPlanGood} /><span className="note small">Choose a system there to plan it.</span></div>}
+        : g.tier !== 'P0' && <span className="note small">Choose a system on Plan to see which of its setups can make it.</span>}
     </section>
   );
 }
@@ -326,7 +331,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
 function PlanIt({ id, name, onPlanGood }: { id: number; name: string; onPlanGood: (id: number) => void }) {
   return (
     <button type="button" className="btn" data-planets="plan-it" onClick={() => onPlanGood(id)}
-      data-tip={`Plan ${name}: each setup type’s best way to make it here, ranked by ISK a day, with which planet does what`}>Plan it</button>
+      data-tip={`Plan ${name}: the most of it your planets can make a day at your skills, and which planet does what`}>Plan it</button>
   );
 }
 
@@ -371,10 +376,7 @@ function Makes({ id, ix, p, sysName, onPlan, onPlanGood }: { id: number; ix: PiI
   };
   return (
     <div className="col pl-lines" data-planets="makes">
-      <div className="row" style={{ gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <span className="lbl">Which setups can make it at {sysName}</span>
-        {g.tier !== 'P0' && <PlanIt id={id} name={g.name} onPlanGood={onPlanGood} />}
-      </div>
+      <span className="lbl">Which setups can make it at {sysName}</span>
       {blocked ? <span className="note small">{blocked === NO_SKILLS ? 'Skills aren’t read for this character, so no setup is ranked; what each kind of setup can make here is by these planets alone.' : `${blocked}: no setup is ranked for this character; what each kind can make here is by these planets alone.`}</span>
         : waiting ? <span className="note small">Prices aren’t in yet, so no setup is ranked: {p.morning.said}</span>
           : working ? <span className="note small" data-planets="working">Working the setups out as Plan does…</span> : null}

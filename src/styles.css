@@ -1086,7 +1086,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-toggle { font-family: var(--f-head); font-size: 11.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--sec); }
 .pl-toggle:hover { color: var(--ink); }
 /* The Chart: every planetary good by tier, a chip each; a picked good's recipe beside the grid (sticky), or under it when narrow. */
-.pl-chart-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 600px); gap: 16px; align-items: start; }
+.pl-chart-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(480px, 680px); gap: 16px; align-items: start; }
 .pl-chart { gap: 14px; min-width: 0; }
 .pl-tier { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pl-tier-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
@@ -1113,9 +1113,13 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-step-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .pl-step-name b { font-weight: 500; color: var(--ink); font-size: 13px; }
 .pl-step.off .pl-step-name b { color: var(--note); }
-.pl-need { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; }
-.pl-need > b { font-family: var(--f-head); font-size: 11px; letter-spacing: .08em; color: var(--acc); min-width: 20px; }
-.pl-need .pill-tag { max-width: 100%; white-space: normal; }
+.pl-need { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 6px; align-items: start; min-width: 0; }
+.pl-need > b { font-family: var(--f-head); font-size: 11px; letter-spacing: .08em; color: var(--acc); padding-top: 6px; }
+.pl-need-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px; min-width: 0; }
+.pl-need-cell { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; background: var(--inset); border: 1px solid var(--line-soft); font-size: 12px; color: var(--ink); min-width: 0; }
+.pl-need-cell .nm { overflow-wrap: normal; line-height: 1.2; }
+.pl-need-cell .n { font-family: var(--f-mono); color: var(--acc); white-space: nowrap; }
+.pl-tree-acts { display: flex; align-items: center; gap: 6px; }
 .pl-ico { width: 12px; height: 12px; vertical-align: -1px; margin-right: 5px; color: var(--acc); }
 /* The picked good's recipe, drawn: cards in columns (the good, then what it is made from, down to P0) joined by ship-tree paths. */
 .pl-tree-scroll { overflow-x: auto; padding-bottom: 4px; }
@@ -1146,7 +1150,9 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; font-family: var(--f-head); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--acc); border: 1px solid color-mix(in oklab, var(--acc) 45%, transparent); }
 .pl-badge svg { width: 12px; height: 12px; }
 .pl-badge.clock { text-transform: none; letter-spacing: .02em; font-family: var(--f-body, inherit); font-size: 11.5px; color: var(--sec); border-color: var(--line-strong); }
-.pl-ptype { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; }
+.pl-ptypes { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; font-size: 12px; }
+.pl-ptypes .pl-ico { margin: 0; }
+.pl-ptype { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; padding: 1px 8px 1px 2px; border: 1px solid var(--line-soft); background: var(--inset); border-radius: 999px; color: var(--ink); line-height: 1.4; }
 .pl-ptype .ticon { width: 16px; height: 16px; border-radius: 50%; }
 @media (max-width: 1100px) {
   .pl-chart-wrap { grid-template-columns: minmax(0, 1fr); }

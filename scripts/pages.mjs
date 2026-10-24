@@ -3926,7 +3926,9 @@ try {
       // Quantities and cycle times: 40 + 40 → 5 an hour; 3,000 → 20 every 30 minutes; and what one Nanites takes all the way down.
       if (!/40 Bacteria \+ 40 Reactive Metals → 5 Nanites/.test(tree) || !/every hour/.test(tree)) problems.push(`Nanites’ own step lacks its quantities or cycle: “${tree.slice(0, 300)}”`);
       if (!/3,000 Microorganisms → 20 Bacteria/.test(tree) || !/every 30 minutes/.test(tree)) problems.push(`Bacteria's step lacks its quantities or cycle: “${tree.slice(0, 400)}”`);
-      if (!/1,200 Microorganisms/.test(tree) || !/8 Bacteria/.test(tree)) problems.push(`the recipe doesn't say what one Nanites takes all the way down: “${tree.slice(0, 400)}”`);
+      // "In all": a cell a good, its name then how many (the grid that replaced the chips, 24 October 2026).
+      const needs = (await page.locator('[data-planets="tree"] .pl-need-cell').allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+      if (!needs.includes('Microorganisms 1,200') || !needs.includes('Bacteria 8')) problems.push(`the recipe doesn't say what one Nanites takes all the way down: ${JSON.stringify(needs)}`);
       // The recipe is drawn: a card per node and a path per edge (a refactor that drops the SVG fails here), no name cut inside a word.
       {
         const drawn = await page.evaluate(() => {
@@ -3942,8 +3944,10 @@ try {
       }
       const p0Line = (id) => text(`[data-planets="tree"] [data-planets="p0:${id}"]`);
       const micro = await p0Line(MICRO), base = await p0Line(BASE);
-      if (!micro.includes('Temperate, Ice, Oceanic and Barren')) problems.push(`Microorganisms' planet types: “${micro}”`);
-      if (!base.includes('Gas, Lava, Barren, Storm and Plasma')) problems.push(`Base Metals' planet types: “${base}”`);
+      // The planet types are chips now, in the same order the sentence named them.
+      const typesOf = async (id) => (await page.locator(`[data-planets="tree"] [data-planets="p0:${id}"] .pl-ptype`).allInnerTexts()).map((x) => x.trim()).join(', ');
+      if ((await typesOf(MICRO)) !== 'Temperate, Ice, Oceanic, Barren') problems.push(`Microorganisms' planet types: “${await typesOf(MICRO)}”`);
+      if ((await typesOf(BASE)) !== 'Gas, Lava, Barren, Storm, Plasma') problems.push(`Base Metals' planet types: “${await typesOf(BASE)}”`);
       // 5-NZNW's planets that have each: I, III, IV and VI (Barren), V (Temperate), XI (Ice), XII (Oceanic) have Microorganisms; II (Lava) and VII to X (Gas) Base Metals.
       if (!/5-NZNW I\b/.test(micro) || !/5-NZNW XII\b/.test(micro) || /5-NZNW II\b/.test(micro)) problems.push(`5-NZNW's planets with Microorganisms: “${micro}”`);
       if (!/5-NZNW II\b/.test(base) || !/5-NZNW VII\b/.test(base) || /5-NZNW XII\b/.test(base)) problems.push(`5-NZNW's planets with Base Metals: “${base}”`);
