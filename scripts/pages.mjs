@@ -5169,6 +5169,8 @@ try {
     // textContent, not innerText: a flag is upper-cased by the stylesheet.
     const cloneOf = async (name) => (await card(name).locator('[data-clone]').first().textContent().catch(() => '') ?? '').trim();
     // The sections: "Which account?" first, then the main's account, then Account 2, each with its count.
+    // The accounts doc draws a1 at once; "Which account?" waits for the alts' copy to load (a race the deploy's run lost).
+    await page.waitForFunction(() => document.querySelectorAll('section.acct').length >= 3, null, { timeout: 20_000 }).catch(() => undefined);
     const sections = await page.locator('section.acct').evaluateAll((els) => els.map((e) => e.getAttribute('data-account')));
     if (JSON.stringify(sections) !== JSON.stringify(['unset', 'a1', 'a2'])) problems.push(`the sections, in order: ${JSON.stringify(sections)}`);
     const head = async (id) => text(`[data-account="${id}"] .acct-head`);
