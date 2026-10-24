@@ -11128,8 +11128,40 @@ console.log('\n--- Planets: the main\'s colonies, kept as a synced document (col
   eq('omegaShare: 36 M a month over 500 PLEX at 5 M is 1.44%', +P.omegaShare(36e6, 500, 5e6).toFixed(4), 0.0144);
   eq('omegaShare: null with no month, no price or nothing positive', [P.omegaShare(null, 500, 5e6), P.omegaShare(36e6, 500, null), P.omegaShare(36e6, 500, 0), P.omegaShare(36e6, 0, 5e6), P.omegaShare(0, 500, 5e6), P.omegaShare(-1, 500, 5e6)], [null, null, null, null, null, null]);
   eq('omegaShare: exactly paying for it is 1', P.omegaShare(2.5e9, 500, 5e6), 1);
-  eq('shareSaid: whole percent to 100%, then one decimal times', [P.shareSaid(0.144), P.shareSaid(1), P.shareSaid(1.44), P.shareSaid(0.004)], ['14%', '100%', '1.4×', '0%']);
+  eq('shareSaid: whole percent to 100%, then one decimal times; above nothing but under half a percent, “under 1%”, never 0%', [P.shareSaid(0.144), P.shareSaid(1), P.shareSaid(1.44), P.shareSaid(0.004), P.shareSaid(0.005), P.shareSaid(0)], ['14%', '100%', '1.4×', 'under 1%', '1%', '0%']);
   eq('plexPriceOf / monthOfOmega: the typed price when over 0, else the market\'s; Omega\'s own sum', [P.plexPriceOf(4e6, 5e6), P.plexPriceOf(0, 5e6), P.plexPriceOf(0, undefined), P.plexPriceOf(0, 0), P.monthOfOmega(500, 5e6), P.monthOfOmega(500, null)], [4e6, 5e6, null, null, 2.5e9, null]);
+}
+
+{
+  // Task 16: every character's colonies, and All. A character whose colonies weren't read adds nothing and is counted out; one whose
+  // kept document outlived its login counts (read data wins); a colony whose figure isn't known leaves the sum "–", never short by
+  // it; a colony that makes nothing that leaves the planet is a known 0; All's Omega counts the accounts of the characters with a colony.
+  const T = await import('../src/lib/colonyTotals.ts');
+  const day = (iskDay, extra = {}) => ({ iskDay, why: null, ...extra });
+  const main = T.charColoniesTotal(true, [day(1_000_000), day(500_000), day(0)]);
+  eq('colonies: a character’s colonies summed as a day, a week and a month, a known 0 among them', [main.day, main.colonies, main.unknown], [{ day: 1_500_000, week: 10_500_000, month: 45_000_000 }, 3, 0]);
+  const imp = T.charColoniesTotal(true, [day(1_000_000), day(null, { why: 'Its Bacteria come from off the planet, and their cost isn’t known here' }), day(null, { why: 'Its Bacteria come from off the planet, and their cost isn’t known here' })]);
+  eq('colonies: a colony not valued leaves its character “–” with how many and why, never a part-sum', [imp.day, imp.unknown, imp.whys], [null, 2, ['Its Bacteria come from off the planet, and their cost isn’t known here']]);
+  const wait = T.charColoniesTotal(true, [day(1_000_000), day(null, { pending: true })]);
+  eq('colonies: one still being worked out leaves it “–” too, counted apart', [wait.day, wait.pending, wait.unknown], [null, 1, 0]);
+  eq('colonies: not read is nothing summed; read with no colony is a known 0', [T.charColoniesTotal(false, []), T.charColoniesTotal(true, []).day], [{ read: false, colonies: 0, day: null, unknown: 0, whys: [], pending: 0, beforeTax: 0, unvalued: 0 }, { day: 0, week: 0, month: 0 }]);
+  const tax = T.charColoniesTotal(true, [day(100, { beforeTax: true, unvalued: 2 }), day(200, { unvalued: 1 })]);
+  eq('colonies: before the customs tax and outputs not valued, counted for the words', [tax.beforeTax, tax.unvalued, tax.day?.day ?? null], [1, 3, 300]);
+  // The page case's five: the main and the Gas alt read, the refused alt's older document read too, the Alpha and the unread alt not.
+  const gas = T.charColoniesTotal(true, [day(2_000_000)]), refused = T.charColoniesTotal(true, [day(250_000)]), none = T.charColoniesTotal(false, []);
+  const all = T.allColoniesTotal([{ account: 'a1', total: main }, { account: 'a2', total: none }, { account: null, total: none }, { account: 'a1', total: gas }, { account: null, total: refused }]);
+  eq('colonies: All sums only the characters read, and says how many', [all.read, all.of, all.colonies, all.day?.day ?? null], [3, 5, 5, 3_750_000]);
+  eq('colonies: All’s Omega counts the accounts of the characters it adds up with a colony, one not set as its own', all.accounts, { accounts: 1, unset: 1, k: 2 });
+  const allImp = T.allColoniesTotal([{ account: 'a1', total: main }, { account: 'a1', total: imp }]);
+  eq('colonies: a character not valued leaves All “–”, with its reasons', [allImp.day, allImp.unknown, allImp.whys.length], [null, 2, 1]);
+  eq('colonies: nothing read is nothing known, never 0', T.allColoniesTotal([{ account: null, total: none }]).day, null);
+  eq('colonies: a read character with no colony adds no account', T.allColoniesTotal([{ account: 'a1', total: main }, { account: 'a2', total: T.charColoniesTotal(true, []) }]).accounts.k, 1);
+  const who = (isMain, name = 'Gas Alt') => ({ isMain, name });
+  eq('colonies: each state said in its own words', [
+    T.coloniesWhy(who(true, 'You'), { state: 'read', value: { colonies: [] }, at: null }),
+    T.coloniesWhy(who(false), { state: 'unread' }), T.coloniesWhy(who(false), { state: 'handOver' }), T.coloniesWhy(who(false), { state: 'lost', why: 'refused' }), T.coloniesWhy(who(true, 'You'), { state: 'login' }),
+  ], [null, 'Not read yet: Gas Alt’s colonies come with the cloud’s next hourly read.', 'Hand the cloud Gas Alt’s login again on the Characters page: it was handed over without the permission to read colonies.',
+    'Not read: EVE refused Gas Alt’s login; hand it over again on the Characters page.', 'Log in again: this login wasn’t given EVE’s permission to read your colonies.']);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

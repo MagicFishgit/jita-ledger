@@ -4,6 +4,7 @@ import { SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './constants';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './fees';
 import { emptyData } from './emptyData';
 import { sanitizeBlueprints } from './industryTrack';
+import { sanitizeColonies } from './colonies';
 import type { NetWorthPoint } from './types';
 
 /**
@@ -33,6 +34,8 @@ export function altLedger(saved: AltSaved, byHand?: 'alpha' | 'omega'): Data {
     netWorth: Object.values(rec<NetWorthPoint>('netWorth')).sort((a, b) => a.date.localeCompare(b.date)),
     meta, skills, stock: saved.docs.stock as Data['stock'],
     blueprints: saved.docs.blueprints === undefined ? undefined : sanitizeBlueprints(saved.docs.blueprints),
+    // Its colonies as the cloud's hourly sheet keeps them (Planets Task 14), sanitized; absent is never read (colonies.ts).
+    colonies: sanitizeColonies(saved.docs.colonies),
     settings: sanitizeSettings({ ...DEFAULT_SETTINGS, ...levels, clone: detected ?? byHand ?? 'omega', faction: 0, corp: 0 }),
   };
   if (!memo.has(saved)) memo.set(saved, new Map());

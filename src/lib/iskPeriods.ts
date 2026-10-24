@@ -26,7 +26,8 @@ export function omegaShare(month: number | null, plexPerMonth: number, plexPrice
   return cost == null ? null : month / cost;
 }
 
-/** "15%" up to 100%, then "1.4×". */
+/** "15%" up to 100%, then "1.4×"; a share above nothing that rounds to 0% is "under 1%", never read as nothing (Task 16). */
 export function shareSaid(share: number): string {
+  if (share > 0 && share < 0.005) return 'under 1%';
   return share > 1 ? `${(Math.round(share * 10) / 10).toFixed(1)}×` : `${Math.round(share * 100)}%`;
 }

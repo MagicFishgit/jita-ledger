@@ -3536,7 +3536,8 @@ try {
   // goods priced from the research's reads (scripts/fixtures/planets-5nznw.json), with the main's one kept colony: a Barren planet
   // extracting Base Metals and Microorganisms at CCP's own example (6,965 a 30-minute cycle over 47.5 hours), its reading not yet
   // checked against the game. Show for: an Alpha alt, and an alt whose skills the cloud hasn't read. The Chart (Task 12) at 5-NZNW and
-  // UALX-3, and Colonies drawing the kept colony with its extractors' program totals both ways.
+  // UALX-3, and Colonies drawing the kept colony with its extractors' program totals as the game reads them; Task 16's block draws
+  // every character's colonies and All.
   if (SHOWN.includes('hustles/planets') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('planets'))) {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
     const FXP = JSON.parse(fs.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
@@ -3848,6 +3849,12 @@ try {
     await page.waitForTimeout(400);
     await settled();
 
+    // Ruling F10 on a chain: each character's share said as a day, a week and a month, and the chain's figure in all when it spans more.
+    for (const t of (await page.locator('[data-planets^="chain-char:"]').allInnerTexts()).map((x) => x.replace(/\s+/g, ' '))) {
+      if (/a day as its share/.test(t) && !/a day as its share \([\d.,]+ (?:[kMB] )?ISK a week, [\d.,]+ (?:[kMB] )?ISK a month\)/.test(t)) problems.push(`a chain's character line without its week and month: “${t}”`);
+    }
+    for (const t of await page.locator('[data-planets="chain-all"]').allInnerTexts()) if (!/^in all [\d.,]+ (?:[kMB] )?ISK a day · [\d.,]+ (?:[kMB] )?ISK a week · [\d.,]+ (?:[kMB] )?ISK a month$/.test(t.trim())) problems.push(`a chain's figure in all: “${t}”`);
+
     // --- the skills panel, at the shown character: the main's Command Center Upgrades IV here, the Alpha alt's II under Show for (m5).
     const skillsAt = await text('[data-planets="skills"]');
     for (const s of ['Interplanetary Consolidation', 'Command Center Upgrades']) if (!skillsAt.includes(s)) problems.push(`the skills panel doesn’t list ${s}`);
@@ -4010,6 +4017,8 @@ try {
       await page.waitForTimeout(300);
       const opened = await text('[data-planets="colonies"]');
       if (/Item #/.test(opened) || !/Base Metals/.test(opened) || !/Microorganisms/.test(opened)) problems.push(`the kept colony's extractors aren't named: “${opened.slice(0, 400)}”`);
+      // Opened, its outputs routed nowhere are said as not shipped, never sold for 0 ISK (Task 16, Task 15's wording).
+      if (/\b0 ISK\b|NaN/.test(opened)) problems.push(`the opened colony shows 0 ISK or NaN: “${(/.{0,80}(\b0 ISK\b|NaN).{0,80}/.exec(opened) ?? [''])[0]}”`);
       for (const pin of [1001, 1002]) {
         const prog = await text(`[data-planets="program:${pin}"]`);
         if (!prog.includes('789,314 over 1d 23h') || !prog.includes('16,617 an hour') || prog.includes('661,675')) problems.push(`extractor ${pin}'s program doesn't give the formula's total and average alone: “${prog}”`);
@@ -4203,6 +4212,149 @@ try {
         if (/Planet Alt’s clone state isn’t read/.test(repB) !== k.unread) problems.push(`Planet Alt's clone (${k.said}) ${k.unread ? 'isn’t said to be not read' : 'is still said to be not read, though its account is Omega'}: “${repB}”`);
         if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-accounts-${k.unread ? 'unset' : 'set'}.png` }); }
       }
+    }
+
+    // --- Task 16: Colonies for every character, and All. Five characters: the main (5-NZNW I, two extractors routed nowhere, so it
+    // makes nothing that leaves), Gas Alt (5-NZNW VII: Reactive Gas and Noble Gas into storage, 2 + 2 Basics, one Advanced on Oxides),
+    // Refused Alt (EVE refused its login after a read: its older document, a Bacteria line on UALX-3 I whose programme has ended, still
+    // counts: read data wins, and it's compared in its own system, not the one Plan plans), Alpha Alt (handed over without the planets
+    // permission) and Unread Alt (not read yet). Owner and Gas Alt on the main account, the rest not set: All counts 2 accounts' Omega.
+    {
+      const GAS = 900104, REFUSED = 900105, OWNER = ownerAuth().characterId, GAS_VII = 40308002, UALX_I = 40304287, UALX_SYS = FXP.ualx.system.system_id;
+      const money = (t) => { const m = /(−?[\d.,]+) ?([kMB])? ?ISK/.exec(t); return m ? Number(m[1].replace(/,/g, '')) * ({ k: 1e3, M: 1e6, B: 1e9 }[m[2]] ?? 1) : NaN; };
+      const pinC = (id, typeId, over = {}) => ({ id, typeId, install: null, expiry: null, lastCycle: null, schematic: null, extractor: null, contents: [], ...over });
+      const ecuC = (id, typeId, product, from, hours) => pinC(id, typeId, { install: iso(from), expiry: iso(from + hours * 3600_000), lastCycle: iso(now - 600_000), extractor: { cycle: 1800, product, qty: 5000, heads: 5 } });
+      const facC = (id, typeId, schematic) => pinC(id, typeId, { schematic, lastCycle: iso(now - 600_000) });
+      // Gas pins as ESI types them: command 2534, extractor 3060, Basic 2492, Advanced 2494, storage 2536, launchpad 2543. Reactive Gas
+      // 2311 → Oxidizing Compound 2392 (schematic 125), Noble Gas 2310 → Oxygen 3683 (124), both → Oxides 2317 (69).
+      const gasColony = { planetId: GAS_VII, systemId: SYS, planetType: 'Gas', level: 4, lastUpdate: iso(now - 1800_000), links: [],
+        pins: [pinC(1, 2534), ecuC(10, 3060, 2311, install, 47.5), ecuC(11, 3060, 2310, install, 47.5), pinC(20, 2536, { contents: [[2310, 4000], [2311, 4000]] }), pinC(30, 2543, { contents: [[2317, 30]] }),
+          facC(41, 2492, 125), facC(42, 2492, 125), facC(43, 2492, 124), facC(44, 2492, 124), facC(51, 2494, 69)],
+        routes: [[10, 20, 2311, 1], [11, 20, 2310, 1], [20, 41, 2311, 3000], [20, 42, 2311, 3000], [20, 43, 2310, 3000], [20, 44, 2310, 3000],
+          [41, 20, 2392, 20], [42, 20, 2392, 20], [43, 20, 3683, 20], [44, 20, 3683, 20], [20, 51, 2392, 40], [20, 51, 3683, 40], [51, 30, 2317, 5]] };
+      // Barren pins: command 2524, extractor 2848, Basic 2473, launchpad 2544. Microorganisms 2073 → Bacteria 2393 (131), its 72-hour
+      // programme ended a day ago.
+      const oldColony = { planetId: UALX_I, systemId: UALX_SYS, planetType: 'Barren', level: 3, lastUpdate: iso(now - 2 * 86400_000), links: [],
+        pins: [pinC(1, 2524), ecuC(10, 2848, 2073, now - 4 * 86400_000, 72), pinC(30, 2544), facC(41, 2473, 131), facC(42, 2473, 131)],
+        routes: [[10, 41, 2073, 3000], [10, 42, 2073, 3000], [41, 30, 2393, 20], [42, 30, 2393, 20]] };
+      const SK = { 2495: 4, 2505: 4, 2406: 4, 3446: 2, 3443: 2, 16622: 2 };
+      const coAlts = {
+        roster: { at: now - 60_000, list: [
+          entry(ALPHA, 'Alpha Alt', { scopes: ['esi-skills.read_skills.v1'] }), entry(UNREAD, 'Unread Alt', { jobs: [] }), entry(GAS, 'Gas Alt'),
+          entry(REFUSED, 'Refused Alt', { refusedAt: now - 7200_000, refused: 'invalid_grant', jobs: [ok('archive', 9000_000), ok('sheet', 8000_000)] }),
+        ] },
+        [`alt:${ALPHA}`]: altStore[`alt:${ALPHA}`], [`alt:${UNREAD}`]: altStore[`alt:${UNREAD}`],
+        [`alt:${GAS}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: SK, meta: { cloneDetected: 'omega', attributes: ATTRS }, colonies: { colonies: [gasColony] } } },
+        [`alt:${REFUSED}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: SK, meta: { cloneDetected: 'omega', attributes: ATTRS }, colonies: { colonies: [oldColony] } } },
+      };
+      const ACCTS = { accounts: [{ id: 'a1' }], byChar: { [OWNER]: 'a1', [GAS]: 'a1' } };
+      const coloniesFor = async (name) => {
+        await page.locator('[aria-label="Show for"] button', { hasText: new RegExp(`^${name}$`) }).click().catch((e) => problems.push(`couldn’t show Colonies for ${name}: ${e.message.split('\n')[0]}`));
+        await page.waitForTimeout(900);
+      };
+      // Every colony shown worked out: no "Working out", no cell still reading its system, and every character's prices in (each
+      // here has its skills read, so a prices line still shown is one still reading).
+      const worked = (what) => page.waitForFunction(() => {
+        const t = document.querySelector('[data-planets="colonies"]')?.textContent ?? '';
+        return t && !/Working out|Reading its system|Setting it against/.test(t) && !document.querySelector('[data-planets="colonies"] [data-planets="prices"]');
+      }, null, { timeout: 30_000 }).catch(async () => problems.push(`Colonies never settled (${what}): “${(await text('[data-planets="colonies"]')).slice(0, 300)}”`));
+      const openColony = async (id) => {
+        const b = page.locator(`[data-planets="colony:${id}"] .expander[aria-expanded="false"]`);
+        if (await b.count()) await b.click().catch(() => undefined);
+        await page.waitForTimeout(300);
+      };
+      const coloniesSeed = async (plex) => {
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, meta: { ...ledger.meta, plex }, industry: DOC, cloud: CLOUD_STATE, accounts: ACCTS }, coAlts, { prospects: SCAN });
+        await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/colonies`);
+        await page.waitForSelector('[data-planets="colonies"]', { timeout: 30_000 }).catch(() => problems.push('Colonies never drew (Task 16)'));
+      };
+      await coloniesSeed(ledger.meta.plex);
+
+      // All: Show for gains it on Colonies, the characters under their accounts.
+      const groups = await page.locator('[aria-label="Show for"] .seg-group-name').allTextContents();
+      if (JSON.stringify(groups) !== JSON.stringify(['Main account', 'Account not set'])) problems.push(`Colonies' Show for accounts: ${JSON.stringify(groups)}`);
+      const order = await page.locator('[aria-label="Show for"] button').allTextContents();
+      if (JSON.stringify(order) !== JSON.stringify(['All', 'Owner', 'Gas Alt', 'Alpha Alt', 'Unread Alt', 'Refused Alt'])) problems.push(`Colonies' Show for, All first and by account: ${JSON.stringify(order)}`);
+      await coloniesFor('All');
+      await worked('All');
+      const allRead = await text('[data-planets="all-read"]');
+      if (!/^3 of 5 characters read/.test(allRead)) problems.push(`All doesn't count 3 of 5 characters read: “${allRead}”`);
+      const fig = async (sel) => money(await text(`${sel} [data-planets="day"] .tile-v`) + ' ISK');
+      const allDay = await fig('[data-planets="all-figures"]'), allWeek = money(await text('[data-planets="all-figures"] [data-planets="week"] .tile-v') + ' ISK'), allMonth = money(await text('[data-planets="all-figures"] [data-planets="month"] .tile-v') + ' ISK');
+      if (!(allDay > 0) || Math.abs(allWeek / allDay - 7) > 0.05 || Math.abs(allMonth / allDay - 30) > 0.3) problems.push(`All's day, week and month: ${allDay}, ${allWeek}, ${allMonth}`);
+      const allOmega = await text('[data-planets="all-figures"] [data-planets="omega"]');
+      if (!/(under 1%|\d+%|[\d.]+×) of the months of Omega of their 2 accounts, 1 character’s account not set/.test(allOmega)) problems.push(`All's Omega share against their accounts: “${allOmega}”`);
+      // Each character's sum, the three read, added up: All is theirs.
+      const sum = (await Promise.all([OWNER, GAS, REFUSED].map((id) => fig(`[data-planets="char:${id}"] [data-planets="char-figures"]`).then((v) => (Number.isNaN(v) ? 0 : v)))));
+      if (Math.abs(sum.reduce((a, b) => a + b, 0) - allDay) > Math.max(0.02 * allDay, 1)) problems.push(`All's day (${allDay}) isn't the read characters' added up (${sum.join(' + ')})`);
+      const whyOf = async (id) => text(`[data-planets="char:${id}"] [data-planets="read"]`);
+      if (await whyOf(ALPHA) !== 'Hand the cloud Alpha Alt’s login again on the Characters page: it was handed over without the permission to read colonies.') problems.push(`Alpha Alt's colonies: “${await whyOf(ALPHA)}”`);
+      if (await whyOf(UNREAD) !== 'Not read yet: Unread Alt’s colonies come with the cloud’s next hourly read.') problems.push(`Unread Alt's colonies: “${await whyOf(UNREAD)}”`);
+      if (!/^As the cloud last read them, .* EVE refused Refused Alt’s login; hand it over again on the Characters page\.$/.test(await whyOf(REFUSED))) problems.push(`Refused Alt's colonies aren't said as the cloud's last read, with its login refused: “${await whyOf(REFUSED)}”`);
+      if (await page.locator(`[data-planets="char:${ALPHA}"] [data-planets="char-figures"], [data-planets="char:${UNREAD}"] [data-planets="char-figures"]`).count()) problems.push('a character whose colonies weren’t read shows figures');
+      if (!/Programme ended/i.test(await text(`[data-planets="colony:${UALX_I}"]`))) problems.push(`Refused Alt's ended programme isn't flagged: “${await text(`[data-planets="colony:${UALX_I}"]`)}”`);
+      const allText = await text('[data-planets="colonies"]');
+      if (/\b0 ISK\b|NaN|Item #/.test(allText)) problems.push(`Colonies (All) shows 0 ISK, NaN or an unnamed item: “${(/.{0,80}(\b0 ISK\b|NaN|Item #).{0,80}/.exec(allText) ?? [''])[0]}”`);
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-all.png` }); }
+
+      // The refused alt's colony, set against the best in its own system (UALX-3), never "no setup" for want of the system planned.
+      await openColony(UALX_I);
+      await worked('Refused Alt’s colony opened');
+      const vsOld = await text(`[data-planets="versus:${UALX_I}"]`);
+      // Silent is a best found and nothing to say; "no single-planet setup" is what the system planned would give it.
+      if (/no single-planet setup/.test(vsOld)) problems.push(`Refused Alt's UALX-3 colony isn't set against its own planet: “${vsOld}”`);
+
+      // Show for Gas Alt: its colony alone, its ISK a day with a week and a month, its flags above the planner's best, which, resting on a
+      // rate the colony hasn't shown, says so beside the figure (Rulings T15b-3, T15b-5).
+      await coloniesFor('Gas Alt');
+      await worked('Gas Alt');
+      if (await page.locator('[data-planets="all"]').count()) problems.push('Show for Gas Alt still shows All');
+      const shownChars = await page.locator('[data-planets^="char:"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-planets')));
+      if (JSON.stringify(shownChars) !== JSON.stringify([`char:${GAS}`])) problems.push(`Show for Gas Alt shows ${JSON.stringify(shownChars)}`);
+      const cell = await text(`[data-planets="colony-isk:${GAS_VII}"]`);
+      const cDay = money(cell), cWeek = money(/([\d.,]+ ?[kMB]? ?ISK) a week/.exec(cell)?.[1] ?? ''), cMonth = money(/([\d.,]+ ?[kMB]? ?ISK) a month/.exec(cell)?.[1] ?? '');
+      if (!(cDay > 0) || Math.abs(cWeek / cDay - 7) > 0.05 || Math.abs(cMonth / cDay - 30) > 0.3) problems.push(`Gas Alt's colony's ISK a day, a week and a month: “${cell}”`);
+      await openColony(GAS_VII);
+      await worked('Gas Alt’s colony opened');
+      // Its versusBest says nothing here (the planner's layout for it is its own, and no other product pays 10% more): nothing is
+      // drawn, never "as good as the best", which a best that doesn't fit at its level would also give (Ruling T15-1).
+      const vs = await text(`[data-planets="versus:${GAS_VII}"]`);
+      if (vs && !/^5-NZNW VII: /.test(vs)) problems.push(`Gas Alt's colony's versusBest line: “${vs}”`);
+      if (/more a day/.test(vs) && !/rate learned for another P0|a rate no colony of yours has shown|rate you typed/.test(vs)) problems.push(`Gas Alt's versusBest gives a figure without saying it rests on a rate the colony hasn't shown: “${vs}”`);
+      const colOmega = await text(`[data-planets="detail:${GAS_VII}"] [data-planets="colony-figures"] [data-planets="omega"]`);
+      if (!/(under 1%|\d+%|[\d.]+×) of one account’s month/.test(colOmega)) problems.push(`Gas Alt's colony's Omega share: “${colOmega}”`);
+      if (SHOTS) { await page.locator(`[data-planets="versus:${GAS_VII}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-gas.png` }); }
+
+      // Show for the main: its colony makes nothing that leaves the planet, said, never 0 ISK; its best rests on a rate no colony shows.
+      await coloniesFor('Owner');
+      await worked('Owner');
+      if (!(await page.locator(`[data-planets="colony-isk:${PLANET_I}"] [data-planets="nothing-leaves"]`).count())) problems.push(`the main's colony doesn't say it makes nothing that leaves: “${await text(`[data-planets="colony-isk:${PLANET_I}"]`)}”`);
+      await openColony(PLANET_I);
+      await worked('Owner’s colony opened');
+      // A planet's versusBest line: another product on a rate this colony hasn't shown, with its qualifier beside the figure, and the
+      // colony's flags drawn above it.
+      const vsMain = await text(`[data-planets="versus:${PLANET_I}"]`);
+      if (!/^5-NZNW I: .*more a day/.test(vsMain)) problems.push(`the main's colony has no versusBest line with a figure: “${vsMain}”`);
+      else if (!/rate learned for another P0|a rate no colony of yours has shown|rate you typed/.test(vsMain)) problems.push(`the main's versusBest gives a figure without its qualifier: “${vsMain}”`);
+      const above = await page.evaluate(([f, v]) => { const a = document.querySelector(f), b = document.querySelector(v); return !!a && !!b && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }, [`[data-planets="flags:${PLANET_I}"]`, `[data-planets="versus:${PLANET_I}"]`]);
+      if (!above) problems.push('the main’s colony’s flags aren’t drawn above its versusBest line');
+      if (/\b0 ISK\b|NaN/.test(await text('[data-planets="colonies"]'))) problems.push('the main’s colonies show 0 ISK or NaN');
+
+      // Show for the refused alt: its last read, said as such.
+      await coloniesFor('Refused Alt');
+      await worked('Refused Alt');
+      if (!/EVE refused Refused Alt’s login/.test(await whyOf(REFUSED))) problems.push(`Show for Refused Alt doesn't say its login was refused: “${await whyOf(REFUSED)}”`);
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-refused.png` }); }
+
+      // No PLEX price read: the Omega share is "–" with why, never 0%; the periods stay.
+      await coloniesSeed(undefined);
+      await coloniesFor('All');
+      await worked('All, no PLEX price');
+      const noPlex = await text('[data-planets="all-figures"] [data-planets="omega"]');
+      if (!/–/.test(noPlex) || !/PLEX price not read yet/.test(noPlex) || /\b0%/.test(noPlex)) problems.push(`with no PLEX price, All's Omega share should be “–” with why: “${noPlex}”`);
+      if (!(money(await text('[data-planets="all-figures"] [data-planets="month"] .tile-v') + ' ISK') > 0)) problems.push('with no PLEX price, All’s month is gone too');
+      if (/\bNaN\b/.test(await text('[data-planets="colonies"]'))) problems.push('Colonies shows NaN with no PLEX price');
     }
     }
 

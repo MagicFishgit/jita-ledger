@@ -7,7 +7,7 @@ loaded 139,263 of 140,000), which keeps the `colonies` document, the cloud's rea
 with the planner (`keptWhy` and the export rule, I1, `soldOf`, F11's Jita figure) is in planets-market.md, the rest of the planner
 in planets-planner.md.
 
-- **A colony's real chain** (Task 15 and its fix rounds, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; Task 16 draws it).
+- **A colony's real chain** (Task 15 and its fix rounds, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; drawn by Colonies since Task 16, each colony at its own character's fees: planets-colonies.md).
   From a kept colony and the planet's customs tax (`customsRate`'s, passed in: the document carries no security or skills):
   - **Pins**: an extractor and a factory by their shape; storage, a launchpad, a command centre and a factory with no schematic by
     ESI's type ID (`PIN_TYPES`, CCP's static data build 3569502: the bundle holds capacities, not IDs).

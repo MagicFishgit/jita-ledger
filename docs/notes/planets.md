@@ -56,9 +56,10 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   had, until the final review; now 10, and all zeros not known). A rate is for the head count and programme length it was measured
   at: never scaled, never decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the type's other
   learned P0 (most extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no
-  box: `rateFor` would never use it). In stage 1 only the shown character's own kept colonies teach it (the main's; an alt's once
-  Task 14 keeps them). A typed rate needs P0 an hour, the programme's hours and heads, all three. The programme length defaults to
-  the median of the shown character's learned programmes, else 72 h (the spec's 3 days), until typed into the `planets` doc.
+  box: `rateFor` would never use it). Every character's kept colonies teach it since Task 16 (the main's and each alt's, a refused alt's
+  last read among them: `useLearned`, Plan and Colonies alike); the shown character's alone before. A typed rate needs P0 an hour, the
+  programme's hours and heads, all three. The programme length defaults to the median of the learned programmes, else 72 h (the
+  spec's 3 days), until typed into the `planets` doc.
 - **The `planets` document** (`planetsDoc.ts`, `sanitizePlanets`): per system, customs tax by planet type and by planet, which
   high-sec planets are InterBus's, "not Brave's", and typed rates by type and P0; plus the programme length. Fractions 0 to 1,
   rates and hours positive and finite, at most 40 systems. Synced like `colonies` (`DOC_KEYS` on both sides), sanitized on pull,
@@ -75,7 +76,11 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     from the command centre (1.5×) isn't modelled, since no setup launches.
 - **The page** (`Planets.tsx`; sections in the address, `hustles/planets/<section>`, the last kept in `jita-ledger:planets-section`).
   The old four-step walkthrough, its region scan and `PiDiagram` went: its pieces live on as the P0 → P1 setup, the planner and
-  each setup's "How to build it" (`setupSteps`). The skills panel stays, at the shown character.
+  each setup's "How to build it" (`setupSteps`). The skills panel stays, at the shown character. **Plan, the Chart and Colonies
+  load as chunks of their own** (Ruling F2, `section` in Planets.tsx, App.tsx's `page` rule: a renamed chunk reloads once, then
+  "Reload to try again"), so the other Side hustles tabs don't carry the planner: SideHustles' chunk went from 637 KB (198 KB
+  gzipped) to 481 KB (143 KB) on 24 October 2026; Plan's chunk is 133 KB (48 KB), Colonies' 46 KB (18 KB, and it loads Plan's for
+  its outputs' lines), the Chart's 17 KB (7 KB).
   - **Show for** (`jita-ledger:planets-show`, falling back to the main without forgetting the kept one, as Industry's): planets
     allowed (1 + Interplanetary Consolidation, never typed: a skill that sets a figure exactly fills it), the CCU level the fits
     assume, the clone state, and fees from `useIndustryChars`.
@@ -103,8 +108,9 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     "the latest youtube guides say that you can easily plex your account and then some with null PI". A week is 7 days and a month
     30 (Research's convention); the share is the month over `plexPerMonth` × the PLEX price (Omega's own sum, `monthOfOmega`), "15%",
     "1.4×" past 100%, its tip giving the PLEX count, price, the price's age and that it is one account's month. A chain's is per
-    character, as its day is. No PLEX price read yet: the share is "–" with why, never 0%; no ISK a day, no periods. Colonies gets it
-    with Task 16.
+    character, as its day is. No PLEX price read yet: the share is "–" with why, never 0%; no ISK a day, no periods. Colonies has it
+    since Task 16 (planets-colonies.md); a chain's per-character lines say their week and month, and a chain across characters its
+    figure in all.
   - **The repeat line counts accounts** (20 October 2026; the accounts are characters.md's): what its characters make together in a
     month against K months of Omega, K the distinct accounts of the characters it counts, one whose account isn't set counting as
     its own, said ("for their 2 accounts, 1 character’s account not set"). A chain's per-character lines name each account once

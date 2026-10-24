@@ -31,6 +31,29 @@ const SLICE_MS = 8;
 export const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBrave: false, rates: {} };
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
+export type LearnedFrom = {
+  learned: Partial<Record<PlanetType, Record<string, Learned>>>; ownHours: number[]; defaultHours: number; programHours: number;
+  /** The heads a line whose heads aren't known sits on: the median of the learned rates' heads (Ruling T15b-5). */
+  heads: number | null;
+};
+/**
+ * What the planet gives, learned from every character's kept colonies (Task 16: the main's, and each alt's the cloud keeps,
+ * a refused alt's last read among them), by planet type and P0, and the program length they run: Plan and Colonies both read it, so
+ * a colony is set against the planner's best on the rates Plan ranks on. Keyed on the documents' contents: Planets.tsx rebuilds the
+ * map of them whenever the characters are.
+ */
+export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix: PiIndex): LearnedFrom {
+  const doc = useData().planets;
+  const docs = useStable(Object.keys(colonies).map(Number).sort((a, b) => a - b).map((id) => colonies[id]).filter((x): x is ColoniesDoc => !!x));
+  const learned = useMemo(() => learnedRates(docs, ix, PI_READING), [docs, ix]);
+  const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
+  const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
+  const heads = useMemo(() => assumedHeads(learned), [learned]);
+  const programHours = doc.programHours ?? defaultHours;
+  // One object while nothing in it moves: Colonies plans each colony's best again when it does.
+  return useMemo(() => ({ learned, ownHours, defaultHours, programHours, heads }), [learned, ownHours, defaultHours, programHours, heads]);
+}
+
 type Planned = { setups: Setup[] | null; working: boolean };
 /**
  * The five setups for an input, worked out once the input has stayed the same `SETTLE_MS`, in slices of `SLICE_MS` (each setup's
@@ -111,17 +134,9 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null }: {
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
 
-  // Learned from the shown character's own extractors (the main's kept colonies; an alt's once the cloud keeps them), keyed on that
-  // document's contents: Planets.tsx rebuilds the map of them whenever the characters are.
-  const shownColonies = useStable(colonies[c.charId]);
-  const learned = useMemo(() => learnedRates(shownColonies ? [shownColonies] : [], ix, PI_READING), [shownColonies, ix]);
-  const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
-  const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
-  const programHours = doc.programHours ?? defaultHours;
+  const { learned, ownHours, defaultHours, programHours, heads } = useLearned(colonies, ix);
   const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
   const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, prefs.rates[t]?.[String(p0)], t, p0), [learned, prefs.rates]);
-  // A line whose heads aren't known sits on the median of your learned rates' heads (Ruling T15b-5).
-  const heads = useMemo(() => assumedHeads(learned), [learned]);
 
   const morning = usePlanetMarket(c, ix);
   const planets = value?.planets ?? null;

@@ -17,7 +17,7 @@ import { PI_UNCHECKED, rateFor, type Learned } from '../../lib/piLearn';
 import {
   boughtFallbackSaid, fallbackGoods, fallbackSaid, shippedOutput,
   ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
-  type Bought, type PlanChar, type Repeat, type Role, type Setup, type SetupKind,
+  type Bought, type Output, type PlanChar, type Repeat, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
 import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
 import { update, useData } from '../../lib/store';
@@ -400,7 +400,7 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
         </div>
       </div>
       <div className="col" style={{ gap: 6 }}>
-        <div className="panel-title">Extraction, P0 an hour an extractor<Tip title="Extraction" text={'What one extractor (its control unit and heads) gives an hour, averaged over its program.\n\n• Learned from your own extractors of that planet type, the lower of the two readings of ESI’s figure until the game has been checked once.\n• Typed: the Total the game shows for a program, divided by its hours, with its length and head count.\n• Neither: a setup is worked out at what its factories can take, and says so.'} /></div>
+        <div className="panel-title">Extraction, P0 an hour an extractor<Tip title="Extraction" text={'What one extractor (its control unit and heads) gives an hour, averaged over its program.\n\n• Learned from every character’s extractors of that planet type (your colonies and each alt’s the cloud keeps), by CCP’s formula, as the game reads it.\n• Typed: the Total the game shows for a program, divided by its hours, with its length and head count.\n• Neither: a setup is worked out at what its factories can take, and says so.'} /></div>
         {types.map((t) => (
           <div key={t} className="pl-rates">
             <b className="pl-rate-type">{t}</b>
@@ -541,6 +541,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   const high = s.iskDayHigh != null && s.iskDay != null && Math.abs(s.iskDayHigh - s.iskDay) >= 1;
   // Ruling F10: the day as a week and a month, and the month against a month of Omega (one account's). Not known is "–", never 0.
   const per = priced ? periods(s.iskDay) : null;
+  const chainAll = per && perChar && s.perChar.every((p) => p.iskDay != null) ? periods(s.perChar.reduce((t, p) => t + p.iskDay!, 0)) : null;
   const share = per ? omegaShare(per.month, omega.perMonth, omega.price) : null;
   const cost = monthOfOmega(omega.perMonth, omega.price);
   const taxedPlanets = new Set(s.taxes.filter((t) => t.perDay == null).map((t) => t.planetId));
@@ -584,6 +585,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
               <span data-planets="week">{iskBig(per.week)} a week</span> · <span data-planets="month">{iskBig(per.month)} a month</span>{perChar ? ' per character' : ''}
             </span>
           )}
+          {/* A chain across characters: what they make together, as a day, a week and a month (Ruling F10). */}
+          {chainAll && <span className="sub" data-planets="chain-all">in all {iskBig(chainAll.day)} a day · {iskBig(chainAll.week)} a week · {iskBig(chainAll.month)} a month</span>}
           {per && (
             <span className="sub" data-planets="omega">
               {share != null ? <>{shareSaid(share)} of a month of Omega</> : 'Omega: – (PLEX price not read yet)'}
@@ -618,14 +621,14 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
                 const train = trainSaid(used.filter((r) => r.charId === p.charId), pname);
                 // Each character's account, once any of the chain's is set (the Characters page): which accounts it spans.
                 const acct = s.perChar.some((q) => accountOf(q.charId)) ? accountOf(p.charId)?.name ?? 'account not set' : null;
-                return <span key={p.charId} className="pl-line" data-planets={`chain-char:${p.charId}`}><b>{ch?.name ?? `Character ${p.charId}`}</b>{acct ? <span className="pl-type"> ({acct})</span> : null}: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share` : ''}{train ? `; ${train.charAt(0).toLowerCase()}${train.slice(1)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
+                return <span key={p.charId} className="pl-line" data-planets={`chain-char:${p.charId}`}><b>{ch?.name ?? `Character ${p.charId}`}</b>{acct ? <span className="pl-type"> ({acct})</span> : null}: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share (${iskBig(periods(p.iskDay)!.week)} a week, ${iskBig(periods(p.iskDay)!.month)} a month)` : ''}{train ? `; ${train.charAt(0).toLowerCase()}${train.slice(1)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
               })}
               {s.kind !== 'chain' && lacks && <span className="pl-line" data-planets="train">{lacks}.</span>}
             </div>
           )}
           <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
           {detail && <>
-          <Outputs s={s} name={name} />
+          <Outputs outputs={s.outputs} name={name} />
           {s.inputs.length > 0 && (
             <div className="col pl-lines">
               <span className="lbl">Bought</span>
@@ -671,24 +674,28 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
  * What stays on the planet unoffered (Ruling T15-5: it doesn't pay to ship, or a P0 has no price) says so apart from what the market
  * doesn't take.
  */
-function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
+/** What a setup makes, or a real colony (Colonies), valued: each output's line, sold, kept or not valued, and why. */
+export function Outputs({ outputs, name, label = 'What it makes, valued' }: { outputs: readonly Output[]; name: (id: number) => string; label?: string }) {
   return (
     <div className="col pl-lines">
-      <span className="lbl">What it makes, valued</span>
-      {s.outputs.map((o) => {
+      <span className="lbl">{label}</span>
+      {outputs.map((o) => {
         const kept = o.stays && o.stays.perDay > 1e-6 ? o.stays : null;
         const all = !!kept && kept.perDay >= o.perDay - 1e-6;
         const over = o.buildingUp - (kept?.perDay ?? 0);
+        // A real colony's good that can't leave its maker (colonyChain.ts' NOT_SHIPPED): nothing sold, a known nothing, said by its why.
+        const stuck = !kept && o.sold.isk === 0 && o.sold.units === 0 && !o.sold.where.length && !!o.sold.why;
         return (
           <span key={o.id} className="pl-line">
             <b>{name(o.id)}</b>: {aDay(o.perDay)} a day
             {all ? <span className="pl-up">, none shipped: it stays on the planet, building up, untaxed: {clause(kept!.why)}</span>
+              : stuck ? <span className="pl-up">, none of it leaves: {clause(o.sold.why!)}</span>
               : o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
                 : o.sold.fallback ? (o.sold.units > 0 ? `, ${aDay(o.sold.units)} for ${iskBig(o.sold.isk)} a day` : ', none valued: nothing sells at Jita at your share')
                   : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
             {!all && o.sold.isk != null && o.sold.fallback && <span className="pl-up" data-planets="fallback">. {fallbackSaid(o.sold)}</span>}
             {!all && kept && <span className="pl-up">; {aDay(kept.perDay)} a day stay on the planet, untaxed: {clause(kept.why)}</span>}
-            {!all && o.sold.isk != null && over > 1e-6 && <span className="pl-up">; {aDay(over)} a day build up: the market takes no more at your share</span>}
+            {!all && !stuck && o.sold.isk != null && over > 1e-6 && <span className="pl-up">; {aDay(over)} a day build up: the market takes no more at your share</span>}
           </span>
         );
       })}

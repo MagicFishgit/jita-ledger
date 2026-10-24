@@ -35,15 +35,34 @@ in planets.md and planets-planner.md.
   - **The read's job is noted at its own `now`** (`noteJob`'s optional `now`, the default `Date.now()`), the clock its hour's gate
     reads; nothing changes in production, where it is `Date.now()`. The suite's block is pinned to 14:00 UTC: on the real clock
     its "and notes the failure" failed when run from 10:55 to 11:30 UTC, EVE's downtime, when a failure isn't counted.
-- **The Colonies section** (`Colonies.tsx`, Task 12): with no read in memory, the main's kept document, saying it is as of the
-  last read (this browser's or the cloud's hourly one) and when EVE last updated the newest: the document has no read time,
-  and `lastUpdate` is the game's, never said as a read. No prices come with it: "–" and "not priced", never 0. Goods are named
-  from the planets bundle, never "Item #…". Without the planets permission but with a kept document, the permission notice
-  shows above the kept colonies.
+- **The Colonies section** (`Colonies.tsx`; Task 12, every character since Task 16, 24 October 2026): drawn from the kept documents
+  alone, never a live read's prices: the main's (Read my colonies writes it, as To do, the alerts and the cloud's hourly read do) and
+  each alt's the cloud keeps, which Planets.tsx passes down (the one importer of the alt store). A read is said as the last one
+  (the main's has no read time: "as kept", with when EVE last updated the newest; an alt's at its `sheet` job's `lastOk`); `lastUpdate`
+  is the game's, never said as a read. Goods are named from the planets bundle, never "Item #…".
+  - **Show for gains All** here alone (`jita-ledger:planets-colonies-show`; picking a character picks it for Show for too), grouped by
+    account. **Where each stands** (colonyTotals.ts' `coloniesWhy`): a kept document is read, a refused alt's too, said with `lostSaid`
+    (read data wins); else the main's login without the permission, an alt's refused or not held, one handed over without the planets
+    permission ("Hand the cloud X’s login again on the Characters page"), or "Not read yet". The alt's `colonies` comes through `altLedger`.
+  - **Each colony is its chain** (planets-chain.md) at its character's own fees (a `usePlanetMarket` a character, the colony's goods
+    read live) and its customs tax at its own system's security (waiting, said, until that's read). **One figure**, the chain's ISK a
+    day with its week and month (Ruling F10); colony.ts' ISK an hour, its "A week of this" and the Jita-priced "Waiting to be
+    collected" went, so nothing is said twice. "Makes nothing that leaves the planet" (or "Makes nothing"), never 0 ISK; "–" with why
+    when not known. Opened: its extractors ("heads not said" for 0), what its factories make and bring in (kept stocked), its outputs
+    (one that can't leave says "none of it leaves" and why, never sold for 0 ISK; goods valued at Jita's named with the hub's reason, F11),
+    its figures with the share of one account's month of Omega, its flags, then versusBest's words whole below them ("(a flag above
+    says why)"), any figure with its qualifier, never the gain alone; stored goods by units, as of EVE's last update.
+  - **Its best** (`bestsFor`) is planned on the colony's own planet in its own system, never the system Plan plans (a colony elsewhere
+    got "no setup"): planet ID and type from the document, radius from planetRadii.json, at Plan's rates (every character's learned
+    rates, its system's typed ones, `rateFor`'s fallbacks), heads and programme length; a colony at a time in tasks of their own (3 to
+    12 ms each), not on the minute's clock.
+  - **Totals** (colonyTotals.ts): a character's colonies summed, and All over the characters read ("3 of 5 characters read"); a
+    colony not valued, or still worked out, leaves its character's and All's "–" with how many and why, never a part-sum (research.md's
+    six-agents lesson); All's Omega share is against the months of the accounts of the characters it adds up that have a colony
+    (`accountCount`, one not set as its own), said. The page case's Task 16 block pins each state; check.mjs the sums.
   - **Each extractor shows its programme's total by CCP's formula, as the game reads it** (`data-planets="program:<pinId>"`:
     "789,314 over 1d 23h, 16,617 an hour on average"); the live read's too (`Extractor.install`). Its per hour is that average,
-    the game's own "Avg. Per hour" (`perHourOf` in colony.ts; the in-game check, planets.md), and so are the colony's ISK an hour
-    and To do's stake. It was ESI's figure a cycle turned into an hour, a quarter of the truth on 1-hour cycles. Before the check
+    the game's own "Avg. Per hour" (`perHourOf` in colony.ts; the in-game check, planets.md), and so is To do's stake. It was ESI's figure a cycle turned into an hour, a quarter of the truth on 1-hour cycles. Before the check
     it gave both totals, "not yet checked against the game's total".
   - **On a phone** an opened colony's detail wraps (`.col-unfold`), pinned within the table's visible width, and the extractor
     cards take the row's width; `check-phone` lets a box that scrolls sideways be, so the page case checks each total's right
@@ -58,9 +77,9 @@ in planets.md and planets-planner.md.
   other documents only when it changed, under the alt, never the main. A failed read keeps what is held and doesn't fail the sheet;
   nothing is written for an alt removed mid-read; the `sheet` job's `lastOk` dates it (no new watched job). The browser needed no
   change: the alt store keeps every document it pulls, and Planets reads `docs.colonies` through `sanitizeColonies`. `check-worker`
-  pins each rule (planted wrong: pushing under the ledger, no permission gate, always pushing each failed it). Still planned:
-  Colonies shows the shown character's or All; To do lists each character's expiring extractors (an alt's judged on a roster
-  read of this session); mail stays the main's alone.
+  pins each rule (planted wrong: pushing under the ledger, no permission gate, always pushing each failed it). Colonies shows
+  them since Task 16 (above). Still planned: To do lists each character's expiring extractors (an alt's judged on a roster read of
+  this session); mail stays the main's alone.
 - **A colony's real chain** (Task 15 and Task 15b, `colonyChain`, `versusBest`; Task 16 draws it): in planets-chain.md, with its
   Limits.
 
@@ -76,5 +95,7 @@ in planets.md and planets-planner.md.
 
 Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
 
-- **Colonies hasn't been looked at on a real colony yet.** The cloud has kept the main's since 18 October 2026 (above), but the
-  page case draws a seeded one, and nobody has opened the page on the real document.
+- **Colonies has been looked at on the real colonies only locally** (Task 16, 24 October 2026: the main's five kept documents of 18
+  October, seeded into a scratch browser on the page case's prices, not committed): I, IV and VI said nothing against their best,
+  III its routing fault, VII another product with its qualifier, every programme ended and counted at the rate it ran. Nobody has
+  opened the live page on them at today's prices.
