@@ -3936,7 +3936,8 @@ try {
           return { cards: t.querySelectorAll('.pl-rnode').length, paths: t.querySelectorAll('svg path').length, fits: t.parentElement.scrollWidth <= t.parentElement.clientWidth + 1, cut: nms.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent) };
         });
         // Nanites: itself, two P1s and two P0s, joined by four paths.
-        if (!drawn || drawn.cards !== 5 || drawn.paths !== 4 || !drawn.fits) problems.push(`Nanites' recipe isn't drawn as 5 cards and 4 paths: ${JSON.stringify(drawn)}`);
+        // At 390 px the tree scrolls sideways inside its own box, as designed: it must fit only at desktop width.
+        if (!drawn || drawn.cards !== 5 || drawn.paths !== 4 || (!PHONE && !drawn.fits)) problems.push(`Nanites' recipe isn't drawn as 5 cards and 4 paths: ${JSON.stringify(drawn)}`);
         else if (drawn.cut.length) problems.push(`names cut inside a word in the recipe tree: ${drawn.cut.join(', ')}`);
       }
       const p0Line = (id) => text(`[data-planets="tree"] [data-planets="p0:${id}"]`);
