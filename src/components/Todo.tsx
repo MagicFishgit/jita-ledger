@@ -11,13 +11,14 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  altIndustryItem, builtItem, builtPlaceSystem, builtWhere, type BuiltMarket, cashInItem, copyContractItem, judgeCopyContract, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  altIndustryItem, builtItem, builtPlaceSystem, builtWhere, type BuiltMarket, cashInItem, copyContractItem, judgeCopyContract, feedsQueueItem, notReachedItem, inFilter, altPiItem, judgeAltIndustry, judgeAltLogin, judgeAltPi, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
 import { couriersDue } from '../lib/contracts';
 import { copiesWhat } from '../lib/copyContracts';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
+import { colonyOfKept, sanitizeColonies } from '../lib/colonies';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
@@ -130,6 +131,18 @@ export function Todo() {
     resolveNames(agentSystems.split(',').map(Number)).then((n) => { if (alive) setSystemNames(n); }).catch(() => undefined);
     return () => { alive = false; };
   }, [agentSystems]);
+  // An alt's colonies as the cloud's hourly sheet kept them (the `colonies` doc of its pulled copy), for its extractors that end.
+  // Only the alt's extractors ending within a day are read here, so the main's colony read isn't asked for them.
+  const altCols = useMemo(() => roster.map((a) => ({ a, doc: sanitizeColonies(copies[a.charId]?.docs.colonies) })).filter((x) => x.doc?.colonies.length), [roster, copies]);
+  const altPi = useMemo(() => altCols.flatMap(({ a, doc }) => doc!.colonies.flatMap((k) => colonyOfKept(k, now).extractors.filter((e) => e.expiry != null && e.state !== 'idle' && (e.expiry - now) / 3600_000 <= 24).map((e) => ({ a, k, e })))), [altCols, now]);
+  const altPiIds = [...new Set(altPi.flatMap(({ k, e }) => [k.systemId, ...(e.productTypeId != null ? [e.productTypeId] : [])]))].sort((a, b) => a - b).join(',');
+  const [altPiNames, setAltPiNames] = useState<Record<number, string>>({});
+  useEffect(() => {
+    if (!altPiIds) return;
+    let alive = true;
+    resolveNames(altPiIds.split(',').map(Number)).then((n) => { if (alive) setAltPiNames(n); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [altPiIds]);
   // An alt's finished jobs (its records as the cloud's sheet last read them), and the names of their facilities.
   const altJobs = useMemo(() => roster.map((a) => ({ a, jobs: Object.values((copies[a.charId]?.records.jobs ?? {}) as Record<string, JobRecord>) })), [roster, copies]);
   // What every character built that sits loose where it landed (industryTrack.ts builtItems): the main's from its sync's
@@ -207,7 +220,7 @@ export function Todo() {
   // market signals every half hour. Coming back to the tab checks at once. A hidden tab doesn't poll;
   // the alerts, when they're on, keep checking in the background.
   const piWaiting = useRef(false);
-  piWaiting.current = Object.values(mem).some((e) => !e.done && (e.item.kind === 'piExpired' || e.item.kind === 'piEnding'));
+  piWaiting.current = Object.values(mem).some((e) => !e.done && (e.item.kind === 'piExpired' || e.item.kind === 'piEnding') && e.item.source === 'colonies');
   useEffect(() => {
     const tick = () => {
       if (document.visibilityState !== 'visible') return;
@@ -351,6 +364,16 @@ export function Todo() {
           action: { label: 'Open planets', route: 'hustles/planets' },
         });
       }
+    }
+    // An alt's extractors ending or ended, from its kept colonies (as the cloud's sheet last read them; the main's are above).
+    for (const { a, k, e } of altPi) {
+      const hours = (e.expiry! - now) / 3600_000;
+      const who = a.name ?? `Character ${a.charId}`;
+      out.push(altPiItem({
+        charId: a.charId, who, pinId: e.pinId, systemName: altPiNames[k.systemId] ?? `Planet ${k.planetId}`,
+        product: e.productTypeId != null ? altPiNames[e.productTypeId] ?? name(e.productTypeId) : 'an extractor', expiry: e.expiry!, ended: hours <= 0, perDay: 0, hours,
+        lost: lostSaid({ isMain: false, name: who, pilot: { lost: (st => (st === 'working' ? undefined : st))(loginState(a, []).state) } }),
+      }));
     }
     // Suspicious markets on anything you hold a position in, bid on or watch (not what you only sell). No ISK:
     // there so you don't act on a trap.
@@ -526,7 +549,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies, builtAll, builtJita, homeQ, hubs, hubUnknown, homeMarkets, shipKinds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, altPi, altPiNames, placeNames, copies, builtAll, builtJita, homeQ, hubs, hubUnknown, homeMarkets, shipKinds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -555,6 +578,7 @@ export function Todo() {
     // A built item is seen on the hangar read it was built from: the main's sync's, an alt's the cloud's archive (which reads its assets).
     const builtSeen = (x: TodoItem) => { const ch = Number(x.key.split(':')[1]); if (ch === builtMain) return hangarAt; const a = roster.find((z) => z.charId === ch); return a ? jobOk(a, 'archive') : null; };
     const seenAt = (x: TodoItem) =>
+      (x.kind === 'piExpired' || x.kind === 'piEnding') && x.source === 'roster' ? industrySeen(x) ?? t :
       x.source === 'research' ? researchAt(Number(idOf(x.key))) ?? t :
       x.kind === 'planList' ? hangarAt ?? t : x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industrySeen(x) ?? t : x.source === 'stock' ? builtSeen(x) ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
@@ -593,6 +617,15 @@ export function Todo() {
           });
         }
         case 'piExpired': case 'piEnding': {
+          const pp = x.key.split(':');
+          if (pp.length === 3) {
+            // An alt's: judged only on a roster read of this session, on its kept colonies (a copy not loaded is not a colony without it).
+            const a = roster.find((z) => String(z.charId) === pp[1]);
+            const copy = copies[Number(pp[1])];
+            const doc = copy ? sanitizeColonies(copy.docs.colonies) : undefined;
+            const ex = doc?.colonies.flatMap((k) => colonyOfKept(k, t).extractors).find((z) => String(z.pinId) === pp[2]) ?? null;
+            return judgeAltPi(e, { live: rosterLive && (!a || (!!copy && !!doc)), readAt: a ? jobOk(a, 'sheet') : null, gone: !a, extractor: ex }, t);
+          }
           const ex = col.read?.colonies.flatMap((c) => c.extractors).find((z) => String(z.pinId) === id) ?? null;
           return judgePi(e, { readAt, extractor: ex }, t);
         }

@@ -318,6 +318,30 @@ export function judgePi(e: Entry, c: { readAt: number | null; extractor: { expir
 }
 
 /**
+ * An alt's extractor ending or ended (its `colonies` doc, kept by the cloud's hourly sheet). Keyed `pi:<char>:<pin>` so the main's
+ * `pi:<pin>` never reopens. No stake: To do has no price source for an alt's goods (`perDay` is accepted and not used). Not mailed.
+ */
+export function altPiItem(x: { charId: number; who: string; pinId: number; systemName: string; product: string; expiry: number; ended: boolean; perDay: number; hours?: number; lost?: string | null }): TodoItem {
+  const tail = x.lost ? ` As the cloud last read it. ${x.lost}` : '';
+  return {
+    key: `pi:${x.charId}:${x.pinId}`, ver: `${x.expiry}:${x.ended ? 'ended' : 'ending'}`, kind: x.ended ? 'piExpired' : 'piEnding', source: 'roster', stake: 0,
+    title: `${x.who} · ${x.systemName} · ${x.product}`,
+    detail: (x.ended ? `The extraction programme has ended. It earns nothing until ${x.who} resets the heads.` : `The programme ends in ${Math.max(1, Math.round(x.hours ?? 1))} h. ${x.who} resets it in game.`) + tail,
+    action: { label: 'Open planets', route: 'hustles/planets/colonies' },
+  };
+}
+
+/**
+ * An alt's PI item that has gone: judged only on a roster read of this session (`live`) whose sheet read is newer than the one that
+ * showed it, as `judgeAltIndustry`. An alt gone from a live roster just goes.
+ */
+export function judgeAltPi(e: Entry, c: { live: boolean; readAt: number | null; gone: boolean; extractor: { expiry: number | null } | null }, now: number): string | null | false {
+  if (!c.live) return null;
+  if (c.gone) return false;
+  return judgePi(e, { readAt: c.readAt, extractor: c.extractor }, now);
+}
+
+/**
  * Finished industry jobs, ticked off once a newer read of your jobs no longer has any of them waiting: delivered in the
  * Industry window. The item's `ver` holds the job IDs it was about.
  */

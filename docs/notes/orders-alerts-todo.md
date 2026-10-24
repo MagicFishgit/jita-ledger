@@ -53,6 +53,17 @@ plans.
   an alt gone from a live roster just goes. Built from its `jobs` records, which the cloud reads hourly, so it's as of that
   read; a refused alt's last-read jobs still list. Its place is `jobPlaceSaid`'s (a station by ESI's name, a structure by the
   alt's blueprints doc or the system it was first seen in), never a container.
+- **An alt's expiring extractors go on To do** (Planets Task 17, 24 October 2026; kind `piExpired` / `piEnding`, source `roster`, `altPiItem`,
+  `judgeAltPi` in todo.ts). Built in Todo.tsx from each alt's pulled `colonies` doc (the cloud's hourly sheet keeps it, only with the planets
+  permission), through `colonyOfKept` and the main's rule (a programme ending within a day, or ended; idle ones skipped), keyed `pi:<char>:<pin>`
+  so the main's `pi:<pin>` never reopens, versioned `<expiry>:ended|ending`, titled `<who> · <system> · <product>` with the Colonies section as
+  its button. **Stake 0**, as an alt's industry items: To do has no price source for an alt's goods. A refused or lost login says the item is as
+  the cloud last read it (`lostSaid`). Judged as `judgeAltIndustry` is: only on a roster read of this session (`rosterLive`, and only with the
+  alt's copy loaded and its doc readable: a copy not loaded is not a colony without the extractor), whose `sheet` read is newer than the one
+  that showed it (the item is seen on that read, `industrySeen`); the heads reset or the extractor gone ticks it off; an alt gone from a live
+  roster just goes. **The main's colony re-read ignores them** (`piWaiting` counts only `source: 'colonies'` items), so an alt's item alone
+  doesn't have the main's colonies read every `COLONY_TTL`. Not mailed: mail stays the main's alone. System and product names come from
+  ESI's names (one call for both); until they land the item says the planet and "Item #…".
 - **What you built goes on To do** (kind `built`, source `stock`, Needs action; `builtItems`, `builtItem`, `builtWhere`, `judgeBuilt`): one item per character, product and place, while the place's loose hangar holds at least the newest delivered jobs' units; versioned by the newest delivered job (correction 18: a hand tick holds until another delivery, listing part of a batch doesn't reopen it, `HOLDS_UNTIL_CHANGED`); judged on a newer stock read (the main's sync's, an alt's archive), fewer held saying "Listed, sold or moved: N left"; an alt gone from a live roster just goes. Priced where it sits (correction 15); a hub you added is listed at its own market's price, said; a hub picked that isn't known here (the cloud's list loading, the cloud off in this browser, failing, or no longer listing it) says why in that state's words, copies nothing, never prices the item in Jita and never says no hub is picked (`hubWhy`); not known is said as what it is (a Jita book that couldn't be read, the home prices' own states, a Goonmetrics row with no price), "nobody lists it there" only for a book read with no other listing or an empty sell side; only the main's item copies a price, an alt's opens Blueprints & jobs and says when its login is refused; a home you typed in is recognised by the system its job was first seen in (`builtPlaceSystem`); a ship's kind unknown is "checking". Not mailed.
 - **R&D agents past an amount go on To do** (kind `cashIn`, source `research`, `judgeCashIn`; the rules are in research.md):
   one item per agent once its datacores waiting are worth more than the amount set on the Research tab, keyed by

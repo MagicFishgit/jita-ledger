@@ -10532,6 +10532,22 @@ console.log('\n--- Industry stage 2: To do, an alt\'s jobs to deliver (todo.ts, 
   eq('  an alt gone from a roster read from disk stays', D.judgeAltIndustry(e, { live: false, readAt: 500, gone: true, waiting: new Set() }), null);
 }
 
+console.log('\n--- Planets: To do, an alt\'s expiring extractors (todo.ts, Task 17) ---');
+{
+  const D = await import('../src/lib/todo.ts');
+  const x = { charId: 900001, who: 'Miner Two', pinId: 5001, systemName: '5-NZNW', product: 'Base Metals', expiry: NOW + 5 * 3600_000, ended: false, perDay: 0, hours: 5 };
+  const it = D.altPiItem(x), main = D.altPiItem({ ...x, ended: true });
+  const e = { item: it, seenAt: 1000, lastAt: 1000 };
+  eq('  key and title', [it.key, it.title], ['pi:900001:5001', 'Miner Two · 5-NZNW · Base Metals']);
+  eq('  ending, then ended: kind, version, source, no stake, the Colonies section', [it.kind, it.ver, it.source, it.stake, it.action.route, main.kind, main.ver.endsWith(':ended')], ['piEnding', `${x.expiry}:ending`, 'roster', 0, 'hustles/planets/colonies', 'piExpired', true]);
+  eq('  a refused login says it is as the cloud last read it', D.altPiItem({ ...x, lost: 'Hand it over again.' }).detail.includes('As the cloud last read it. Hand it over again.'), true);
+  eq('  not judged before a live roster read', D.judgeAltPi(e, { live: false, readAt: NOW, gone: false, extractor: null }, NOW), null);
+  eq('  gone from the roster: just goes', D.judgeAltPi(e, { live: true, readAt: NOW, gone: true, extractor: null }, NOW), false);
+  eq('  the read that showed it can’t say', D.judgeAltPi(e, { live: true, readAt: 1000, gone: false, extractor: null }, NOW), null);
+  eq('  reset: done', typeof D.judgeAltPi(e, { live: true, readAt: e.seenAt + 1, gone: false, extractor: { expiry: NOW + 3 * DAY } }, NOW), 'string');
+  eq('  still ending: not done', D.judgeAltPi(e, { live: true, readAt: e.seenAt + 1, gone: false, extractor: { expiry: x.expiry } }, NOW), null);
+}
+
 console.log('\n--- Industry stage 2: To do, List what you built (Task 12B) ---');
 {
   const T = await import('../src/lib/industryTrack.ts');

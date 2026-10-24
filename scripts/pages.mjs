@@ -4402,6 +4402,18 @@ try {
       };
       await coloniesSeed(ledger.meta.plex);
 
+      // Task 17: To do lists an alt's extractors that end, from its kept colonies, under its name. Refused Alt's programme ended a day
+      // ago (its login was refused after that read, which the item says); Gas Alt's two end in about 23 hours (ending); a main's
+      // item never carries an alt's name. Names ESI is not asked for in this check read as the planet and "Item #".
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#todo`);
+      await page.waitForFunction(() => /Refused Alt · /.test(document.body.textContent ?? '') && /Gas Alt · /.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const altPi = await text('.tn-item:has-text("Refused Alt ·")');
+      if (!/ended/i.test(altPi) || !/Open planets/i.test(altPi) || !/As the cloud last read it. EVE refused Refused Alt’s login/.test(altPi)) problems.push(`To do doesn’t list the refused alt’s ended extractor under its name: “${altPi.slice(0, 300)}”`);
+      const gasPi = await text('.tn-item:has-text("Gas Alt ·")');
+      if (!/ends in 2[34] h/.test(gasPi) || /As the cloud last read it/.test(gasPi)) problems.push(`To do doesn’t list Gas Alt’s extractors ending in about a day, or says its login is lost: “${gasPi.slice(0, 300)}”`);
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/colonies`);
+      await page.waitForSelector('[data-planets="colonies"]', { timeout: 30_000 }).catch(() => problems.push('Colonies never drew after To do (Task 17)'));
+
       // All: Show for gains it on Colonies, the characters under their accounts.
       const groups = await page.locator('[aria-label="Show for"] .seg-group-name').allTextContents();
       if (JSON.stringify(groups) !== JSON.stringify(['Main account', 'Account not set'])) problems.push(`Colonies' Show for accounts: ${JSON.stringify(groups)}`);

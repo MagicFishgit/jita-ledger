@@ -78,8 +78,7 @@ in planets.md and planets-planner.md.
   nothing is written for an alt removed mid-read; the `sheet` job's `lastOk` dates it (no new watched job). The browser needed no
   change: the alt store keeps every document it pulls, and Planets reads `docs.colonies` through `sanitizeColonies`. `check-worker`
   pins each rule (planted wrong: pushing under the ledger, no permission gate, always pushing each failed it). Colonies shows
-  them since Task 16 (above). Still planned: To do lists each character's expiring extractors (an alt's judged on a roster read of
-  this session); mail stays the main's alone.
+  them since Task 16 (above). To do lists each character's expiring extractors (Task 17, orders-alerts-todo.md); mail stays the main's alone.
 - **A colony's real chain** (Task 15 and Task 15b, `colonyChain`, `versusBest`; Task 16 draws it): in planets-chain.md, with its
   Limits.
 
