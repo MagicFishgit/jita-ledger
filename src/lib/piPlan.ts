@@ -1213,7 +1213,7 @@ export function planSingle(given: PlanInput, kind: 'p1' | 'p2'): Setup {
     const k = byPlanet.get(planet.planetId);
     // Held to one good, a planet that can't make it alone says so, not that the planets went to ones that pay more.
     if (k == null) return unusedRole(planet, char.charId, input.only != null && !options[at].length ? `It can’t make ${goodName(input.ix, input.only)} alone`
-      : allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`);
+      : goesTo(input, allowed));
     const p = plans[k], exported = now.exports[k];
     const f = fitted(input, p, cc);
     if (f.lacks) lacks.add(f.lacks);
@@ -1292,6 +1292,11 @@ export function planSingle(given: PlanInput, kind: 'p1' | 'p2'): Setup {
 /** Plan it's head figure (`Setup.made`): the held good's units a day among a setup's outputs; nothing with every product. */
 const madeOf = (input: PlanInput, outputs: readonly Output[]): { made?: Setup['made'] } =>
   (input.only == null ? {} : { made: { id: input.only, perDay: outputs.find((o) => o.id === input.only)?.perDay ?? 0 } });
+/** Why a planet isn't used when every one allowed is: they go to ones that pay more, or under Plan it (units first) make more of the good. */
+const goesTo = (input: PlanInput, allowed: number) => {
+  const why = input.only != null ? `make more ${goodName(input.ix, input.only)}` : 'pay more';
+  return allowed === 1 ? `Your 1 planet goes to one that ${why.replace(/^make /, 'makes ').replace(/^pay /, 'pays ')}` : `Your ${allowed} planets go to ones that ${why}`;
+};
 /** A setup's `repeat`, only where there is one (the field stays absent otherwise, so a setup's shape is as before). */
 const withRepeat = (r: Repeat | undefined): { repeat?: Repeat } => (r ? { repeat: r } : {});
 
@@ -2621,7 +2626,7 @@ export function* planFeedSteps(given: PlanInput): Steps<Setup> {
       : `No factory planet here can be fed within your ${allowed} planets`, []);
   }
   const used = best.placed.feeders.length + 1;
-  return withCut(setupFed('feed', input, best, used >= allowed ? `Your ${allowed} planets go to ones that pay more` : 'Not needed by this setup'), budget);
+  return withCut(setupFed('feed', input, best, used >= allowed ? goesTo(input, allowed) : 'Not needed by this setup'), budget);
 }
 
 /**
@@ -3240,7 +3245,7 @@ export function planBought(given: PlanInput): Setup {
     });
     for (const t of v.tax[k]) { taxes.push({ planetId: m.planet.planetId, tier: t.tier, perDay: t.perDay }); if (t.perDay == null) perPctBase += t.base; }
   });
-  const notUsed = chosen.inst.length < allowed ? 'Nothing else pays here' : allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`;
+  const notUsed = chosen.inst.length < allowed ? 'Nothing else pays here' : goesTo(input, allowed);
   const roles = input.planets.map((planet) => roleOf.get(planet.planetId)
     ?? unusedRole(planet, char.charId, !planet.type ? NO_PI : planet.radiusKm == null || !(planet.radiusKm > 0) ? sizeWhy : notUsed));
   const place = new Map(input.planets.map((p, i) => [p.planetId, i]));
