@@ -7581,6 +7581,20 @@ console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down 
         || JSON.stringify(r.filter((s) => s.tier === 'P0').map((s) => s.id).sort((a, b) => a - b)) !== JSON.stringify(p0Of(ix, c.id));
     }).map((c) => c.name);
     eq('  every good’s recipe sums every path to each of its parts, once each', off, []);
+    // The drawn recipe: every path joins neighbouring columns, no path runs behind a card it doesn't join, and the cards' amounts along
+    // each path sum to the recipe's per good.
+    const { recipeTree, recipeGrid, longestWord, cardMin } = await import('../src/lib/piChart.ts');
+    const { treeProblems } = await import('../src/lib/shipTree.ts');
+    const bad = [];
+    for (const c of ix.commodities) {
+      const t = recipeTree(ix, c.id);
+      const problems = treeProblems(t.nodes.map((n) => ({ id: n.i, col: n.col, row: n.row })), t.edges, recipeGrid(t.cols, longestWord(ix)));
+      const sums = new Map(); for (const n of t.nodes) sums.set(n.id, (sums.get(n.id) ?? 0) + n.need);
+      const r = recipeOf(ix, c.id);
+      if (problems.length || t.edges.some(([a, b]) => t.nodes[b].col !== t.nodes[a].col + 1) || r.some((s) => Math.abs(sums.get(s.id) - s.need) > 1e-9 * s.need) || sums.size !== r.length) bad.push(`${c.name}: ${problems.slice(0, 2)}`);
+    }
+    eq('  a card holds the longest single word of any good’s name (cards break at spaces only), in every tree', [longestWord(ix), ix.commodities.every((c) => { const t = recipeTree(ix, c.id), gr = recipeGrid(t.cols, longestWord(ix)); return gr.cardW >= cardMin(longestWord(ix)); }), ix.commodities.some((c) => recipeGrid(recipeTree(ix, c.id).cols, longestWord(ix)).colW * recipeTree(ix, c.id).cols <= 566)], [longestWord(ix), true, true]);
+    eq('  every good’s drawn recipe: lines join neighbouring columns, none runs behind a card, amounts sum to the recipe’s', bad, []);
     eq('  a schematic’s inputs are always of a lower tier (the sum runs top down)', ix.schematics.every((s) => s.inputs.every((i) => TIERS.indexOf(ix.byId.get(i.id).tier) < TIERS.indexOf(s.tier))), true);
   }
   const UALX = ['Barren', 'Temperate', 'Temperate', 'Barren', 'Storm', 'Barren', 'Temperate', 'Gas'];

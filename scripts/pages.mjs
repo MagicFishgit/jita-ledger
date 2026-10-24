@@ -3921,9 +3921,21 @@ try {
       const tree = await text('[data-planets="tree"]');
       for (const n of ['Nanites', 'Bacteria', 'Reactive Metals', 'Microorganisms', 'Base Metals']) if (!tree.includes(n)) problems.push(`Nanites' recipe doesn't name ${n}`);
       // Quantities and cycle times: 40 + 40 → 5 an hour; 3,000 → 20 every 30 minutes; and what one Nanites takes all the way down.
-      if (!/40 Bacteria \+ 40 Reactive Metals → 5 Nanites/.test(tree) || !/every hour/.test(tree)) problems.push(`Nanites' own step lacks its quantities or cycle: “${tree.slice(0, 300)}”`);
+      if (!/40 Bacteria \+ 40 Reactive Metals → 5 Nanites/.test(tree) || !/every hour/.test(tree)) problems.push(`Nanites’ own step lacks its quantities or cycle: “${tree.slice(0, 300)}”`);
       if (!/3,000 Microorganisms → 20 Bacteria/.test(tree) || !/every 30 minutes/.test(tree)) problems.push(`Bacteria's step lacks its quantities or cycle: “${tree.slice(0, 400)}”`);
       if (!/1,200 Microorganisms/.test(tree) || !/8 Bacteria/.test(tree)) problems.push(`the recipe doesn't say what one Nanites takes all the way down: “${tree.slice(0, 400)}”`);
+      // The recipe is drawn: a card per node and a path per edge (a refactor that drops the SVG fails here), no name cut inside a word.
+      {
+        const drawn = await page.evaluate(() => {
+          const t = document.querySelector('[data-planets="tree"] [data-planets="recipe-tree"]');
+          if (!t) return null;
+          const nms = [...t.querySelectorAll('.pl-rnode .nm')];
+          return { cards: t.querySelectorAll('.pl-rnode').length, paths: t.querySelectorAll('svg path').length, fits: t.parentElement.scrollWidth <= t.parentElement.clientWidth + 1, cut: nms.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent) };
+        });
+        // Nanites: itself, two P1s and two P0s, joined by four paths.
+        if (!drawn || drawn.cards !== 5 || drawn.paths !== 4 || !drawn.fits) problems.push(`Nanites' recipe isn't drawn as 5 cards and 4 paths: ${JSON.stringify(drawn)}`);
+        else if (drawn.cut.length) problems.push(`names cut inside a word in the recipe tree: ${drawn.cut.join(', ')}`);
+      }
       const p0Line = (id) => text(`[data-planets="tree"] [data-planets="p0:${id}"]`);
       const micro = await p0Line(MICRO), base = await p0Line(BASE);
       if (!micro.includes('Temperate, Ice, Oceanic and Barren')) problems.push(`Microorganisms' planet types: “${micro}”`);
@@ -3974,6 +3986,17 @@ try {
         if (lines < 2) problems.push('at 390 px the P0 tier doesn’t wrap');
       }
       if (SHOTS) { await page.locator('[data-planets="tree"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-chart.png` }); }
+      // The drawn recipe of a P3 and of a P4, for looking at.
+      if (SHOTS) for (const [gid, nm] of [[2348, 'gel'], [BROADCAST, 'broadcast']]) {
+        await page.locator(good(gid)).click({ force: true }).catch(() => undefined);
+        await page.waitForTimeout(600);
+        await page.locator('[data-planets="tree"]').scrollIntoViewIfNeeded().catch(() => undefined);
+        const d2 = await page.evaluate(() => { const t = document.querySelector('[data-planets="recipe-tree"]'); return t ? { fits: t.parentElement.scrollWidth <= t.parentElement.clientWidth + 1, cards: t.querySelectorAll('.pl-rnode').length, paths: t.querySelectorAll('svg path').length, cut: [...t.querySelectorAll('.pl-rnode .nm')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent) } : null; });
+        if (!d2 || d2.paths !== d2.cards - 1 || d2.cut.length || (nm === "gel" && !d2.fits)) problems.push(`${nm}'s recipe tree: ${JSON.stringify(d2)}`);
+        await page.screenshot({ path: `${SHOTS}-planets-chart-${nm}.png` });
+        await page.locator('[data-planets="tree"]').screenshot({ path: `${SHOTS}-planets-chart-${nm}-panel.png` }).catch(() => undefined);
+      }
+      if (SHOTS) { await page.locator(good(NANITES)).click({ force: true }).catch(() => undefined); await page.waitForTimeout(300); }
 
       // Ruling T12-2: a value says which book it's on where it shows. A good the ranking doesn't name has no live book read, so
       // valued at Jita it's on this morning's book, and its tip and its recipe's head say so; one read live says "now".

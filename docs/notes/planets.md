@@ -181,6 +181,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     two (no Lava, Plasma, Ice or Oceanic planet: Felsic Magma, Heavy Metals, Non-CS Crystals, Planktic Colonies), and 40 goods are
     greyed there; 5-NZNW has all 15. Scrolls to the recipe only on a pick, never on opening with a good kept
     (`jita-ledger:planets-good`).
+    - **The picked good's panel is drawn** (the user, 24 October 2026: "hard to read and process… use some icons or images or graphics"; 600 px beside the grid): ISK a unit and a m³ as tiles; the recipe as a left-to-right tree of icon cards (`recipeTree`, a good used twice appears once per parent, so no line crosses; paths are the ship trees' `edgeShape`, and check.mjs runs `treeProblems` over all 83 goods at the card size `RECIPE_BOX`); each step as an equation of icons with a facility badge and its cycle; P0s with their planet types' icons (images.evetech.net serves `/types/<planet type id>/icon`). The sums "in all" stay as chips.
   - **Phone**: the Chart's tiers wrap two goods a row; a setup's planet lines stack; Colonies in planets-colonies.md.
 - **The page case** (`scripts/pages.mjs`, the `planets` ledger; `scripts/fixtures/planets-5nznw.json`, committed so the deploy
   can read it: 5-NZNW's and UALX-3's planets as ESI answered, the goods' books and Goonmetrics rows from the research's prices)

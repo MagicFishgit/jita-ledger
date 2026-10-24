@@ -54,6 +54,50 @@ export function recipeOf(ix: PiIndex, id: number): RecipeStep[] {
   return [step(id), ...below.map((c) => step(c.id))];
 }
 
+/** The panel's inner width, and the narrowest a card can be and still hold the longest single name at 11 px beside its icon (6.3 px a character, 30 px of icon and padding). */
+export const RECIPE_WIDTH = 566;
+export const CARD_GAP = 10;
+export const cardMin = (words: number) => Math.ceil(words * 6.3) + 30;
+/**
+ * The drawn recipe's grid in pixels: each column takes its share of the panel's width, but never less than a card that holds the
+ * longest word (`longest`, in characters) plus the gap for the paths; past that the tree is wider than the panel and scrolls.
+ * `halfW` and `halfH` are how much of a cell a card fills, for `treeProblems`.
+ */
+export function recipeGrid(cols: number, longest: number, width = RECIPE_WIDTH) {
+  const colW = Math.min(180, Math.max(Math.floor(width / Math.max(1, cols)), cardMin(longest) + CARD_GAP));
+  const cardW = colW - CARD_GAP, rowH = 54, cardH = 46;
+  return { colW, rowH, cardW, cardH, halfW: cardW / 2 / colW, halfH: cardH / 2 / rowH };
+}
+/** The longest single word in any good's name (cards break names only at spaces). */
+export const longestWord = (ix: PiIndex) => Math.max(...ix.commodities.flatMap((c) => c.name.split(/\s+/).map((w) => w.length)));
+
+/** One card of the drawn recipe: a good at a depth, how many go into one of the picked good along this path, and the card it feeds. */
+export type RecipeNode = { i: number; id: number; col: number; row: number; need: number; parent: number | null };
+
+/**
+ * The recipe as a tree to draw, left to right: the picked good at column 0, what it's made from at 1, and so on down to P0. A good
+ * used by two parents appears once under each (so no line crosses another), with `need` the amount along that path; the leaves
+ * take consecutive rows and a parent sits at the middle of its children, so every line joins neighbouring columns. A good the
+ * bundle doesn't know gives no nodes. `edges` are [parent, child] node indexes, for `treeProblems`.
+ */
+export function recipeTree(ix: PiIndex, id: number): { nodes: RecipeNode[]; edges: [number, number][]; cols: number; rows: number } {
+  const nodes: RecipeNode[] = [];
+  const edges: [number, number][] = [];
+  let leaf = 0, cols = 0;
+  const walk = (g: number, col: number, need: number, parent: number | null): number => {
+    const i = nodes.length;
+    nodes.push({ i, id: g, col, row: 0, need, parent });
+    cols = Math.max(cols, col + 1);
+    const s = ix.makes.get(g);
+    if (!s || !s.inputs.length) { nodes[i].row = leaf++; return nodes[i].row; }
+    const rows = s.inputs.map((inp) => { const at = nodes.length; edges.push([i, at]); return walk(inp.id, col + 1, (need * inp.qty) / s.out.qty, i); });
+    nodes[i].row = (Math.min(...rows) + Math.max(...rows)) / 2;
+    return nodes[i].row;
+  };
+  if (ix.byId.has(id)) walk(id, 0, 1, null);
+  return { nodes, edges, cols, rows: leaf };
+}
+
 /**
  * What a system can supply and which kinds of setup can make a good from its planets (`p0sOn`, `missingFor`, `canMake`, `CanMake`,
  * `CHAIN_P3_WHEN`) live in piPlan.ts, beside the setups whose rule they read: the planner held to one good says the same reasons

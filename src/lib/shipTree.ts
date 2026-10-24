@@ -65,7 +65,7 @@ export function edgeShape(a: { col: number; row: number }, b: { col: number; row
  * This walks each path (`edgeShape`) in grid units against every other node's box: 91% of a column wide, and about 0.22
  * of a row high at the chart's narrowest (a node is ~46 px tall on a row 168 × 0.68 px high). Empty means none.
  */
-export function treeProblems(nodes: TreeNode[], edges: [number, number][]): string[] {
+export function treeProblems(nodes: Pick<TreeNode, 'id' | 'col' | 'row'>[], edges: [number, number][], box: { halfW: number; halfH: number } = { halfW: 0.455, halfH: 0.22 }): string[] {
   const out: string[] = [];
   const at = new Map<string, number>();
   for (const n of nodes) {
@@ -88,7 +88,7 @@ export function treeProblems(nodes: TreeNode[], edges: [number, number][]): stri
     for (const [x, y] of points) {
       for (const n of nodes) {
         if (n.id === a || n.id === b || hit.has(n.id)) continue;
-        if (Math.abs(x - (n.col + 0.5)) < 0.455 && Math.abs(y - (n.row + 0.5)) < 0.22) hit.add(n.id);
+        if (Math.abs(x - (n.col + 0.5)) < box.halfW && Math.abs(y - (n.row + 0.5)) < box.halfH) hit.add(n.id);
       }
     }
     for (const n of hit) out.push(`path ${a} → ${b} runs behind ${n}`);

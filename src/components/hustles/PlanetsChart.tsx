@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Factory, Globe, MapPin, Pickaxe, X } from 'lucide-react';
+import { Clock, Cog, Cpu, Factory, Globe, MapPin, Pickaxe, X, type LucideIcon } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import { iskBig, units } from '../../lib/format';
 import { dayCount } from '../../lib/split';
 import type { PlanetType } from '../../lib/pi';
 import type { Commodity, PiIndex, Schematic, Tier } from '../../lib/piBundle';
-import { canMake, goodsByTier, makingIn, missingFor, recipeOf, TIERS, typesWith, type CanMake } from '../../lib/piChart';
+import { canMake, goodsByTier, makingIn, missingFor, longestWord, RECIPE_WIDTH, recipeGrid, recipeOf, recipeTree, TIERS, typesWith, type CanMake } from '../../lib/piChart';
 import { charWhy, fallbackSaid, NO_SKILLS, shippedOutput, type Setup, type SetupKind } from '../../lib/piPlan';
 import { Points } from '../Facts';
-import { ItemIcon } from '../ui';
+import { edgeShape } from '../../lib/shipTree';
+import { ItemIcon, Tiles } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { UnitBook, UnitNet } from './planetsMarket';
@@ -34,6 +35,8 @@ const TIER_SAID: Record<Tier, string> = {
   P4: 'High-Tech Production Plants, on Barren and Temperate planets',
 };
 const FACILITY: Record<Schematic['facility'], string> = { basic: 'Basic Industry Facility', advanced: 'Advanced Industry Facility', hightech: 'High-Tech Production Plant' };
+const FACILITY_SHORT: Record<Schematic['facility'], string> = { basic: 'Basic', advanced: 'Advanced', hightech: 'High-Tech' };
+const FACILITY_ICON: Record<Schematic['facility'], LucideIcon> = { basic: Factory, advanced: Cog, hightech: Cpu };
 const listSaid = (xs: string[], and = 'and') => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ${and} ${xs[xs.length - 1]}`);
 /** A value as a chip says it: cents under 100 ISK (a P0 is a few ISK), whole ISK above. */
 const iskSaid = (v: number) => iskBig(Math.abs(v) >= 100 ? Math.round(v) : v);
@@ -43,9 +46,6 @@ function cycleSaid(sec: number): string {
   if (sec % 3600 === 0) return sec === 3600 ? 'every hour' : `every ${sec / 3600} hours`;
   return `every ${+(sec / 60).toFixed(1)} minutes`;
 }
-/** A schematic's cycle: "40 Bacteria + 40 Reactive Metals → 5 Nanites every hour". */
-const recipeSaid = (s: Schematic, name: (id: number) => string) =>
-  `${s.inputs.map((i) => `${units(i.qty)} ${name(i.id)}`).join(' + ')} → ${units(s.out.qty)} ${name(s.out.id)} ${cycleSaid(s.cycleSeconds)}`;
 const whereSaid = (w: UnitNet['where'], hub: string | null) => (w === 'home' ? hub ?? 'the home hub' : 'Jita');
 /** What the value was read from, said beside it (Ruling T12-2): a good the ranking doesn't name is on this morning's Jita book. */
 const BOOK_SAID: Record<UnitBook, string> = {
@@ -200,22 +200,68 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
   };
   const lacking = (stepId: number) => (missing.length ? missingFor(ix, stepId, [...new Set(planets.map((x) => x.type).filter((t): t is PlanetType => !!t))]) : []);
 
+  const tree = useMemo(() => recipeTree(ix, id), [ix, id]);
+  // The tree takes the width its box has (a scrollbar and the column's width vary), so a P3's columns share it and a P4's scroll.
+  const [boxW, setBoxW] = useState(RECIPE_WIDTH - 24);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => { const w = Math.floor(el.clientWidth); if (w > 0) setBoxW(w); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tree.rows > 0]);
+  const grid = useMemo(() => recipeGrid(tree.cols, longestWord(ix), boxW), [ix, tree.cols, boxW]);
+  const lacksP0 = (x: number) => missing.includes(x);
+  const termsOf = (xs: { id: number; qty: number }[]) => xs.map((i, k) => (
+    <span key={i.id}>{k > 0 && <span className="pl-plus"> + </span>}<span className="pl-term" data-tip={name(i.id)}><ItemIcon id={i.id} size="sm" /><b>{units(i.qty)}</b>{' '}<span className="nm">{name(i.id)}</span></span></span>
+  ));
+
   return (
     <section ref={ref} className="pl-tree" data-planets="tree" aria-label={g.name}>
       <div className="pl-tree-head">
-        <ItemIcon id={id} />
+        <ItemIcon id={id} size="lg" />
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <b>{g.name}</b>
-          <span className="sub">{g.tier} · {g.volume} m³ a unit · {u.isk != null ? `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}; ${iskSaid(u.isk / g.volume)} a m³` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
+          <span className="sub">{g.tier} · {g.volume} m³ a unit</span>
+          <span className="sub">{u.isk != null ? `Valued ${valueSaid(u, hub)}` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
           {u.isk != null && u.fallback && <span className="sub pl-up" data-planets="tree-fallback">{fallbackUnit(u)}.</span>}
         </div>
         <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
       </div>
+      <div data-planets="tree-value">
+        <Tiles inset min={140} items={[
+          { l: 'ISK a unit', v: u.isk != null ? iskSaid(u.isk) : '–', c: u.isk != null && u.isk < 0 ? 'var(--neg)' : undefined, n: u.isk != null && u.isk < 0 ? 'Fees and freight cost more than it sells for' : undefined },
+          { l: 'ISK a m³', v: u.isk != null ? iskSaid(u.isk / g.volume) : '–', c: u.isk != null && u.isk < 0 ? 'var(--neg)' : undefined },
+        ]} />
+      </div>
       {parts.length > 0 && (
         <div className="col pl-lines" data-planets="needs">
-          <span className="lbl">One {g.name} takes, all the way down</span>
+          <span className="lbl">What {g.name} is made from</span>
+          <span className="note small">Read right to left: each good is made from the ones to its right, and the number is how many go into one {g.name}.</span>
+          <div className="pl-tree-scroll" ref={box}>
+            <div className="pl-rtree" data-planets="recipe-tree" role="group" aria-label={`${g.name}, down to P0`} style={{ width: tree.cols * grid.colW, height: tree.rows * grid.rowH }}>
+              <svg className="pl-rtree-edges" width={tree.cols * grid.colW} height={tree.rows * grid.rowH} aria-hidden="true">
+                {tree.edges.map(([a, b]) => {
+                  const e = edgeShape(tree.nodes[a], tree.nodes[b]), X = (v: number) => v * grid.colW, Y = (v: number) => v * grid.rowH;
+                  return <path key={`${a}-${b}`} d={`M${X(e.x1)} ${Y(e.y1)} H${X(e.xa)} C${X(e.m)} ${Y(e.y1)}, ${X(e.m)} ${Y(e.y2)}, ${X(e.xb)} ${Y(e.y2)} H${X(e.x2)}`} />;
+                })}
+              </svg>
+              {tree.nodes.map((n) => {
+                const c = ix.byId.get(n.id);
+                return (
+                  <span key={n.i} className={'pl-rnode' + (c?.tier === 'P0' && lacksP0(n.id) ? ' off' : '') + (n.i === 0 ? ' top' : '')} data-planets={`node:${n.id}`} data-tip={name(n.id)}
+                    style={{ left: n.col * grid.colW + (grid.colW - grid.cardW) / 2, top: n.row * grid.rowH + (grid.rowH - grid.cardH) / 2, width: grid.cardW, height: grid.cardH }}>
+                    <ItemIcon id={n.id} size="sm" />
+                    <span className="pl-rnode-t"><span className="nm">{name(n.id)}</span><span className="pl-rnode-n">{n.i === 0 ? c?.tier : `${c?.tier} · ${needSaid(n.need)}`}</span></span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <span className="lbl" style={{ marginTop: 4 }}>In all, one {g.name} takes</span>
           {TIERS.filter((t) => parts.some((s) => s.tier === t)).reverse().map((t) => (
-            <span key={t} className="pl-need"><b>{t}</b>{parts.filter((s) => s.tier === t).map((s) => <span key={s.id} className="pill-tag">{needSaid(s.need)} {name(s.id)}</span>)}</span>
+            <span key={t} className="pl-need"><b>{t}</b>{parts.filter((s) => s.tier === t).map((s) => <span key={s.id} className="pill-tag pl-chip-ic"><ItemIcon id={s.id} size="sm" />{needSaid(s.need)} {name(s.id)}</span>)}</span>
           ))}
         </div>
       )}
@@ -227,11 +273,21 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
           <span className="lbl">How it’s made</span>
           {made.map((s) => {
             const lacks = lacking(s.id);
+            const F = FACILITY_ICON[s.schematic!.facility];
             return (
-              <div key={s.id} className={'pl-step' + (lacks.length ? ' off' : '')} data-planets={`step:${s.id}`}>
-                <span className="pl-step-name"><b>{name(s.id)}</b><span className="sub">{s.tier} · {FACILITY[s.schematic!.facility]}</span></span>
-                <span className="pl-line">{recipeSaid(s.schematic!, name)}{s.id !== id && <span className="sub"> · {needSaid(s.need)} for each {g.name}</span>}
-                  {lacks.length > 0 && <span className="pl-why"> Can’t be made from {sysName}’s planets: no {listSaid(lacks.map(name), 'or')}.</span>}</span>
+              <div key={s.id} className={'pl-stepcard' + (lacks.length ? ' off' : '')} data-planets={`step:${s.id}`}>
+                <div className="pl-eq">
+                  <span className="pl-ins">{termsOf(s.schematic!.inputs)}</span>
+                  <span className="pl-result"><span className="pl-arrow" aria-hidden="true"> → </span>
+                    <span className="pl-term out"><ItemIcon id={s.id} size="sm" /><b>{units(s.schematic!.out.qty)}</b>{' '}<span className="nm">{name(s.id)}</span></span></span>
+                </div>
+                <div className="pl-step-meta">
+                  <span className="pl-badge" data-tip={FACILITY[s.schematic!.facility]} data-planets="facility"><F aria-hidden="true" />{FACILITY_SHORT[s.schematic!.facility]}</span>
+                  <span className="pl-badge clock"><Clock aria-hidden="true" />{cycleSaid(s.schematic!.cycleSeconds)}</span>
+                  <span className="sub">{s.tier}</span>
+                  {s.id !== id && <span className="pill-tag">{needSaid(s.need)} for each {g.name}</span>}
+                </div>
+                {lacks.length > 0 && <span className="pl-why">Can’t be made from {sysName}’s planets: no {listSaid(lacks.map(name), 'or')}.</span>}
               </div>
             );
           })}
@@ -241,10 +297,12 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
         <span className="lbl">{g.tier === 'P0' ? 'Where it comes from' : 'Out of the ground'}</span>
         {p0s.map((s) => {
           const here = sysName ? herePlanets(s.id) : null;
+          const types = typesWith(ix, s.id);
           return (
-            <div key={s.id} className="pl-step" data-planets={`p0:${s.id}`}>
-              <span className="pl-step-name"><b>{name(s.id)}</b><span className="sub">P0{s.id !== id ? ` · ${needSaid(s.need)} for each ${g.name}` : ''}</span></span>
-              <span className="pl-line"><Pickaxe aria-hidden="true" className="pl-ico" />On {listSaid(typesWith(ix, s.id))} planets.
+            <div key={s.id} className="pl-stepcard" data-planets={`p0:${s.id}`}>
+              <div className="pl-eq"><span className="pl-term out"><ItemIcon id={s.id} size="sm" /><b>{name(s.id)}</b></span>
+                <span className="sub">P0{s.id !== id ? ` · ${needSaid(s.need)} for each ${g.name}` : ''}</span></div>
+              <span className="pl-line"><Pickaxe aria-hidden="true" className="pl-ico" />On {types.map((t, k) => <span key={t}>{k > 0 && (k === types.length - 1 ? ' and ' : ', ')}<span className="pl-ptype"><ItemIcon id={ix.planetTypes[t].typeId} size="sm" />{t}</span></span>)} planets.
                 {sysName && (here ? <> At {sysName}: {here}.</> : <span className="pl-up"> None of {sysName}’s planets has it.</span>)}</span>
             </div>
           );
