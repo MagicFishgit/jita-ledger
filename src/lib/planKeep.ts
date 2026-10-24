@@ -48,15 +48,24 @@ export function rateFrom(r: Rate | null): KeptRateFrom {
 }
 
 /** What a plan rests on now, or rested on when kept: the character shown, their planets and level, the programme length, every P0's rate here. */
-export function basisOf(ix: PiIndex, planets: readonly PlanPlanet[], char: PlanChar, rateOf: (t: PlanetType, p0: number) => Rate | null, programHours: number): KeptBasis {
+export function basisOf(ix: PiIndex, planets: readonly PlanPlanet[], char: PlanChar, rateOf: (t: PlanetType, p0: number, planetId?: number) => Rate | null, programHours: number): KeptBasis {
   const rates: KeptBasis['rates'] = {};
+  const planetRates: NonNullable<KeptBasis['planetRates']> = {};
   for (const t of [...new Set(planets.map((p) => p.type).filter((x): x is PlanetType => !!x))].sort()) {
     for (const p0 of ix.planetTypes[t].p0) {
       const r = rateOf(t, p0);
       rates[`${t}:${p0}`] = { from: rateFrom(r), perHour: r ? r.perHour : null };
     }
   }
-  return { char: char.charId, planets: char.planets, cc: char.ccLevel, programHours, rates };
+  // Each planet's own learned rate, where it has one (planet rates): a newer layout can be offered when a planet's own rate shows it poor.
+  for (const p of planets) {
+    if (!p.type) continue;
+    for (const p0 of ix.planetTypes[p.type].p0) {
+      const r = rateOf(p.type, p0, p.planetId);
+      if (r?.own) planetRates[`${p.planetId}:${p0}`] = { from: rateFrom(r), perHour: r.perHour };
+    }
+  }
+  return { char: char.charId, planets: char.planets, cc: char.ccLevel, programHours, rates, planetRates };
 }
 
 /** A setup kept, with what it rests on, at `at`; null for one that can't be kept (`keepable`). */
@@ -102,7 +111,7 @@ const learnedish = (f: KeptRateFrom | undefined) => f === 'learned' || f === 'be
  * Barren rates have changed": by more than 5%, or from another source, a rate learned before and the same now counting as unchanged).
  * Empty when nothing it rests on moved.
  */
-export function changedSince(then: KeptBasis, now: KeptBasis, nameOf: (charId: number) => string, goodName: (id: number) => string = (id) => `type ${id}`): string[] {
+export function changedSince(then: KeptBasis, now: KeptBasis, nameOf: (charId: number) => string, goodName: (id: number) => string = (id) => `type ${id}`, planetName: (id: number) => string = (id) => `planet ${id}`): string[] {
   const out: string[] = [];
   if (then.char !== now.char) out.push(`it’s planned for ${nameOf(now.char)} now, and you kept it for ${nameOf(then.char)}`);
   else {
@@ -131,5 +140,23 @@ export function changedSince(then: KeptBasis, now: KeptBasis, nameOf: (charId: n
   if (learnedNow.length) out.push(`${whose(learnedNow)} are learned now`);
   if (typed.length) out.push(`${whose(typed, true)} have changed`);
   if (moved.length) out.push(`${whose(moved)} have changed`);
+  // A planet's own rate (planet rates), by planet: learned now, or moved by more than 5%.
+  const own = (basis: KeptBasis, k: string) => basis.planetRates?.[k];
+  const ownKeys = [...new Set([...Object.keys(then.planetRates ?? {}), ...Object.keys(now.planetRates ?? {})])].sort();
+  const ownNew: string[] = [], ownMoved: string[] = [];
+  // A plan kept before planet rates has none in its basis: nothing is known to have changed (kept after, an empty one means none then).
+  for (const k of then.planetRates ? ownKeys : []) {
+    const a = own(then, k), b = own(now, k);
+    if (!b) continue;
+    if (!a) ownNew.push(k);
+    else if (a.perHour != null && b.perHour != null && Math.abs(b.perHour - a.perHour) > 0.05 * Math.max(a.perHour, 1)) ownMoved.push(k);
+  }
+  const planetsOf = (ks: string[]) => {
+    const ids = [...new Set(ks.map((k) => Number(k.split(':')[0])))];
+    return ids.length <= 2 ? listSaid(ids.map(planetName)) : `${ids.length} planets`;
+  };
+  const ownSaid = (ks: string[], what: string) => out.push(`${planetsOf(ks)}’s own rate${new Set(ks.map((k) => k.split(':')[0])).size === 1 ? ' is' : 's are'} ${what}`);
+  if (ownNew.length) ownSaid(ownNew, 'learned now');
+  if (ownMoved.length) ownSaid(ownMoved, 'changed');
   return out;
 }

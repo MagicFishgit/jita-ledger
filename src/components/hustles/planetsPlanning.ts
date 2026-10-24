@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { PlanetType } from '../../lib/pi';
 import type { PiIndex } from '../../lib/piBundle';
-import { assumedHeads, learnedRates, PI_READING, rateFor, recordOf, withRecorded, type Learned } from '../../lib/piLearn';
+import { assumedHeads, learnedPlanetRates, learnedRates, planetKeyOf, PI_READING, rateFor, recordOf, recordOwnOf, withRecorded, withRecordedOwn, type Learned, type OwnLearned } from '../../lib/piLearn';
 import { customsLevel, planCharOf, planKept, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
 import { basisOf, newerThan } from '../../lib/planKeep';
 import { sanitizePlanets, type KeptBasis, type KeptPlan, type SystemPrefs } from '../../lib/planetsDoc';
@@ -35,7 +35,9 @@ export const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBr
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 export type LearnedFrom = {
-  learned: Partial<Record<PlanetType, Record<string, Learned>>>; ownHours: number[]; defaultHours: number; programHours: number;
+  learned: Partial<Record<PlanetType, Record<string, Learned>>>;
+  /** What each planet itself gave (planet rates), by planet ID then P0, the record's among them. */
+  own: OwnLearned; ownHours: number[]; defaultHours: number; programHours: number;
   /** The heads a line whose heads aren't known sits on: the median of the learned rates' heads (Ruling T15b-5). */
   heads: number | null;
   /** Where the program length came from (piPlan's `PlanInput.programFrom`): typed, the median of your programmes, or the 3-day default. */
@@ -60,22 +62,25 @@ export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix
   const live = useMemo(() => learnedRates(docs, ix, PI_READING), [docs, ix]);
   const record = useStable(doc.learned);
   const learned = useStable(useMemo(() => withRecorded(live, record, PI_READING), [live, record]));
+  const liveOwn = useMemo(() => learnedPlanetRates(docs, ix, PI_READING), [docs, ix]);
+  const recordOwn = useStable(doc.planetLearned);
+  const own = useStable(useMemo(() => withRecordedOwn(liveOwn, recordOwn, PI_READING), [liveOwn, recordOwn]));
   const level = useCloudPulled() || !cloudEnabled();
   useEffect(() => {
-    if (!ready || !level || sameValue(recordOf(live, record, ''), record)) return;
+    if (!ready || !level || (sameValue(recordOf(live, record, ''), record) && sameValue(recordOwnOf(liveOwn, recordOwn, ''), recordOwn))) return;
     const at = new Date().toISOString();
     update((x) => {
-      const next = recordOf(live, x.planets.learned, at);
-      return sameValue(next, x.planets.learned) ? {} : { planets: sanitizePlanets({ ...x.planets, learned: next }) };
+      const next = recordOf(live, x.planets.learned, at), nextOwn = recordOwnOf(liveOwn, x.planets.planetLearned, at);
+      return sameValue(next, x.planets.learned) && sameValue(nextOwn, x.planets.planetLearned) ? {} : { planets: sanitizePlanets({ ...x.planets, learned: next, planetLearned: nextOwn }) };
     });
-  }, [ready, level, live, record]);
+  }, [ready, level, live, record, liveOwn, recordOwn]);
   const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
   const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
   const heads = useMemo(() => assumedHeads(learned), [learned]);
   const programHours = doc.programHours ?? defaultHours;
   const programFrom = doc.programHours != null ? 'typed' : ownHours.length ? 'median' : 'default';
   // One object while nothing in it moves: Colonies plans each colony's best again when it does.
-  return useMemo(() => ({ learned, ownHours, defaultHours, programHours, heads, programFrom }), [learned, ownHours, defaultHours, programHours, heads, programFrom]);
+  return useMemo(() => ({ learned, own, ownHours, defaultHours, programHours, heads, programFrom }), [learned, own, ownHours, defaultHours, programHours, heads, programFrom]);
 }
 
 type Planned = { setups: Setup[] | null; working: boolean };
@@ -129,7 +134,7 @@ function goodsOf(setups: Setup[] | null): string {
 export type Planning = {
   planChar: PlanChar; others: PlanChar[]; cce: number | null;
   sys: SystemState; value: SystemPlanets | null;
-  learned: Partial<Record<PlanetType, Record<string, Learned>>>; ownHours: number[]; defaultHours: number; programHours: number; prefs: SystemPrefs;
+  learned: Partial<Record<PlanetType, Record<string, Learned>>>; own: OwnLearned; ownHours: number[]; defaultHours: number; programHours: number; prefs: SystemPrefs;
   /** Prices on the morning's books (the first ranking's), and on the live books of the goods that ranking names. */
   morning: PlanetMarket; market: PlanetMarket;
   setups: Setup[] | null; working: boolean;
@@ -169,18 +174,19 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
 
-  const { learned, ownHours, defaultHours, programHours, heads, programFrom } = useLearned(colonies, ix, ready);
+  const { learned, own, ownHours, defaultHours, programHours, heads, programFrom } = useLearned(colonies, ix, ready);
   const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
   // Keyed on value (planner fix 2): every write to the `planets` doc (a plan kept, the learned rates' record) rebuilds each system's
   // prefs and every planet's tax through the sanitizer, and keyed on the objects the planner would work everything out again.
   const typedRates = useStable(prefs.rates);
-  const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, typedRates[t]?.[String(p0)], t, p0), [learned, typedRates]);
+  const rateOf = useMemo(() => (t: PlanetType, p0: number, planetId?: number) => rateFor(learned, typedRates[t]?.[String(p0)], t, p0, planetId, own), [learned, typedRates, own]);
+  const planetKey = useMemo(() => planetKeyOf(own), [own]);
 
   const morning = usePlanetMarket(c, ix);
   const planets = useStable(value?.planets ?? null);
   const inputM = useMemo((): PlanInput | null => (planets && morning.ready
-    ? { ix, planets, char: planChar, others, rateOf, heads, sell: morning.sell, buy: morning.buy, programHours, programFrom, freight: morning.freight } : null),
-  [ix, planets, planChar, others, rateOf, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours, programFrom]);
+    ? { ix, planets, char: planChar, others, rateOf, planetKey, heads, sell: morning.sell, buy: morning.buy, programHours, programFrom, freight: morning.freight } : null),
+  [ix, planets, planChar, others, rateOf, planetKey, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours, programFrom]);
   const first = usePlanned(inputM, systemId);
   // The goods to read live come from the ranking on the morning's books, never the live one: each live re-rank could name more.
   const goodsKey = goodsOf(first.setups);
@@ -230,5 +236,5 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   const newer = useMemo(() => (keptPlan && keptNow && held && !heldWorking ? newerThan(keptPlan, keptNow, held) : null), [keptPlan, keptNow, held, heldWorking]);
   const basis = useMemo(() => (planets && only != null ? basisOf(ix, planets, planChar, rateOf, programHours) : null), [ix, planets, planChar, rateOf, programHours, only]);
 
-  return { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis };
+  return { planChar, others, cce, sys, value, learned, own, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis };
 }

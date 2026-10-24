@@ -69,12 +69,19 @@ planets.md, the ranking in planets-planner.md.
 - **Causes 3 and 4** (the hub region's history emptied on a change of goods; the hub's own read ageing out with the page open) are fixed
   where they live: industry-home.md.
 
+- **The record also holds each planet's own rates** (`planetLearned`, `recordOwnOf`, `withRecordedOwn`): by planet ID and P0 with their
+  factor and when last learned, so a torn-down colony's planet keeps it. Sanitized like the type record, capped (`MAX_RECORDED_PLANETS`,
+  `MAX_RECORDED_PLANET_P0S`); a kept plan's basis carries them (`KeptBasis.planetRates`).
+
 ## Limits
 
 State these rather than letting them be discovered.
 
-- **Kept plans and the record ride the synced `planets` doc, and an older build's save drops both** (`sanitizePlanets` keeps only the
+- **Kept plans and the record (the planets' own rates among them) ride the synced `planets` doc, and an older build's save drops both** (`sanitizePlanets` keeps only the
   fields it knows): a kept plan comes back forgotten and the record empty until kept again. Browsers reload to a new version within minutes.
+- **A planet's own rate is a per-head factor, approximate**: per-head yield isn't linear in heads (placement, overlap), and the factor is
+  worked out from the colonies kept now, so a torn-down twin leaves it as last recorded. A typed rate is overridden on a planet with its own
+  reading. A plan kept before planet rates says nothing of them in what changed.
 - **The record learns only while a Planets section is open with every character's copy loaded**: a colony built and torn down between two
   visits never taught it, and the cloud's hourly reads don't write it.
 - **A kept plan's factories cap it**: a rate rise past what its Basics and factories take reads as P0 left over and a newer layout offered

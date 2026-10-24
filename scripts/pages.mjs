@@ -3774,6 +3774,9 @@ try {
     // Planet I's role lines name what it makes and its factories (in P0 → P2 its Basic and Advanced ones); the upkeep says resets a week.
     const rolesI = (await page.locator(`[data-planets^="setup:"] [data-planets="role:${PLANET_I}"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
     if (!rolesI.length || !rolesI.every((t) => /\d+ (Basic|Advanced|High-Tech) [^;]* makes? [\d,]+ \w/.test(t))) problems.push(`planet I’s role lines: ${JSON.stringify(rolesI).slice(0, 400)}`);
+    // Planet rates (ruling F18): the seeded colony is the only Barren colony, so planet I has no other planet to be set against and no
+    // factor: no line says a rate was learned on a planet (the factor, the words and the picks are check.mjs's).
+    for (const t of rolesI) if (/learned on this planet/.test(t)) problems.push(`a lone Barren colony’s line says its rate was learned on this planet: ${t.slice(0, 300)}`);
     const p2I = await text(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`);
     if (p2I && !(/Basic Industry Facilit/.test(p2I) && /Advanced Industry Facilit/.test(p2I))) problems.push(`planet I in P0 → P2 doesn’t name its Basic and Advanced factories: “${p2I}”`);
     // A layout that doesn't fit is priced as if it did: the row's head says so whenever a planet's line does.

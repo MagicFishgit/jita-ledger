@@ -64,11 +64,14 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   programme's hours and heads, all three. The programme length defaults to the median of the learned programmes, else 72 h (the
   spec's 3 days), until typed into the `planets` doc; a rate from another length says "you chose" only for a typed one (planner fix 1),
   else "the median of your programmes" or the default (`programFrom`).
-- **The `planets` document** (`planetsDoc.ts`, `sanitizePlanets`): per system, customs tax by planet type and by planet, which
-  high-sec planets are InterBus's, "not Brave's", and typed rates by type and P0; plus the programme length. Fractions 0 to 1,
-  rates and hours positive and finite, at most 40 systems. Synced like `colonies` (`DOC_KEYS` on both sides), sanitized on pull,
-  held back by `refusedDoc` while the Worker is a version behind, ignored by an older browser. Planner fix 2 adds each system's kept
-  plans (`kept`, by good) and the learned rates' record (`learned`): planets-kept.md.
+- **Each planet's own rate comes first** (`learnedPlanetRates`, `rateFor`'s planet argument; 24 October 2026). The user: "some of my
+  current gas planets … are struggling a bit with resources because they are a bit scarce on the planet and I hope the planner is aware of
+  choosing the best planets" (not typed scan ratings). Richness is in no API (eve-planets.md); their Gas planet 40308021 runs about 1.1–1.3k
+  an hour a head, another 1.6–2.0k, and one rate a type dragged both down. Ruling F18: each kept colony teaches its planet's `factor`, its
+  per-head yield over the other planets' of the type (none alone, or with no heads known: the type's rate, said). Plan uses the type's rate
+  times it, at the type's heads (nothing scaled by heads), before a typed rate. A planet with a factor is its own class to the feed and
+  chain (`PlanInput.planetKey`). Its line says "learned on this planet: about 64% of your other Gas planets a head", and "gives about 64% a
+  head" past `OWN_POOR_UNDER` (15%) under.
 - **Customs tax** (`customsRate`; never 0 for not known). The owner's rate is the planet's own, else the type's typed rate.
   - **Sovereign null-sec defaults to Brave's wiki**: 2% on Barren and Temperate, 5% on every other type (`BRAVE_TAX`; "Brave
     Industry Taxes", last modified 17 July 2023, `BRAVE_TAX_SOURCE`). The user, 17 October 2026: "use the taxes brave wiki states.

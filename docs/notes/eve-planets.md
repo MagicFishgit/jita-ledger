@@ -66,3 +66,5 @@ Don't re-derive or contradict these without new evidence.
   programme is submitted. So ESI's figure turned into an hour (`qty × 3600 / cycle`, which colony.ts read until then) was the
   formula's first-hour rate only on 15-minute cycles (half on 30-minute ones, a quarter on 1-hour, a sixteenth on 4-hour ones). How heads, programme length and richness make `qty_per_cycle` is the client's and undocumented: no planet's yield
   can be predicted before it is built.
+- **A planet's richness is in no API or static data** (24 October 2026, `.playwright-mcp/research/planet-richness/report.md`): ESI's planets
+  carry no resource levels and `planetResources.jsonl` is Equinox power, workforce and reagents. Only the in-game scan shows it.

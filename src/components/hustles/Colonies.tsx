@@ -277,7 +277,7 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
         const input: PlanInput = {
           ix, planets: [{ planetId: k.planetId, name: names[k.planetId] ?? `Planet ${k.planetId}`, type: k.planetType, radiusKm: radius(k), tax }],
           char: planChar, others: [], heads: learned.heads, programHours: learned.programHours, programFrom: learned.programFrom,
-          rateOf: (t, p0) => rateFor(learned.learned, planetsDoc.systems[String(k.systemId)]?.rates[t]?.[String(p0)], t, p0),
+          rateOf: (t, p0, planetId) => rateFor(learned.learned, planetsDoc.systems[String(k.systemId)]?.rates[t]?.[String(p0)], t, p0, planetId, learned.own),
           sell: market.sell, buy: market.buy, freight: market.freight,
         };
         got.set(k.planetId, bestsFor(k, colonyChain(k, ix, market.sell, Date.now(), tax, PI_READING), ix, input));

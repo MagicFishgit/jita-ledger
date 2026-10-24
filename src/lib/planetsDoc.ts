@@ -26,11 +26,15 @@ export type SystemPrefs = {
  * A learned rate as last seen (planner fix 2): what one extractor of this planet type gave of this P0 an hour, over its programme, on
  * the extractors that showed it, kept after their colony is torn down. `at`: when it was last learned (the app saw it change).
  */
-export type RecordedRate = { perHour: number; higher: number | null; programHours: number; heads: number; extractors: number; systems: number[]; at: string };
+export type RecordedRate = { perHour: number; higher: number | null; programHours: number; heads: number; extractors: number; systems: number[]; at: string;
+  /** A planet's own rate only (ruling F18): its per-head yield over the other planets' of its type, or null (see `Learned.factor`). */
+  factor?: number | null };
 export type PlanetsDoc = {
   systems: Record<string, SystemPrefs>; programHours: number | null;
   /** The learned rates' record, by planet type then the P0's type ID as a string: each read updates it, a colony torn down never drops it. */
   learned: Partial<Record<PlanetType, Record<string, RecordedRate>>>;
+  /** Each planet's own learned rates (planet rates), by the planet's ID as a string then the P0's type ID: a planet torn down keeps what it gave. */
+  planetLearned: Record<string, Record<string, RecordedRate>>;
 };
 
 /** One extractor of a kept plan: its P0, its heads (null when the plan didn't say), and the Basic factories it feeds. */
@@ -52,6 +56,8 @@ export type KeptRateFrom = 'learned' | 'before' | 'typed' | 'otherType' | 'other
 export type KeptBasis = {
   char: number; planets: number | null; cc: number | null; programHours: number;
   rates: Record<string, { from: KeptRateFrom; perHour: number | null }>;
+  /** The planets' own learned rates the plan's planets had when kept (planet rates), by `<planet ID>:<P0>`; absent on a plan kept before. */
+  planetRates?: Record<string, { from: KeptRateFrom; perHour: number | null }>;
 };
 export type KeptPlan = {
   kind: 'p1' | 'p2' | 'feed' | 'chain';
@@ -61,7 +67,7 @@ export type KeptPlan = {
   basis: KeptBasis;
 };
 
-export const DEFAULT_PLANETS: PlanetsDoc = { systems: {}, programHours: null, learned: {} };
+export const DEFAULT_PLANETS: PlanetsDoc = { systems: {}, programHours: null, learned: {}, planetLearned: {} };
 export const MAX_PLANET_SYSTEMS = 40;
 /**
  * At most this many plans kept a system: one a good, and nobody plans forty goods in one system. Past it the oldest kept (by `at`)
@@ -70,6 +76,11 @@ export const MAX_PLANET_SYSTEMS = 40;
 export const MAX_KEPT_PLANS = 20;
 /** At most this many P0s a planet type in the learned rates' record: no type has more than five, so anything past it is junk (fix round 1). */
 export const MAX_RECORDED_P0S = 40;
+/** At most this many planets in the record of planets' own rates, and this many P0s each (a planet extracts few): past them is junk. */
+export const MAX_RECORDED_PLANETS = 300;
+export const MAX_RECORDED_PLANET_P0S = 10;
+/** At most this many planet-and-P0 rates in a kept plan's basis (a plan has a few planets of a few P0s each). */
+export const MAX_KEPT_PLANET_RATES = 200;
 
 export const BRAVE_TAX = { Barren: 0.02, Temperate: 0.02, other: 0.05 };
 export const BRAVE_TAX_SOURCE = 'Brave’s wiki, “Brave Industry Taxes”, last modified 17 July 2023';
@@ -113,7 +124,28 @@ function cleanKept(v: unknown): KeptPlan | null {
     if (!(r.perHour === null || (typeof r.perHour === 'number' && Number.isFinite(r.perHour) && r.perHour >= 0))) continue;
     rates[k] = { from: r.from as KeptRateFrom, perHour: r.perHour };
   }
-  return { kind: v.kind as KeptPlan['kind'], at: v.at, made, planets, basis: { char: b.char, planets: b.planets, cc: b.cc, programHours: b.programHours, rates } };
+  const planetRates: NonNullable<KeptBasis['planetRates']> = {};
+  if (isObj(b.planetRates)) for (const [k, r] of Object.entries(b.planetRates)) {
+    if (Object.keys(planetRates).length >= MAX_KEPT_PLANET_RATES) break;
+    if (!/^\d+:\d+$/.test(k) || !isObj(r) || typeof r.from !== 'string' || !RATE_FROM.has(r.from)) continue;
+    if (!(r.perHour === null || (typeof r.perHour === 'number' && Number.isFinite(r.perHour) && r.perHour >= 0))) continue;
+    planetRates[k] = { from: r.from as KeptRateFrom, perHour: r.perHour };
+  }
+  return { kind: v.kind as KeptPlan['kind'], at: v.at, made, planets, basis: { char: b.char, planets: b.planets, cc: b.cc, programHours: b.programHours, rates, ...(isObj(b.planetRates) ? { planetRates } : {}) } };
+}
+
+/** Recorded rates by P0 as stored, at most `max` of them, each entry whole or dropped. */
+function cleanRecorded(byP0: Record<string, unknown>, max: number): Record<string, RecordedRate> {
+  const kept: Record<string, RecordedRate> = {};
+  for (const [id, r] of Object.entries(byP0)) {
+    if (Object.keys(kept).length >= max) break;
+    if (!/^\d+$/.test(id) || !isObj(r) || !pos(r.perHour) || !pos(r.programHours) || !(typeof r.heads === 'number' && Number.isFinite(r.heads) && r.heads >= 0)
+      || !count(r.extractors, 10_000) || !(r.extractors > 0) || !isDate(r.at) || !Array.isArray(r.systems)) continue;
+    const higher = r.higher === null || r.higher === undefined ? null : pos(r.higher) ? r.higher : undefined;
+    if (higher === undefined) continue;
+    kept[id] = { perHour: r.perHour, higher, programHours: r.programHours, heads: r.heads, extractors: r.extractors, systems: r.systems.filter(isId).slice(0, 50), at: r.at, ...(pos(r.factor) ? { factor: r.factor } : {}) };
+  }
+  return kept;
 }
 
 /** The learned rates' record as stored: each entry whole (a rate, its programme and heads, how many extractors, when) or dropped. */
@@ -122,16 +154,21 @@ function cleanLearned(v: unknown): PlanetsDoc['learned'] {
   if (!isObj(v)) return out;
   for (const [t, byP0] of Object.entries(v)) {
     if (!isType(t) || !isObj(byP0)) continue;
-    const kept: Record<string, RecordedRate> = {};
-    for (const [id, r] of Object.entries(byP0)) {
-      if (Object.keys(kept).length >= MAX_RECORDED_P0S) break;
-      if (!/^\d+$/.test(id) || !isObj(r) || !pos(r.perHour) || !pos(r.programHours) || !(typeof r.heads === 'number' && Number.isFinite(r.heads) && r.heads >= 0)
-        || !count(r.extractors, 10_000) || !(r.extractors > 0) || !isDate(r.at) || !Array.isArray(r.systems)) continue;
-      const higher = r.higher === null || r.higher === undefined ? null : pos(r.higher) ? r.higher : undefined;
-      if (higher === undefined) continue;
-      kept[id] = { perHour: r.perHour, higher, programHours: r.programHours, heads: r.heads, extractors: r.extractors, systems: r.systems.filter(isId).slice(0, 50), at: r.at };
-    }
+    const kept = cleanRecorded(byP0, MAX_RECORDED_P0S);
     if (Object.keys(kept).length) out[t] = kept;
+  }
+  return out;
+}
+
+/** The planets' own rates as stored: the same whole-or-dropped entries, by planet ID. */
+function cleanPlanetLearned(v: unknown): PlanetsDoc['planetLearned'] {
+  const out: PlanetsDoc['planetLearned'] = {};
+  if (!isObj(v)) return out;
+  for (const [pid, byP0] of Object.entries(v)) {
+    if (Object.keys(out).length >= MAX_RECORDED_PLANETS) break;
+    if (!/^\d+$/.test(pid) || !isObj(byP0)) continue;
+    const kept = cleanRecorded(byP0, MAX_RECORDED_PLANET_P0S);
+    if (Object.keys(kept).length) out[pid] = kept;
   }
   return out;
 }
@@ -177,7 +214,7 @@ export function sanitizePlanets(v: unknown): PlanetsDoc {
       systems[k] = cleanSystem(s);
     }
   }
-  return { systems, programHours: pos(d.programHours) ? d.programHours : null, learned: cleanLearned(d.learned) };
+  return { systems, programHours: pos(d.programHours) ? d.programHours : null, learned: cleanLearned(d.learned), planetLearned: cleanPlanetLearned(d.planetLearned) };
 }
 
 export type Tax = { rate: number | null; from: 'planet' | 'typed' | 'brave' | 'none'; npc: number; interbus: boolean };

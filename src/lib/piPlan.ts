@@ -1,7 +1,7 @@
 import type { PlanetType } from './pi';
 import { madeAlone, p0Of, type Facility, type PiIndex, type Schematic, type Tier } from './piBundle';
 import { fitOf, maxFactories, maxHeads, type Fit, type Layout } from './piFit';
-import type { Rate } from './piLearn';
+import { poorShare, type Rate } from './piLearn';
 import type { KeptPlan, KeptPlanet, Tax } from './planetsDoc';
 import { slotDay, type Freight, type Sale } from './industryRank';
 import { fmtShort, isk, units as unitsSaid, plainNum } from './format';
@@ -232,7 +232,12 @@ export function jitaSteps(asks: readonly { price: number; volume: number }[], pa
 }
 export type PlanInput = {
   ix: PiIndex; planets: PlanPlanet[]; char: PlanChar; others: PlanChar[];
-  rateOf: (t: PlanetType, p0: number) => Rate | null;
+  rateOf: (t: PlanetType, p0: number, planetId?: number) => Rate | null;
+  /**
+   * What tells one planet's own learned rates from another's (planet rates): planets alike in type and customs rate are one class to the
+   * feed and the chain, which a planet with a rate of its own is not. Empty or absent for a planet with none.
+   */
+  planetKey?: (planetId: number) => string;
   sell: Sell; buy: Buy;
   /** How often you reset, as a program length in hours. */
   programHours: number;
@@ -587,7 +592,7 @@ function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
   for (const [k, i] of s.inputs.entries()) {
     const b = input.ix.makes.get(i.id);
     if (!b || b.facility !== 'basic') return null;
-    lines.push(lineFor(input, b, t, high, counts?.basics[k], aside));
+    lines.push(lineFor(input, planet, b, t, high, counts?.basics[k], aside));
   }
   // The Advanced factories' worth the lines feed: the lesser input, as a fraction of factories (one runs fewer cycles when short).
   const fed = Math.min(...s.inputs.map((inp, k) => lines[k].p1PerHour / anHour(s, inp.qty)));
@@ -605,8 +610,8 @@ function planP2(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
 }
 
 /** A line at its P0's rate, or unknown with its borrowed rate set aside (Ruling T15b-12). */
-function lineFor(input: PlanInput, b: Schematic, t: PlanetType, high: boolean, basics: number | undefined, aside?: readonly number[]): Line {
-  const r = input.rateOf(t, b.inputs[0].id);
+function lineFor(input: PlanInput, planet: PlanPlanet, b: Schematic, t: PlanetType, high: boolean, basics: number | undefined, aside?: readonly number[]): Line {
+  const r = input.rateOf(t, b.inputs[0].id, planet.planetId);
   return aside?.includes(b.inputs[0].id) ? lineOf(b, null, high, basics, input.heads, r) : lineOf(b, r, high, basics, input.heads);
 }
 
@@ -616,7 +621,7 @@ function planP1(input: PlanInput, planet: PlanPlanet, at: number, t: PlanetType,
   for (const [k, p0] of pair.entries()) {
     const b = basicFor(input.ix, p0);
     if (!b) return null;
-    lines.push(lineFor(input, b, t, high, counts?.basics[k], aside));
+    lines.push(lineFor(input, planet, b, t, high, counts?.basics[k], aside));
   }
   const ships = [...lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24 })), ...lines.filter((l) => l.p0Left > 0).map((l) => ({ id: l.p0, perDay: l.p0Left * 24 }))];
   // `product` names the first P1 only: a P0 → P1 plan is replanned from its lines' P0s.
@@ -1074,8 +1079,32 @@ function rateNotes(input: PlanInput, p: Plan): string[] {
   if (others.length) notes.push(`${listSaid(others.map((l) => name(l.p0)))} at the rate learned for another P0 of ${p.t} planets`);
   // The same P0 learned on another planet type (planner fix 1): said with the type, since its richness is another planet's.
   for (const l of p.lines) if (l.rate?.otherType) notes.push(`${name(l.p0)} at the rate learned on ${l.rate.otherType} planets, none of your ${p.t} extractors having shown one`);
+  // Planet rates (ruling F18): the planet's own reading as its richness a head against your other planets of the type.
+  const typeName = (t: PlanetType) => `your other ${t} planets`;
+  const mineNow = p.lines.filter((l) => l.rate?.own && !l.rate.before);
+  const mineBefore = p.lines.filter((l) => l.rate?.own && l.rate.before);
+  const pctOf = (l: { rate: Rate | null }) => Math.round((l.rate?.factor ?? 1) * 100);
+  for (const [group, last] of [[mineNow, false], [mineBefore, true]] as const) {
+    for (const pct of [...new Set(group.map(pctOf))]) {
+      const ls = group.filter((l) => pctOf(l) === pct);
+      notes.push(`${listSaid(ls.map((l) => name(l.p0)))} learned on this planet: about ${pct}% of ${typeName(p.t)} a head${last ? `, last on ${fmtShort(ls[0].rate!.before!)}: no colony of yours shows it now` : ''}`);
+    }
+  }
+  const poorBy = new Map<number, string[]>();
+  for (const l of p.lines) {
+    const share = poorShare(l.rate);
+    if (share != null) { const pct = Math.round(share * 100); poorBy.set(pct, [...(poorBy.get(pct) ?? []), name(l.p0)]); }
+  }
+  for (const [pct, names] of poorBy) notes.push(`this planet gives about ${pct}% a head of ${typeName(p.t)}’ ${listSaid(names)}`);
+  const noHeads = p.lines.filter((l) => l.rate?.headsUnknown);
+  if (noHeads.length) notes.push(`${listSaid(noHeads.map((l) => name(l.p0)))} at the rate learned on ${p.t} planets: this planet’s readings don’t say how many heads, so its own can’t be set against the others’`);
+  // Against it, where some planet here has a rate of its own: the type's average, for the planets that have none.
+  if (input.planets.some((q) => input.planetKey?.(q.planetId))) {
+    const plain = p.lines.filter((l) => l.rate && !l.rate.own && !l.rate.before && !l.rate.otherP0 && !l.rate.otherType && l.rate.from === 'learned');
+    if (plain.length) notes.push(`${listSaid(plain.map((l) => name(l.p0)))} at the rate learned on ${p.t} planets`);
+  }
   // A rate from the record (planner fix 2): learned from an extractor of yours that no colony kept now shows.
-  const before = p.lines.filter((l) => l.rate?.before && !l.rate.otherP0 && !l.rate.otherType);
+  const before = p.lines.filter((l) => l.rate?.before && !l.rate.own && !l.rate.otherP0 && !l.rate.otherType);
   if (before.length) notes.push(`${listSaid(before.map((l) => name(l.p0)))} at the rate learned before, last on ${fmtShort(before[0].rate!.before!)}: no colony of yours shows it now`);
   // A kept plan keeps its heads; a rate measured at another count is used as it is, never scaled.
   if (p.sized === 'kept') {
@@ -1406,7 +1435,7 @@ export function heldInput(input: PlanInput): PlanInput {
 /** Planets alike in what a setup on them is worth: one PI type and one customs rate. A planet's size changes only what fits. */
 type Member = { planet: PlanPlanet; at: number };
 type Cls = { t: PlanetType; rate: number | null; members: Member[] };
-function classesOf(input: PlanInput, keyOf: (p: PlanPlanet, t: PlanetType) => string | null = (p, t) => `${t}|${p.tax.rate ?? '?'}`): Cls[] {
+function classesOf(input: PlanInput, keyOf: (p: PlanPlanet, t: PlanetType) => string | null = (p, t) => `${t}|${p.tax.rate ?? '?'}${input.planetKey?.(p.planetId) ? `|${input.planetKey(p.planetId)}` : ''}`): Cls[] {
   const out: Cls[] = [];
   const byKey = new Map<string, Cls>();
   input.planets.forEach((planet, at) => {

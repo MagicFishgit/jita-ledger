@@ -7786,6 +7786,143 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   }
 }
 
+console.log('\n--- Planets: each planet’s own rate (piLearn.ts, planetsDoc.ts, piPlan.ts) ---');
+{
+  const fsP = await import('node:fs');
+  const { sanitizePlanets, MAX_RECORDED_PLANETS, MAX_RECORDED_PLANET_P0S } = await import('../src/lib/planetsDoc.ts');
+  const { learnedRates, learnedPlanetRates, rateFor, recordOwnOf, withRecordedOwn, poorShare, planetKeyOf, OWN_POOR_UNDER } = await import('../src/lib/piLearn.ts');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { planSingle, planFeed, planChain } = await import('../src/lib/piPlan.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
+  const AQ = idOf('Aqueous Liquids');
+  const ext = (id, qty, product = AQ, heads = 5) => ({ id, typeId: 2848, install: '2026-10-15T00:00:00Z', expiry: '2026-10-16T23:30:00Z', lastCycle: null, schematic: null, contents: [], extractor: { cycle: 1800, product, qty, heads } });
+  const col = (planetId, planetType, pins) => ({ planetId, systemId: 30004865, planetType, level: 4, lastUpdate: '2026-10-17T00:00:00Z', pins, links: [], routes: [] });
+  const GOOD = 40308001, POOR = 40308021;
+  const cols = [{ colonies: [col(GOOD, 'Gas', [ext(1, 8000)]), col(POOR, 'Gas', [ext(2, 5000)])] }];
+  const type = learnedRates(cols, ix, 'formula').Gas[String(AQ)];
+  const own = learnedPlanetRates(cols, ix, 'formula');
+  eq('  per planet: each planet’s own reading, same rules', [Object.keys(own).sort(), own[GOOD][AQ].extractors, own[POOR][AQ].extractors, own[GOOD][AQ].perHour > own[POOR][AQ].perHour], [[String(GOOD), String(POOR)], 1, 1, true]);
+  eq('  per planet: the type’s rate stays the average over its planets', [type.extractors, Math.abs(type.perHour - (own[GOOD][AQ].perHour + own[POOR][AQ].perHour) / 2) < 1e-9], [2, true]);
+  eq('  per planet: a planet with no planet type or no reading teaches none', learnedPlanetRates([{ colonies: [col(5, null, [ext(1, 8000)]), col(6, 'Gas', [ext(1, null)])] }], ix, 'formula'), {});
+  // rateFor's order: the planet's own before the type's average and a typed rate, live then recorded.
+  const L = learnedRates(cols, ix, 'formula');
+  const typed = { perHour: 777, programHours: 72, heads: 4 };
+  const poor = rateFor(L, typed, 'Gas', AQ, POOR, own);
+  eq('  rateFor: the planet’s own beats a typed rate and the type’s', [poor.own, Math.abs(poor.factor - own[POOR][AQ].perHour / own[GOOD][AQ].perHour) < 1e-9, Math.abs(poor.perHour - own[POOR][AQ].perHour) < 1e-6, poor.from], [true, true, true, 'learned']);
+  eq('  rateFor: the planet’s rate is the type’s times its factor, at the type’s heads and hours, never scaled by heads', [poor.heads, poor.programHours], [type.heads, type.programHours]);
+  // The type's rate already averages the planet in, so its rate is its own per head at the type's heads, not the type's times its factor.
+  {
+    const c2 = [{ colonies: [col(GOOD, 'Gas', [ext(1, 60000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 40000, AQ, 5)])] }];
+    const o2 = learnedPlanetRates(c2, ix, 'formula'), L2 = learnedRates(c2, ix, 'formula');
+    const rg = rateFor(L2, undefined, 'Gas', AQ, GOOD, o2), rp = rateFor(L2, undefined, 'Gas', AQ, POOR, o2);
+    const near = (x, y) => Math.abs(x / y - 1) < 0.01;
+    eq('  rateFor: each planet is planned at its own measured rate (1.8k and 1.2k a head), never the type’s times the factor',
+      [near(rg.perHour, o2[GOOD][AQ].perHour), near(rp.perHour, o2[POOR][AQ].perHour), near(rg.perHour, L2.Gas[AQ].perHour * o2[GOOD][AQ].factor)], [true, true, false]);
+  }
+  eq('  rateFor: another planet of the type has no own rate, so the type’s (typed first)', [rateFor(L, undefined, 'Gas', AQ, 1, own).own ?? null, rateFor(L, typed, 'Gas', AQ, 1, own).from, rateFor(L, undefined, 'Gas', AQ, undefined, own).own ?? null], [null, 'learned', null]);
+  const rec = recordOwnOf(own, {}, '2026-10-24T08:00:00.000Z');
+  const gone = withRecordedOwn({ [GOOD]: own[GOOD] }, rec, 'formula');
+  eq('  the record keeps a torn-down planet’s rate, marked with when it was learned', [gone[POOR][AQ].before, gone[POOR][AQ].perHour === own[POOR][AQ].perHour, gone[GOOD][AQ].before ?? null], ['2026-10-24T08:00:00.000Z', true, null]);
+  eq('  rateFor: the planet’s recorded rate beats the type’s live one and a typed one', [rateFor(L, typed, 'Gas', AQ, POOR, gone).before, rateFor(L, typed, 'Gas', AQ, POOR, gone).own], ['2026-10-24T08:00:00.000Z', true]);
+  eq('  the record: unchanged read gives the record, a changed rate takes the new time', [JSON.stringify(recordOwnOf(own, rec, 'later')) === JSON.stringify(rec), recordOwnOf({ [POOR]: { [AQ]: { ...own[POOR][AQ], perHour: 1 } } }, rec, 'later')[POOR][AQ].at], [true, 'later']);
+  eq('  the record round-trips the sanitizer', sanitizePlanets({ planetLearned: rec }).planetLearned, rec);
+  eq('  a bad entry is dropped, a good kept', Object.keys(sanitizePlanets({ planetLearned: { [GOOD]: { [AQ]: { ...rec[GOOD][AQ], at: 'never' } }, [POOR]: rec[POOR], x: rec[POOR], 12: { [AQ]: { ...rec[POOR][AQ], perHour: -1 } } } }).planetLearned), [String(POOR)]);
+  eq('  capped: planets and P0s a planet', [Object.keys(sanitizePlanets({ planetLearned: Object.fromEntries(Array.from({ length: MAX_RECORDED_PLANETS + 20 }, (_, i) => [String(i + 1), rec[POOR]])) }).planetLearned).length,
+    Object.keys(sanitizePlanets({ planetLearned: { 1: Object.fromEntries(Array.from({ length: MAX_RECORDED_PLANET_P0S + 5 }, (_, i) => [String(i + 1), rec[POOR][AQ]])) } }).planetLearned[1]).length], [MAX_RECORDED_PLANETS, MAX_RECORDED_PLANET_P0S]);
+  eq('  recordOwnOf stays within the cap, so the sanitizer never undoes a write', Object.keys(recordOwnOf(Object.fromEntries(Array.from({ length: MAX_RECORDED_PLANETS + 5 }, (_, i) => [String(i + 1), own[POOR]])), {}, 'x')).length, MAX_RECORDED_PLANETS);
+  // The words: only past 15% under the type's average.
+  const mk = (factor) => ({ own: true, perHour: 1, factor });
+  eq('  well under: only past 15% under, a head against the others', [OWN_POOR_UNDER, poorShare(mk(0.851)), poorShare(mk(0.849)), poorShare(mk(1.2)), poorShare({ perHour: 1, factor: 0.1 }), poorShare(null)], [0.15, null, 0.849, null, null, null]);
+  // Ruling F18, per head: a 3-head planet at the type’s per-head yield reads 100% and is not dismissed; the user’s case (about 1.2k a head
+  // against 1.8k) reads 67%; alone of its type a planet keeps its own rate; readings with no heads give no factor (the type’s rate, said).
+  {
+    const three = learnedPlanetRates([{ colonies: [col(GOOD, 'Gas', [ext(1, 80000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 48000, AQ, 3)])] }], ix, 'formula');
+    eq('  per head: 3 heads at the others’ per-head yield read 100%, and poorShare says nothing', [Math.abs(three[POOR][AQ].factor - 1) < 0.05, poorShare(rateFor(learnedRates([{ colonies: [col(GOOD, 'Gas', [ext(1, 80000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 48000, AQ, 3)])] }], ix, 'formula'), undefined, 'Gas', AQ, POOR, three))], [true, null]);
+    const user = learnedPlanetRates([{ colonies: [col(GOOD, 'Gas', [ext(1, 9000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 6000, AQ, 5)])] }], ix, 'formula');
+    eq('  per head: about 1.2k a head against 1.8k reads about 67%', [Math.round(user[POOR][AQ].factor * 100), Math.round(user[GOOD][AQ].factor * 100)], [67, 150]);
+    const alone = learnedPlanetRates([{ colonies: [col(POOR, 'Gas', [ext(2, 6000, AQ, 3)])] }], ix, 'formula');
+    const LA = learnedRates([{ colonies: [col(POOR, 'Gas', [ext(2, 6000, AQ, 3)])] }], ix, 'formula');
+    eq('  one planet alone keeps its own rate: no factor, the type’s rate is its own', [alone[POOR][AQ].factor, rateFor(LA, undefined, 'Gas', AQ, POOR, alone).perHour === alone[POOR][AQ].perHour, rateFor(LA, undefined, 'Gas', AQ, POOR, alone).own ?? null], [null, true, null]);
+    const nh = learnedPlanetRates([{ colonies: [col(GOOD, 'Gas', [ext(1, 8000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 5000, AQ, 0)])] }], ix, 'formula');
+    const LN = learnedRates([{ colonies: [col(GOOD, 'Gas', [ext(1, 8000, AQ, 5)]), col(POOR, 'Gas', [ext(2, 5000, AQ, 0)])] }], ix, 'formula');
+    const rn = rateFor(LN, undefined, 'Gas', AQ, POOR, nh);
+    eq('  no heads known: no factor, the type’s rate, said', [nh[POOR][AQ].factor, rn.own ?? null, rn.headsUnknown, rn.perHour === LN.Gas[AQ].perHour], [null, null, true, true]);
+  }
+
+  // Plan's picks. Two Gas planets, one poor in its own rate: P0 → P1, P0 → P2 and the feed take the other. Without own rates, as before.
+  const brave = (rate) => ({ rate, from: 'brave', npc: 0, interbus: false });
+  const sellBy = (price, cap = () => Infinity) => (id, perDay) => {
+    const u = price(id);
+    if (u == null) return { isk: null, units: 0, where: [], why: 'No price read' };
+    const units = Math.min(perDay, cap(id));
+    return { isk: units * u, units, where: ['jita'], why: null };
+  };
+  const noBuy = () => ({ isk: null, where: null, why: 'Not bought here' });
+  const lr = (perHour, extractors = 1) => ({ perHour, higher: null, which: 'formula', programHours: 72, heads: 5, extractors, systems: [], checked: true });
+  const typeL = { Gas: Object.fromEntries(ix.planetTypes.Gas.p0.map((p0) => [String(p0), lr(12000, 2)])), Ice: Object.fromEntries(ix.planetTypes.Ice.p0.map((p0) => [String(p0), lr(12000, 2)])) };
+  const ownOf = (poorId, goodId) => ({
+    [poorId]: Object.fromEntries(ix.planetTypes.Gas.p0.map((p0) => [String(p0), { ...lr(3000), factor: 0.25 }])),
+    [goodId]: Object.fromEntries(ix.planetTypes.Gas.p0.map((p0) => [String(p0), { ...lr(20000), factor: 1.6 }])),
+  });
+  const unitOf = (id) => ({ P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
+  const char = { charId: 1, name: 'Owner', planets: 1, ccLevel: 4, alpha: false };
+  const G1 = 1, G2 = 3;
+  const sys = [['Gas', 0.02], ['Ice', 0.02], ['Gas', 0.02]].map(([t, r], i) => ({ planetId: 1 + i, name: `${t} ${i + 1}`, type: t, radiusKm: { Gas: 26370, Ice: 14600 }[t], tax: brave(r) }));
+  const inputWith = (o, extra = {}) => ({ ix, planets: sys, char, others: [], rateOf: (t, p0, pid) => rateFor(typeL, undefined, t, p0, pid, o), planetKey: planetKeyOf(o), sell: sellBy(unitOf), buy: noBuy, programHours: 72, ...extra });
+  const usedGas = (s) => s.roles.filter((r) => r.does !== 'unused' && sys.find((p) => p.planetId === r.planetId).type === 'Gas').map((r) => r.planetId);
+  for (const kind of ['p1', 'p2']) {
+    const none = usedGas(planSingle(inputWith({}), kind)), poor1 = usedGas(planSingle(inputWith(ownOf(G1, G2)), kind)), poor2 = usedGas(planSingle(inputWith(ownOf(G2, G1)), kind));
+    eq(`  ${kind}: with no per-planet rates, as before (and one pick)`, none.length, 1);
+    eq(`  ${kind}: the planet with a poor own rate is passed over, whichever it is`, [poor1, poor2], [[G2], [G1]]);
+  }
+  // The feed: a Water-Cooled CPU worth less than its goods, made from a Gas pair by the Ice factory, the Ice 5% planet another factory choice.
+  {
+    const WC = idOf('Water-Cooled CPU');
+    const feedIn = (o) => inputWith(o, { char: { ...char, planets: 2 }, sell: sellBy((id) => (id === WC ? 2500 : ix.byId.get(id).tier === 'P1' ? 400 : null), (id) => (id === WC ? 199 : Infinity)) });
+    const base = planFeed(feedIn({}));
+    const feeder = base.roles.find((r) => r.does === 'extract' && sys.find((p) => p.planetId === r.planetId).type === 'Gas')?.planetId;
+    const other = feeder === G1 ? G2 : G1;
+    const moved = planFeed(feedIn(ownOf(feeder, other)));
+    const used = moved.roles.filter((r) => r.does === 'extract').map((r) => r.planetId);
+    eq('  feed: a Gas planet with a poor own rate isn’t the feeder when its twin is richer', [feeder != null, used.includes(other), used.includes(feeder)], [true, true, false]);
+    eq('  feed: no per-planet rates, the same feeder as before', planFeed(feedIn({})).roles.map((r) => [r.planetId, r.does]), base.roles.map((r) => [r.planetId, r.does]));
+  }
+  // The user's case end to end: colonies at about 1.2k and 1.8k a head on two Gas planets, learned, and Plan's Gas line goes to the richer.
+  {
+    const [g0, g1] = ix.planetTypes.Gas.p0;
+    const cs = (q1, q2) => [{ colonies: [col(G1, 'Gas', [ext(1, q1, g0), ext(2, q1, g1)]), col(G2, 'Gas', [ext(3, q2, g0), ext(4, q2, g1)])] }];
+    const pick = (q1, q2) => { const c = cs(q1, q2), o = learnedPlanetRates(c, ix, 'formula'); return usedGas(planSingle(inputWith(o, { rateOf: (t, p0, pid) => rateFor(learnedRates(c, ix, 'formula'), undefined, t, p0, pid, o), planetKey: planetKeyOf(o) }), 'p1')); };
+    eq('  the user’s case: the poorer Gas planet (about 67% a head) loses the line, whichever it is', [pick(60000, 90000), pick(90000, 60000)], [[G2], [G1]]);
+  }
+  // Kept plans: the basis carries the planets' own rates, an old basis says nothing of them, a chain with per-planet rates still plans.
+  {
+    const PK = await import('../src/lib/planKeep.ts');
+    const ownRate = (pid) => (pid === G1 ? { perHour: 5, higher: null, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: true, own: true, factor: 0.6 } : null);
+    const bNow = PK.basisOf(ix, sys, char, (t, p0, pid) => ownRate(pid) ?? rateFor(typeL, undefined, t, p0, pid, {}), 72);
+    eq('  the kept basis holds each planet’s own rate by planet and P0', [Object.keys(bNow.planetRates).length > 0, Object.keys(bNow.planetRates).every((k) => k.startsWith(`${G1}:`)), Object.values(bNow.planetRates)[0]], [true, true, { from: 'learned', perHour: 5 }]);
+    const bThen = PK.basisOf(ix, sys, char, (t, p0, pid) => rateFor(typeL, undefined, t, p0, pid, {}), 72);
+    eq('  a basis kept after planet rates, with none then: learned now is said', PK.changedSince(bThen, bNow, () => 'Owner').filter((x) => /own rate/.test(x)).length, 1);
+    const { planetRates: _x, ...old } = bThen;
+    eq('  a basis kept before planet rates says nothing of them', PK.changedSince(old, bNow, () => 'Owner').filter((x) => /own rate/.test(x)), []);
+    const keptWith = (basis) => sanitizePlanets({ systems: { 1: { kept: { 5: { kind: 'p1', at: '2026-10-24T10:00:00.000Z', made: 1, planets: [{ planetId: G1, charId: 1, does: 'extract', lines: [{ p0: AQ, heads: 5, basics: 2 }], makes: [] }], basis } } } } }).systems['1'].kept['5']?.basis;
+    eq('  an empty planetRates survives the sanitizer, a missing one stays missing', [keptWith({ ...bThen, planetRates: {} })?.planetRates, 'planetRates' in (keptWith(old) ?? { planetRates: 1 }), Object.keys(keptWith(bNow)?.planetRates ?? {}).length > 0], [{}, false, true]);
+    const o = ownOf(G1, G2), two = { ...char, planets: 2 };
+    const chain = (own) => planChain(inputWith(own, { char: two, others: [{ ...two, charId: 2, name: 'Second' }] }));
+    eq('  a chain with per-planet rates plans as one without when every factor is 1', [chain(Object.fromEntries(Object.entries(o).map(([k, by]) => [k, Object.fromEntries(Object.entries(by).map(([p, l]) => [p, { ...l, factor: 1 }]))]))).iskDay, chain({}).iskDay].map((x) => x ?? null).reduce((a, b) => (a === b ? 1 : 0)), 1);
+  }
+  // Said on the line: learned on this planet, and the share of the type’s average where it is well under.
+  {
+    const s = planSingle(inputWith(ownOf(G1, G2)), 'p1');
+    const lines = s.roles.filter((r) => r.does === 'extract').map((r) => r.why ?? '').join(' ');
+    const s2 = planSingle(inputWith(ownOf(G2, G1)), 'p1');
+    eq('  said: the chosen planet’s own rate is named', /learned on this planet/.test(s2.roles.find((r) => r.planetId === G2 || r.planetId === G1 ? r.does === 'extract' : false)?.why ?? ''), true);
+    eq('  said: nothing about a poor planet that isn’t used (its line is unused)', /gives about/.test(lines), false);
+    const only = planSingle(inputWith(ownOf(G1, G2), { planets: [sys[0]] }), 'p1');
+    eq('  said: a poor planet’s line says its share of the type’s average', /[Tt]his planet gives about 25% a head of your other Gas planets’ .* and /.test(only.roles.find((r) => r.does === 'extract')?.why ?? ''), true);
+  }
+}
+
 console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 → P2 and P0 → P1 on each planet) ---');
 {
   const fsP = await import('node:fs');
