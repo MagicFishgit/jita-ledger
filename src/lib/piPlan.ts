@@ -274,6 +274,17 @@ export type PlanInput = {
    * ranked before. Its candidates are a subset of the full search's, so every bound stays an upper bound.
    */
   only?: number;
+  /**
+   * Plan it's search sale (`heldInput`, the user's fix of 24 October 2026): the held good worth `UNITS_WEIGHT` a unit, uncapped, every
+   * other good at `sell`, so every search makes the most of the good and lets the extras break ties by ISK. Set by `heldInput` alone, with
+   * `sell` then the good uncapped at its first unit's net (the figure shown); absent, the searches rank on `sell`.
+   */
+  searchSell?: Sell;
+  /**
+   * Where the program length came from, for the words of a rate measured at another (absent: typed): typed into the `planets` doc, the
+   * median of your programmes, or the 3-day default with neither.
+   */
+  programFrom?: 'typed' | 'median' | 'default';
 };
 /** Storage facilities and launchpads already standing on a planet (`PlanInput.reserve`). */
 export type Reserve = { storage: number; launchpads: number };
@@ -287,7 +298,7 @@ export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
 export type Role = {
   planetId: number; charId: number; does: 'extract' | 'factory' | 'unused';
   /** `setAside`: another P0's learned or a typed rate set aside, its heads more than fit here (Ruling T15b-12): `rate` is then null. */
-  extracts: { p0: number; perHour: number; heads: number | null; rate: Rate | null; setAside?: Rate }[];
+  extracts: { p0: number; perHour: number; heads: number | null; rate: Rate | null; setAside?: Rate; extra?: string }[];
   makes: { id: number; perDay: number; facility: Facility; count: number }[];
   ships: { id: number; perDay: number; to: 'market' | number }[];
   /** A factory planet's intake: from the market (bought) or from a planet of the setup (by its ID). */
@@ -350,6 +361,8 @@ export type Setup = {
   cut?: true;
   /** The same setup run by each of your characters doing planetary industry (`repeatOf`): absent for a chain, or with only one such character. */
   repeat?: Repeat;
+  /** Plan it: the held good's units a day (a chain's in all), the head figure, with the ISK beside it; absent with every product. */
+  made?: { id: number; perDay: number };
 };
 /**
  * Plan it: a one-character setup repeated on each character doing planetary industry (the user, 19 October 2026: "i will rarely go
@@ -1166,17 +1179,19 @@ const soldMap = (outputs: readonly Output[]) => new Map(outputs.filter((o) => o.
  * The user's own setups, one planet at a time: P0 → P2 (each planet makes the best P2 it can alone) or P0 → P1 (each
  * planet refines the pair of P0s that pays most). Every planet of the system has a role; the ones not used say why.
  */
-export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
+export function planSingle(given: PlanInput, kind: 'p1' | 'p2'): Setup {
+  const input = heldInput(given);
   const { char } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, kind, cw, char.alpha === true ? ['Omega'] : []);
   if (!input.planets.some((p) => p.type)) return blocked(input, kind, NO_PI_HERE, []);
   const cc = char.ccLevel!, allowed = char.planets!;
-  const sold = seller(input.sell);
-  const ow = onlyWhy(input, kind, sold);
+  // Plan it searches on the held good's units (`heldInput`) and shows what it chose on `sell`; else both are `sell`.
+  const shown = seller(input.sell), sold = input.searchSell ? seller(input.searchSell) : shown;
+  const ow = onlyWhy(input, kind, shown);
   if (ow) return blocked(input, kind, ow, []);
   const options = optionsOf(input, kind);
-  const now = assess(input, choose(input, kind, allowed, sold, options), sold);
+  const now = assess(input, choose(input, kind, allowed, sold, options), shown);
   const { plans, outputs } = now;
   // Held to a good no planet here makes alone (canMake said one could): said, never a setup of no planets at 0 ISK.
   if (!plans.length) return blocked(input, kind, input.only != null ? `No planet here makes ${goodName(input.ix, input.only)} alone` : NO_PI_HERE, []);
@@ -1245,7 +1260,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
         if (better(a, worth)) { high = next; worth = a; }
       }
     });
-    iskDayHigh = worth.value;
+    iskDayHigh = sold === shown ? worth.value : assess(input, high, shown).value;
   }
 
   const before: Setup['before'] = [];
@@ -1262,11 +1277,15 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
     perChar: [{ charId: char.charId, iskDay, lacks: [...lacks].sort() }],
     unvalued, why: null,
     ...withRepeat(repeatOf(input, colonies, (n) => {
-      const a = n === 1 ? now : assess(input, Array.from({ length: n }, () => plans).flat(), sold);
+      const a = n === 1 ? now : assess(input, Array.from({ length: n }, () => plans).flat(), shown);
       return { value: a.value, sold: soldMap(a.outputs) };
     })),
+    ...madeOf(input, outputs),
   };
 }
+/** Plan it's head figure (`Setup.made`): the held good's units a day among a setup's outputs; nothing with every product. */
+const madeOf = (input: PlanInput, outputs: readonly Output[]): { made?: Setup['made'] } =>
+  (input.only == null ? {} : { made: { id: input.only, perDay: outputs.find((o) => o.id === input.only)?.perDay ?? 0 } });
 /** A setup's `repeat`, only where there is one (the field stays absent otherwise, so a setup's shape is as before). */
 const withRepeat = (r: Repeat | undefined): { repeat?: Repeat } => (r ? { repeat: r } : {});
 
@@ -1290,6 +1309,54 @@ export function unitNet(sold: (id: number, perDay: number) => Sold, id: number):
 }
 /** The amount `unitNet` asks about: far under any one a day a market takes at your share. */
 const SLIVER = 1e-6;
+
+/**
+ * Plan it is units first (the user, 24 October 2026: "have the planner maximise the system i have chosen, picking the planets that give
+ * the best outputs … so i can pump out as much as possible. the selling is my problem", and "dont worry about gel matrix amount, the more
+ * it makes the better"). The searches value the held good at this a unit, far over anything the other goods a setup makes can fetch, so
+ * the most units win and the extras break ties by ISK. 1e7 is the investigation's probe's (planner-bugs-report.md, probe6).
+ */
+export const UNITS_WEIGHT = 1e7;
+/**
+ * The held good uncapped at its first unit's net (`unitNet`'s side, its places and any Jita fallback kept): every unit made sells at
+ * that, no market cap and no pace. Linear, so `Sell`'s contract holds. Every other good as `sell` gives it. Not priced at a sliver: as
+ * `sell` says (`onlyWhy` then blocks the setup); priced but nothing sells at your share: not priced, said so.
+ */
+export function uncappedSell(sell: Sell, x: number): Sell {
+  let first: Sold | null = null;
+  return (id, perDay) => {
+    if (id !== x) return sell(id, perDay);
+    first ??= sell(x, SLIVER);
+    if (first.isk == null) return first;
+    if (!(first.units > 0)) return { isk: null, units: 0, where: [], why: first.why ?? 'nothing sells at your share', jitaUnits: 0 };
+    const atJita = (first.jitaUnits ?? (first.where.length === 1 && first.where[0] === 'jita' ? first.units : 0)) / first.units;
+    return { isk: perDay * (first.isk / first.units), units: perDay, where: first.where, why: null, jitaUnits: perDay * atJita, ...(first.fallback ? { fallback: first.fallback } : {}) };
+  };
+}
+/** The searches' sale under Plan it: the held good worth `UNITS_WEIGHT` a unit, uncapped (when `shown` prices it); every other good as `shown` gives it. */
+export function unitsSell(shown: Sell, x: number): Sell {
+  return (id, perDay) => {
+    if (id !== x) return shown(id, perDay);
+    const s = shown(x, perDay);
+    return s.isk == null ? s : { ...s, isk: perDay * UNITS_WEIGHT, units: perDay };
+  };
+}
+/**
+ * Plan it's input (`PlanInput.only`): `sell` the held good uncapped at its first unit's net, which every figure shown is worked out on,
+ * and `searchSell` the same with the good at `UNITS_WEIGHT` a unit, which the searches rank on (bought excepted: it buys its inputs, so
+ * it makes as many as pay, on `sell`). One object an input, so the planets' plans worked out for one setup serve the next. Without
+ * `only`, or already held, the input as it is.
+ */
+const heldMemo = new WeakMap<PlanInput, PlanInput>();
+export function heldInput(input: PlanInput): PlanInput {
+  if (input.only == null || input.searchSell) return input;
+  let h = heldMemo.get(input);
+  if (!h) {
+    const shown = uncappedSell(input.sell, input.only);
+    heldMemo.set(input, h = { ...input, sell: shown, searchSell: unitsSell(shown, input.only) });
+  }
+  return h;
+}
 
 /** Planets alike in what a setup on them is worth: one PI type and one customs rate. A planet's size changes only what fits. */
 type Member = { planet: PlanPlanet; at: number };
@@ -1594,6 +1661,7 @@ type FedValue = {
   toFactory: Float64Array[]; toMarket: Float64Array[];
   feederTax: TaxRow[][]; factoryTax: TaxRow[];
   made: { id: number; perDay: number; facility: Facility; count: number }[];
+  /** Whether the factory fits on its planet at the level judged (`valueFed`'s `level`: V unless given), null when its size isn't known. */
   layout: Layout; fitsAtV: boolean | null; restocks: number;
 };
 
@@ -1617,9 +1685,10 @@ function runOf(ctx: FedCtx, R: number): { run: number; soldX: Sold } {
  * exported (to the factory, or to market and sold) leaves the lowest-tax feeders first and pays their export tax; the
  * factory pays import tax at half its rate on what it takes, and export tax on what it makes. What doesn't sell stays where
  * it was made, untaxed. The search asks only for the score; `detail` adds what each feeder ships where and the tax rows,
- * which a setup shows.
+ * which a setup shows. `level`: the Command Center Upgrades level the factory's fit is judged at (V when not given; Plan it's
+ * the characters' own: `fitLevel`). `at`: each feeder colony's planet's place in the system (`placeFed`'s), for the detail's order.
  */
-function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R: number, detail = false): FedValue {
+function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R: number, detail = false, level?: number, at?: readonly number[]): FedValue {
   const { input, sold, tree, goods, classes, feeders } = ctx;
   const { ix } = input;
   const G = goods.length;
@@ -1704,7 +1773,7 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
     hightech: made.filter((m) => m.facility === 'hightech').reduce((n, m) => n + m.count, 0),
   };
   const t = classes[f].t, r = factoryMember(classes[f]).planet.radiusKm;
-  const fitsAtV = r == null || !(r > 0) ? null : fitOf(ix, t, ix.planetTypes[t].cc.length - 1, layout, r).fits;
+  const fitsAtV = r == null || !(r > 0) ? null : fitOf(ix, t, level ?? ix.planetTypes[t].cc.length - 1, layout, r).fits;
   // The factory planet's launchpad holds what its planets bring and what it makes (Ruling T11-4): a visit on both.
   let m3 = run * (ix.byId.get(tree.x)?.volume ?? 0) * 7, colonies = 0;
   for (let g = 0; g < G; g++) m3 += used[g] * (ix.byId.get(goods[g])?.volume ?? 0) * 7;
@@ -1717,15 +1786,20 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
   // Each feeder's part, in the same order: what's exported leaves the lowest tax first, a class's feeders one after another;
   // what each exports goes to the factory and to market in the same proportion (which doesn't change the tax), so every
   // feeder shows its part of what the factory takes. A good nobody prices is added to market after, untaxed (below).
+  // Plan it draws each good the factory takes from one feeder (planner fix 1): the lowest tax, then the planet listed first, takes
+  // the factory's draw first and the next only what it can't; the tax is the same, since each still exports what it did. Split in
+  // proportion, two feeders of one good both read as feeding the factory (the user's 21:49 plan: 163 Precious Metals from III and
+  // 163 from IV, and the user built both).
+  const held = input.only != null;
   const inst: number[] = [];
   counts.forEach((n, i) => { for (let k = 0; k < n; k++) inst.push(i); });
-  const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[feeders[inst[a]].cls].rate, classes[feeders[inst[b]].cls].rate) || a - b);
+  const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[feeders[inst[a]].cls].rate, classes[feeders[inst[b]].cls].rate) || (at ? at[a] - at[b] : 0) || a - b);
   v.toFactory = inst.map(() => new Float64Array(G));
   v.toMarket = inst.map(() => new Float64Array(G));
   for (let g = 0; g < G; g++) {
     const out = used[g] + toSell[g];
     if (!(out > 0)) continue;
-    if (ctx.keeps[g]) {
+    if (ctx.keeps[g] || held) {
       // A feeder that keeps the good (Ruling T15-5) sends the factory its part and nothing to market: the factory's draw first.
       let draw = used[g], sell = toSell[g];
       for (const k of order) {
@@ -1785,8 +1859,9 @@ function allNeeded(ctx: FedCtx, counts: Int32Array, S: Float64Array, R: number):
  * level it fits (else the shown one); each feeder, the planets with most colonies first, to a character with room that has
  * none there, one it fits at its own level before one with merely more room. When putting fit first leaves a colony
  * nowhere, room alone decides (the most first), which places whatever can be. Null when they don't fit the characters' planets.
+ * `strict` (Plan it, planner fix 1): the factory only with a character at whose own level it fits, else null.
  */
-function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[], layout?: Layout): Placed | null {
+function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[], layout?: Layout, strict = false): Placed | null {
   const { input } = ctx;
   const K = who.length;
   const fm = factoryMember(ctx.classes[f]);
@@ -1819,7 +1894,7 @@ function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[], layout
   const assign = (fitFirst: boolean): Placed | null => {
     const room = who.map((w) => w.cap);
     let fc = 0;
-    if (fitFirst) { const c = who.findIndex((w, i) => w.cap > 0 && factoryFits(i)); if (c >= 0) fc = c; }
+    if (fitFirst || strict) { const c = who.findIndex((w, i) => w.cap > 0 && factoryFits(i)); if (c >= 0) fc = c; else if (strict) return null; }
     room[fc] -= 1;
     if (room[fc] < 0) return null;
     const on = new Map<number, Set<number>>([[fm.at, new Set([fc])]]);
@@ -1840,6 +1915,13 @@ function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[], layout
   };
   return assign(true) ?? assign(false);
 }
+
+/**
+ * The level a fed factory's fit is judged at: V (Ruling T9-3: placed with someone it doesn't fit, it's ranked and said with what it lacks),
+ * or under Plan it the highest of the characters' own (planner fix 1): its run isn't held to a market any more, so a factory sized for
+ * everything its planets ship could outgrow any level a character has, and is then not an arrangement at all.
+ */
+const fitLevel = (input: PlanInput, who: readonly Who[]): number | undefined => (input.only != null ? Math.max(...who.map((w) => w.cc)) : undefined);
 
 type FedBest = { ctx: FedCtx; f: number; counts: Int32Array; score: Score; who: Who[]; placed: Placed };
 
@@ -2001,10 +2083,10 @@ function searchFed(ctx: FedCtx, who: Who[], best: Searched, root: number, budget
       const blind = classes[f].rate == null;
       if (caps[f] <= 0 || (blind ? unknown : known)) continue;
       budget.left -= VALUED;
-      const v = valueFed(ctx, counts, f, S, R);
+      const v = valueFed(ctx, counts, f, S, R, false, level);
       if (v.fitsAtV === false) { tooBig = true; continue; }
       if (beats(v.score, best.b?.score ?? null)) {
-        const placed = placeFed(ctx, counts, f, who, v.layout);
+        const placed = placeFed(ctx, counts, f, who, v.layout, strict);
         if (!placed) { other = true; continue; }
         best.b = { ctx, f, counts: counts.slice(), score: v.score, who, placed };
       }
@@ -2030,6 +2112,7 @@ function searchFed(ctx: FedCtx, who: Who[], best: Searched, root: number, budget
     return t;
   };
   const lim = new Float64Array(eqs.length);
+  const level = fitLevel(ctx.input, who), strict = level != null;
   function* visit(n: number, d: number): Generator<void, void, void> {
     const had = seen.get(key), now = coverOf(width, d);
     if (had != null && Math.floor(had / 1000) >= Math.floor(now / 1000) && had % 1000 >= now % 1000) return;
@@ -2307,12 +2390,41 @@ function fitNote(p: Plan, exported: readonly Ship[], owner?: number): string | n
   return `${what} ${atCcu(p.fitAt.cc)}: ${take} ${unitsSaid(all - left)} of the ${unitsSaid(all)} P0 an hour; the rest ${fate}`;
 }
 
+/**
+ * Plan it: whether a feeder's line serves the recipe, and when it doesn't, why, as words (planner fix 1; the user, 24 October 2026: "i
+ * think the plan showed me to make electrolytes and chiral structures at one time and so i went with it and thought they needed it"). A
+ * line serves when the factory draws its P1 from this feeder, or the P2 its Advanced make there. Else it's an extra: the recipe doesn't
+ * use its P1 ("Extra: Gel-Matrix Biopaste doesn’t use Chiral Structures; it’s sold"), or the factory takes all it needs of it from
+ * another planet ("Extra: the factory takes all its Precious Metals from 5-NZNW IV"). `from` names the planets the factory draws a good
+ * from. Null for a line that serves.
+ */
+function extraOf(ctx: FedCtx, v: FedValue, k: number, plan: Plan, from: (id: number) => string[]): (l: Line) => string | null {
+  const { ix } = ctx.input;
+  const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
+  const drawn = (id: number) => { const g = ctx.goods.indexOf(id); return g >= 0 && v.toFactory[k][g] > 1e-6; };
+  const sold = (id: number) => { const g = ctx.goods.indexOf(id); return g >= 0 && v.toMarket[k][g] > 1e-6; };
+  const inRecipe = (id: number) => ctx.tree.kinds.includes(id) || ctx.tree.p2.has(id);
+  return (l) => {
+    if (drawn(l.p1) || (plan.advanced && drawn(plan.advanced.id))) return null;
+    // A P2 made alone whose Advanced take the line's P1: the P2 is what the recipe would use.
+    const good = plan.advanced ? plan.advanced.id : l.p1;
+    const fate = sold(good) ? 'it’s sold' : 'it stays on the planet';
+    if (!inRecipe(good)) return `Extra: ${name(ctx.tree.x)} doesn’t use ${name(good)}; ${fate}`;
+    const others = from(good);
+    return others.length ? `Extra: the factory takes all its ${name(good)} from ${listSaid(others)}` : `Extra: the factory takes none of this ${name(good)}; ${fate}`;
+  };
+}
+
 /** The setup an arrangement makes: every planet's role (a chain's colonies by character), the outputs, the taxes, the upkeep. */
 function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unusedWhy: string): Setup {
-  const { ctx, f, counts, who, placed } = best;
+  const { f, counts, who, placed } = best;
   const { ix } = input;
+  // Plan it searched on the held good's units (`searchSell`); what it chose is shown on `sell`, the good uncapped at its first unit's
+  // net. The feeders, what they keep and why, are the same on both: the good is never on a feeder's line, and every other good is
+  // priced alike.
+  const ctx = input.searchSell ? { ...best.ctx, sold: seller(input.sell) } : best.ctx;
   const S = sumShips(ctx, counts);
-  const v = valueFed(ctx, counts, f, S, rateOfS(ctx, S), true);
+  const v = valueFed(ctx, counts, f, S, rateOfS(ctx, S), true, undefined, placed.feeders.map((x) => x.member.at));
   const { goods, tree } = ctx;
   const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
   const fm = placed.factory.member, fw = who[placed.factory.char];
@@ -2343,9 +2455,10 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     });
     const fitSaid = fitNote(plan, ships.filter((x) => x.to === 'market'), who[pl.char].cc);
     const notes = [...rateNotes(input, plan), ...fit.notes, ...(fitSaid ? [fitSaid] : []), ...staysNotes(name, kept, over)];
+    const extra = input.only != null ? extraOf(ctx, v, k, plan, (id) => placed.feeders.filter((_, j) => v.toFactory[j][goods.indexOf(id)] > 1e-6).map((x) => x.member.planet.name)) : () => null;
     return {
       planetId: pl.member.planet.planetId, charId: who[pl.char].c.charId, does: 'extract',
-      extracts: plan.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: fit.heads[i], rate: l.rate, ...(l.setAside ? { setAside: l.setAside } : {}) })),
+      extracts: plan.lines.map((l, i) => { const e = extra(l); return { p0: l.p0, perHour: l.perHour, heads: fit.heads[i], rate: l.rate, ...(l.setAside ? { setAside: l.setAside } : {}), ...(e ? { extra: e } : {}) }; }),
       makes: [
         ...plan.lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24, facility: 'basic' as const, count: l.basics })),
         ...(plan.advanced ? [{ id: plan.advanced.id, perDay: plan.advanced.perHour * 24, facility: 'advanced' as const, count: plan.advanced.count }] : []),
@@ -2443,6 +2556,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
     taxes, outputs, inputs: [], roles,
     upkeep: upkeepOf(input, outputs, placed.feeders.length, v.restocks),
     perChar, unvalued, why: null,
+    ...madeOf(input, outputs),
     // Repeated on each character: `n` copies of the arrangement, valued together (the factories' run held to what their market takes).
     ...(kind === 'feed' ? withRepeat(repeatOf(input, layouts, (n) => {
       const cn = Int32Array.from(counts, (x) => x * n), Sn = sumShips(ctx, cn);
@@ -2475,15 +2589,17 @@ function* fedTargets(input: PlanInput, sold: Seller, classes: Cls[], tiers: Tier
  */
 export const planFeed = (input: PlanInput): Setup => drain(planFeedSteps(input));
 /** `planFeed` a step at a time (`Steps`), for the page to drive in slices. */
-export function* planFeedSteps(input: PlanInput): Steps<Setup> {
+export function* planFeedSteps(given: PlanInput): Steps<Setup> {
+  const input = heldInput(given);
   const { char } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, 'feed', cw, char.alpha === true ? ['Omega'] : []);
   if (!input.planets.some((p) => p.type)) return blocked(input, 'feed', NO_PI_HERE, []);
   const allowed = char.planets!;
   if (allowed < 2) return blocked(input, 'feed', `A factory planet and one to feed it take 2 planets: you have ${allowed}`, []);
-  const sold = seller(input.sell);
-  const ow = onlyWhy(input, 'feed', sold);
+  // Plan it searches on the held good's units (`heldInput`); else on `sell`.
+  const sold = seller(input.searchSell ?? input.sell);
+  const ow = onlyWhy(input, 'feed', input.searchSell ? seller(input.sell) : sold);
   if (ow) return blocked(input, 'feed', ow, []);
   const ctxs = yield* fedTargets(input, sold, classesOf(input), ['P2', 'P3'], [char.ccLevel!]);
   if (!ctxs.length) return blocked(input, 'feed', input.only != null ? noFeedWhy(input.ix, input.only) : 'Nothing a factory here could make from this system’s planets is priced', []);
@@ -2493,7 +2609,7 @@ export function* planFeedSteps(input: PlanInput): Steps<Setup> {
   yield;
   if (!best) {
     if (budget.cut) return withCut(blocked(input, 'feed', RAN_OUT, []), budget);
-    return blocked(input, 'feed', tried && tooBig ? NO_FIT : input.only != null ? `A factory making ${goodName(input.ix, input.only)} can’t be fed within your ${allowed} planets`
+    return blocked(input, 'feed', tried && tooBig ? noFitWhy(input, who) : input.only != null ? `A factory making ${goodName(input.ix, input.only)} can’t be fed within your ${allowed} planets`
       : `No factory planet here can be fed within your ${allowed} planets`, []);
   }
   const used = best.placed.feeders.length + 1;
@@ -2505,6 +2621,11 @@ export function* planFeedSteps(input: PlanInput): Steps<Setup> {
  * that's why nothing is planned. One cut short before it found anything says so, never blaming the planets or characters.
  */
 export const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
+/** `NO_FIT`, or under Plan it at the characters' own level (`fitLevel`): its factory is sized for all its planets ship. */
+const noFitWhy = (input: PlanInput, who: readonly Who[]) => {
+  const lv = fitLevel(input, who);
+  return lv == null ? NO_FIT : `Every factory these planets could feed is too big for its planet at ${who.length > 1 ? 'your characters’ highest Command Center Upgrades' : 'your Command Center Upgrades'}, ${ROMAN[lv]}`;
+};
 export const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
 /** Held to one good whose P0s are all here (`onlyWhy` passed) and still no feeder ships every P1 it takes. */
 const noFeedWhy = (ix: PiIndex, x: number) => `No planet here can ship every P1 ${goodName(ix, x)} takes`;
@@ -2520,7 +2641,8 @@ const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: 
  */
 export const planChain = (input: PlanInput): Setup => drain(planChainSteps(input));
 /** `planChain` a step at a time (`Steps`), for the page to drive in slices: the search's chunks, and each product's context and cover. */
-export function* planChainSteps(input: PlanInput): Steps<Setup> {
+export function* planChainSteps(given: PlanInput): Steps<Setup> {
+  const input = heldInput(given);
   const { char } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, 'chain', cw, char.alpha === true ? ['Omega'] : []);
@@ -2528,8 +2650,9 @@ export function* planChainSteps(input: PlanInput): Steps<Setup> {
   const seen = new Set<number>();
   const usable: Who[] = [char, ...input.others].filter((c) => !seen.has(c.charId) && seen.add(c.charId) && charWhy(c) == null)
     .map((c) => ({ c, cap: c.planets!, cc: c.ccLevel! }));
-  const sold = seller(input.sell);
-  const ow = onlyWhy(input, 'chain', sold);
+  // Plan it searches on the held good's units (`heldInput`); else on `sell`.
+  const sold = seller(input.searchSell ?? input.sell);
+  const ow = onlyWhy(input, 'chain', input.searchSell ? seller(input.sell) : sold);
   if (ow) return blocked(input, 'chain', ow, []);
   const classes = classesOf(input);
   // Its extraction planets are sized at the lowest level of the characters it may use that holds them (Ruling F9, `feederFits`).
@@ -2563,7 +2686,7 @@ export function* planChainSteps(input: PlanInput): Steps<Setup> {
   }
   if (pick) return withCut(setupFed('chain', input, pick.best, 'The chain needs no colony here'), budget);
   if (budget.cut) return withCut(blocked(input, 'chain', RAN_OUT, []), budget);
-  if (pools.some((p) => p.best.tried) && pools.every((p) => !p.best.tried || p.best.tooBig)) return blocked(input, 'chain', NO_FIT, []);
+  if (pools.some((p) => p.best.tried) && pools.every((p) => !p.best.tried || p.best.tooBig)) return blocked(input, 'chain', noFitWhy(input, usable), []);
 
   // Too few characters: how many more like the shown one the least demanding chain needs.
   const like: Who = { c: char, cap: char.planets!, cc: char.ccLevel! };
@@ -2984,7 +3107,10 @@ export function sizeBought(input: PlanInput, picks: { planetId: number; x: numbe
  * the products by what each would make alone, each set sized exactly (`sizeSet`), and a branch skipped when the set's worth and
  * what the products still to add make alone can't beat the best so far.
  */
-export function planBought(input: PlanInput): Setup {
+export function planBought(given: PlanInput): Setup {
+  // Plan it: the held good uncapped at its first unit's net (`heldInput`). Bought buys its inputs, so it makes as many as pay on that,
+  // not the most at any cost: no `searchSell` here.
+  const input = heldInput(given);
   const { char, ix } = input;
   const cw = charWhy(char);
   if (cw) return blocked(input, 'bought', cw, char.alpha === true ? ['Omega'] : []);
@@ -3123,6 +3249,7 @@ export function planBought(input: PlanInput): Setup {
     upkeep: upkeepOf(input, outputs, 0, v.restocks.reduce((n, x) => n + x, 0), inputs),
     perChar: [{ charId: char.charId, iskDay: v.score.value, lacks: [] }], unvalued: 0, why: null,
     ...(cut ? { cut: true as const } : {}),
+    ...madeOf(input, outputs),
     ...withRepeat(repeatOf(input, colonies, (n) => repeatBought(ctx, chosen.inst, n))),
   };
 }
