@@ -132,15 +132,20 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       if (route) return s.jita;
       return (s.bare ??= sellAt('jita', s.m, { broker, tax, leg: HERE, volume: volume(t), makes: ANY_MAKES, share, now }));
     };
+    // Sell set to Jita with no freight route: Jita's own prices before freight (the user, 24 October 2026: "i dont care about a freight
+    // route being set. when I click on Jita I just want to see the sell prices in Jita so I can compare them vs my corp hub"), said in
+    // `said`. Either still needs the route: setting the hub against Jita before the haul would favour Jita by the haul's cost.
+    const jitaHere = (t: number): Sale => (hub && where === 'jita' ? jitaFor(t) : salesOf(t).jita);
     const sell: Sell = (t, perDay): Sold => {
       const s = salesOf(t);
       if (hub && where === 'home') return soldAtHome(perDay, { home: s.home, jita: jitaFor(t) }, share, hub.short, route, jitaLeg.kind === 'here');
-      return soldOf(perDay, { jita: s.jita, home: s.home }, where, share);
+      return soldOf(perDay, { jita: jitaHere(t), home: s.home }, where, share);
     };
     const unit = (t: number): UnitNet => {
       const s = salesOf(t);
+      const at = { home: s.home, jita: jitaHere(t) };
       const nets = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p)
-        .map((p) => ({ p, v: Math.max(s[p].listNet ?? -Infinity, s[p].bidNet ?? -Infinity), why: s[p].why }));
+        .map((p) => ({ p, v: Math.max(at[p].listNet ?? -Infinity, at[p].bidNet ?? -Infinity), why: at[p].why }));
       const best = nets.filter((x) => x.v > -Infinity).sort((a, b) => b.v - a.v)[0];
       // The book `marketOf` priced it on: Jita's live one when read, else this morning's scan; at the hub, its quote's source.
       const book: UnitBook | null = !best ? null : best.p === 'jita' ? (liveBooks[t] ? 'now' : 'morning') : s.m.home?.source === 'structure' ? 'hub' : 'goonmetrics';
@@ -236,7 +241,9 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       usesHome ? hubSaid : null,
       !usesJita ? null
         : jitaLeg.kind === 'route' ? `Jita: ${jitaSource}, reached by ${jitaLeg.name} from ${hub.short}.`
-          : jitaLeg.kind === 'none' ? `No freight route between ${hub.short} and Jita is picked on the Industry tab, so nothing is priced at Jita.`
+          : jitaLeg.kind === 'none' ? (doc.sell === 'jita'
+            ? `Jita: ${jitaSource}, before freight: no freight route between ${hub.short} and Jita is picked on the Industry tab, so the haul isn’t counted, and inputs can’t be bought there.`
+            : `No freight route between ${hub.short} and Jita is picked on the Industry tab, so nothing is priced at Jita.`)
             : `Jita: ${jitaSource}.`,
       usesHome && doc.hubFees[hub.id] == null ? `${hub.short}’s broker fee isn’t typed, so home sales are ranked before it.` : null,
       // Ruling F11: what the hub doesn't price is valued at Jita's, and each figure built on it says so.

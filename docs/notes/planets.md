@@ -167,7 +167,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     - **Resets** (the user, on "Resets a week: 11.7 · a program each extraction planet" at 72 hours: "why does this say i wil have to
     reset 11 times a week, thats impossible"; it was 5 planets × 168 ÷ 72): "Every 3 days" ("every 18 hours" under a day), "5 planets
     (10 extractors) each time: about 2.3 sittings and 11.7 planet resets a week"; a chain's each character's planets.
-  - **Chart** (`PlanetsChart.tsx`, `piChart.ts`): the 83 goods by tier from the bundle (never evehelper's data), each valued a unit
+  - **Chart** (`PlanetsChart.tsx`, `piChart.ts`): the 83 goods by tier from the bundle (never evehelper's data), each tier most ISK a
+    unit first, a good not valued last (24 October 2026, the user: "so i can easily see the highest earners first"), each valued a unit
     and a m³ at the chosen market, a picked good's recipe down to P0 with quantities and cycles, the planet types and the system's
     planets that give its P0s. **Ruling T12-1**: "Which setups can make it at X" reads what each kind *can* make from the bundle
     (`canMake`), beside what Plan's ranking *does* make (`makingIn`, from roles); roles alone can't name Nanites at 5-NZNW, the

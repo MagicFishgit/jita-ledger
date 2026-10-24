@@ -76,6 +76,13 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanG
   const greyed = [...missing.values()].filter((m) => m.length).length;
   const ready = p.market.ready;
   const unit = (id: number): UnitNet => (ready ? p.market.unit(id) : { isk: null, where: null, why: null });
+  // Each tier most ISK a unit first (the user, 24 October 2026: "so i can easily see the highest earners first"); a good not valued
+  // goes last, in the bundle's order, as do all of them while prices aren't in.
+  const byIsk = (gs: readonly Commodity[]) => {
+    if (!ready) return gs;
+    const v = new Map(gs.map((g) => [g.id, unit(g.id).isk] as const));
+    return [...gs].sort((a, b) => { const x = v.get(a.id), y = v.get(b.id); return x == null ? (y == null ? 0 : 1) : y == null ? -1 : y - x; });
+  };
   const hubShort = useHubName();
 
   return (
@@ -95,7 +102,7 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanG
             <div key={t} className="pl-tier" data-planets={`tier:${t}`}>
               <div className="pl-tier-head"><b>{t}</b><span>{tiers[t].length} goods · {TIER_SAID[t]}</span></div>
               <div className="pl-goods">
-                {tiers[t].map((g) => <GoodChip key={g.id} g={g} u={unit(g.id)} ready={ready} picked={pick === g.id} missing={missing.get(g.id) ?? []} sysName={sysName} ix={ix} hub={hubShort} onPick={() => choose(pick === g.id ? null : g.id)} />)}
+                {byIsk(tiers[t]).map((g) => <GoodChip key={g.id} g={g} u={unit(g.id)} ready={ready} picked={pick === g.id} missing={missing.get(g.id) ?? []} sysName={sysName} ix={ix} hub={hubShort} onPick={() => choose(pick === g.id ? null : g.id)} />)}
               </div>
             </div>
           ))}
@@ -152,7 +159,7 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
   }
   return (
     <button type="button" className={'pl-good' + (picked ? ' sel' : '') + (off ? ' off' : '')} aria-pressed={picked} aria-disabled={off ? true : undefined}
-      data-planets={`good:${g.id}`} data-book={u.isk != null ? u.book ?? undefined : undefined} data-fallback={u.isk != null && u.fallback ? 'jita' : undefined} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
+      data-planets={`good:${g.id}`} data-isk={u.isk ?? undefined} data-book={u.isk != null ? u.book ?? undefined : undefined} data-fallback={u.isk != null && u.fallback ? 'jita' : undefined} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
       <ItemIcon id={g.id} size="sm" />
       <span className="pl-good-text">
         <span className="pl-good-name">{g.name}</span>

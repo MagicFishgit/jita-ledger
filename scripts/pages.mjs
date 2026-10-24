@@ -3897,6 +3897,13 @@ try {
       if (goods83 !== 83) problems.push(`the chart shows ${goods83} goods, not 83`);
       const tiers = await page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="tier:"]')].map((t) => [t.getAttribute('data-planets'), t.querySelectorAll('[data-planets^="good:"]').length]));
       if (JSON.stringify(tiers) !== JSON.stringify([['tier:P0', 15], ['tier:P1', 15], ['tier:P2', 24], ['tier:P3', 21], ['tier:P4', 8]])) problems.push(`the chart's tiers: ${JSON.stringify(tiers)}`);
+      // Each tier most ISK a unit first, a good not valued last (the user: "so i can easily see the highest earners first").
+      await page.waitForSelector('[data-planets="chart"] [data-isk]', { timeout: 30_000 }).catch(() => problems.push('the chart never valued a good'));
+      const unsorted = await page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="tier:"]')].filter((t) => {
+        const v = [...t.querySelectorAll('[data-planets^="good:"]')].map((e) => (e.hasAttribute('data-isk') ? Number(e.getAttribute('data-isk')) : null));
+        return v.some((x, i) => i > 0 && (v[i - 1] == null ? x != null : x != null && x > v[i - 1]));
+      }).map((t) => t.getAttribute('data-planets')));
+      if (unsorted.length) problems.push(`the chart's tiers aren't most ISK first: ${unsorted.join(', ')}`);
       // 5-NZNW has every P0 on some planet: nothing is greyed.
       const greyed = await disabledGoods();
       if (greyed.length) problems.push(`at 5-NZNW, which supplies every P0, ${greyed.length} goods are greyed`);
@@ -3940,6 +3947,24 @@ try {
       const oxides = await text(good(OXIDES)), oxTip = await page.locator(good(OXIDES)).getAttribute('data-tip').catch(() => ''), oxFell = await page.locator(good(OXIDES)).getAttribute('data-fallback').catch(() => null);
       if (oxFell !== 'jita' || !/\d ISK/.test(oxides) || !/Jita’s/.test(oxides)) problems.push(`Oxides, with no price at UALX-3, isn't valued at Jita's: “${oxides}” (${oxFell})`);
       if (!/No price at UALX-3: valued at Jita’s: [\d,.]+ (K |M )?ISK after freight \(Jita lists it at [\d,.]+ (K |M )?ISK\)/.test(oxTip ?? '') || !/at Jita’s, on (its Jita book now|this morning’s Jita book)/.test(oxTip ?? '')) problems.push(`Oxides' Jita value doesn't say so: “${oxTip}”`);
+      // Sell at Jita with no freight route: Jita's own prices before freight, said, never nothing priced (the user, 24 October 2026:
+      // "when I click on Jita I just want to see the sell prices in Jita so I can compare them vs my corp hub").
+      {
+        const store = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/src\/lib\/store\.ts/.test(n)));
+        const freightTo = (f) => page.evaluate(async ([u, fr]) => { const m = await import(u); m.update((x) => ({ industry: { ...x.industry, freight: fr } })); }, [store, f]);
+        if (!store) problems.push('couldn’t find the app’s store module to take the freight route away (the chart)');
+        else {
+          await page.locator('[data-planets="market"] button', { hasText: /^Jita$/ }).click().catch((e) => problems.push(`no Sell at Jita on the chart: ${e.message.split('\n')[0]}`));
+          await freightTo([]);
+          await page.waitForTimeout(600);
+          const bare = await text('[data-planets="chart-section"]');
+          if (!/Jita: .+, before freight: no freight route between UALX-3 and Jita is picked/.test(bare)) problems.push(`Sell at Jita with no route doesn't say it's before freight: “${bare.slice(0, 400)}”`);
+          if (/so nothing is priced at Jita/.test(bare)) problems.push('Sell at Jita with no route still says nothing is priced at Jita');
+          const valued = await page.locator('[data-planets="chart"] [data-isk]').count();
+          if (valued < 60) problems.push(`Sell at Jita with no route values only ${valued} of 83 goods`);
+          await freightTo(BRAVE);
+        }
+      }
       await page.locator('[data-planets="market"] button', { hasText: /^Either$/ }).click().catch(() => undefined);
       await page.waitForTimeout(400);
       if (PHONE) {
