@@ -35,8 +35,11 @@ export function useColonies(): State {
 }
 export const getColonies = () => state;
 
-/** Read every colony. With `maxAgeMs`, an answer younger than that is kept instead. */
-export async function readColonies(maxAgeMs = 0): Promise<ColonyRead | null> {
+/**
+ * Read every colony. With `maxAgeMs`, an answer younger than that is kept instead. `fresh` asks ESI past the browser's copy, for a check
+ * someone asked for (Check my setup, gotchas.md): ESI's own copy still holds about 10 minutes.
+ */
+export async function readColonies(maxAgeMs = 0, fresh = false): Promise<ColonyRead | null> {
   const auth = getAuth();
   if (!auth || !hasScope(PLANETS_SCOPE) || state.busy) return state.read;
   if (state.read && Date.now() - Date.parse(state.read.at) < maxAgeMs) return state.read;
@@ -45,12 +48,12 @@ export async function readColonies(maxAgeMs = 0): Promise<ColonyRead | null> {
     const gen = dataGeneration();
     const d = getData();
     const r = rates(d.settings);
-    const heads = await myPlanets(auth.characterId);
+    const heads = await myPlanets(auth.characterId, fresh);
     const built: Colony[] = [];
     const kept: KeptColony[] = [];
     for (const h of heads) {
       setState({ busy: `Reading colony ${built.length + 1} of ${heads.length}…` });
-      const raw = await colonyLayout(auth.characterId, h.planetId);
+      const raw = await colonyLayout(auth.characterId, h.planetId, fresh);
       built.push(readColony(h, raw, Date.now()));
       kept.push(keptFromEsi(h, raw));
     }

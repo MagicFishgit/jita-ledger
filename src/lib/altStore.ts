@@ -61,6 +61,8 @@ export const useRosterAt = (): number | null => useSyncExternalStore(subscribe, 
  * nothing. The Characters page and the Mining tab show the read's progress too, and take `useAlts()`.
  */
 export const useAltCopies = (): Record<number, AltSaved> => useSyncExternalStore(subscribe, () => state.alts);
+/** The state as it is now, outside a render: Check my setup reads whether the pull it waited for failed (Planets.tsx). */
+export const getAlts = (): AltsState => state;
 
 async function load(): Promise<void> {
   const saved = (await get(ROSTER, db).catch(() => undefined)) as { at: number; list: RosterEntry[] } | undefined;

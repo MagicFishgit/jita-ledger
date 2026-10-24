@@ -3637,6 +3637,32 @@ try {
     // The setups are worked out on a timer once the inputs settle: wait until none says it's being worked out.
     let settleN = 0;
     const settled = async () => { const n = ++settleN; await page.waitForFunction(() => !document.querySelector('[data-planets="working"]') && document.querySelectorAll('[data-planets^="setup:"]').length >= 5, null, { timeout: 30_000 }).catch(async () => problems.push(`the setups never settled (#${n}: ${await text('[data-planets="working"]')} / ${await page.locator('[data-planets^="setup:"]').count()} rows)`)); await page.waitForTimeout(300); };
+    // The plan board (planets-board.md): a setup folds to one row until opened (its head's [data-planets="open"]), and its fine print folds
+    // under "What it makes, and the details" (the planet words on each card among it). Opened for what's read here; each returns its undo,
+    // so a re-rank's own opening (m3) is tested from the rows as Plan leaves them.
+    const openRow = async (k, details = true, within = '') => {
+      const row = page.locator(`${within}[data-planets="${k.includes(':') ? k : `setup:${k}`}"]`).first();
+      if (!(await row.count())) return async () => undefined;
+      const head = row.locator('[data-planets="open"]').first();
+      const wasOpen = (await head.getAttribute('aria-expanded').catch(() => null)) === 'true';
+      if (!wasOpen) await head.click().catch(() => undefined);
+      let opened = false;
+      if (details) {
+        const d = row.locator('button[aria-expanded="false"]', { hasText: 'What it makes' });
+        if (await d.count()) { await d.first().click().catch(() => undefined); opened = true; }
+      }
+      await page.waitForTimeout(250);
+      return async () => {
+        if (opened) await row.locator('button[aria-expanded="true"]', { hasText: 'What it makes' }).first().click().catch(() => undefined);
+        if (!wasOpen) await head.click().catch(() => undefined);
+        await page.waitForTimeout(100);
+      };
+    };
+    const openAll = async (details = true) => {
+      const undo = [];
+      for (const k of ['p1', 'p2', 'feed', 'bought', 'chain']) undo.push(await openRow(k, details));
+      return async () => { for (const u of undo.reverse()) await u(); };
+    };
     await page.goto(SEED_PAGE);
     await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
     await page.goto(`${BASE}#hustles/planets/plan`);
@@ -3707,24 +3733,24 @@ try {
     // Ruling F10: a week and a month beside the day, and the month against a month of Omega (500 PLEX at the seeded 5 M = 2.5 B).
     {
       const money = (t) => { const m = /^(−?[\d.,]+) ?([kMB])?/.exec(t.trim()); return m ? Number(m[1].replace(/,/g, '')) * ({ k: 1e3, M: 1e6, B: 1e9 }[m[2]] ?? 1) : NaN; };
+      // The plan board: P0 → P2's week, month and Omega share are tiles of its glance, shown once it's opened.
+      const undo = await openRow('p2', false);
       const day = money(await text('[data-planets="setup:p2"] .pl-isk b'));
-      const week = money(await text('[data-planets="setup:p2"] [data-planets="week"]'));
-      const month = money(await text('[data-planets="setup:p2"] [data-planets="month"]'));
+      if (money(await text('[data-planets="setup:p2"] [data-planets="day"] .tile-v')) !== day) problems.push(`P0 → P2's ISK a day tile isn't its head figure: “${await text('[data-planets="setup:p2"] [data-planets="day"]')}”`);
+      const week = money(await text('[data-planets="setup:p2"] [data-planets="week"] .tile-v'));
+      const month = money(await text('[data-planets="setup:p2"] [data-planets="month"] .tile-v'));
       if (!(Math.abs(week / day - 7) < 0.1) || !(Math.abs(month / day - 30) < 0.5)) problems.push(`P0 → P2's day, week and month don't run 1 : 7 : 30: ${day}, ${week}, ${month}`);
       const om = await text('[data-planets="setup:p2"] [data-planets="omega"]');
       const want = month / 2.5e9, said = want > 1 ? `${(Math.round(want * 10) / 10).toFixed(1)}×` : `${Math.round(want * 100)}%`;
-      if (!om.includes(`${said} of a month of Omega`)) problems.push(`P0 → P2's Omega share should read ${said}: “${om}”`);
+      if ((await text('[data-planets="setup:p2"] [data-planets="omega"] .tile-v')).trim() !== said || !/of a month of Omega/i.test(om)) problems.push(`P0 → P2's Omega share should read ${said}: “${om}”`);
       if (/\bNaN\b/.test(await text('[data-planets="setup:p2"] .pl-head, [data-planets="setup:p2"]'))) problems.push('a period reads NaN');
+      await undo();
     }
     // Ruling T15b-8: at the seeded colony's median of 10 heads, an unrated planet's extractors are capped where its layout fits;
     // uncapped, every one read "No Command Center Upgrades level fits it" while the figures stayed the same.
     {
-      const opened = [];
-      for (const k of ['p1', 'p2', 'feed']) {
-        const toggle = page.locator(`[data-planets="setup:${k}"] button[aria-expanded="false"]`, { hasText: 'What it makes' });
-        if (await toggle.count()) { await toggle.click().catch(() => undefined); opened.push(k); }
-      }
-      await page.waitForTimeout(300);
+      const undos = [];
+      for (const k of ['p1', 'p2', 'feed']) undos.push(await openRow(k));
       for (const k of ['p1', 'p2', 'feed']) {
         const roles = (await page.locator(`[data-planets="setup:${k}"] [data-planets^="role:"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
         if (!roles.length) problems.push(`${k}’s planets didn’t open to be checked for a fit`);
@@ -3734,15 +3760,15 @@ try {
         if (k === 'p2' && !roles.some((x) => /another P0’s rate is at 10 heads, more than fit here/.test(x))) problems.push(`no planet in ${k} sets a borrowed 10-head rate aside: ${JSON.stringify(roles.map((x) => x.slice(0, 200)))}`);
         if (k !== 'feed' && !roles.some((x) => x.includes('No rate for') && /your extractors’ median is 10, and no more fit beside its factories/.test(x))) problems.push(`no unrated planet in ${k} says its heads are capped under the median of 10: ${JSON.stringify(roles.map((x) => x.slice(0, 160)))}`);
       }
-      for (const k of opened) await page.locator(`[data-planets="setup:${k}"] button[aria-expanded="true"]`, { hasText: 'What it makes' }).click().catch(() => undefined);
+      for (const u of undos.reverse()) await u();
     }
     const gap = await text('[data-planets="setup:p2"] [data-planets="gap"]');
     if (!/a day under the best here|the best here/.test(gap)) problems.push(`P0 → P2’s gap to the best: “${gap}”`);
+    // The plan board: every row opened, with its details (each planet's words on its card), for what follows to read; folded again after.
+    const undoAll = await openAll();
     // Bought (Ruling T11-3): nothing is bought past what Jita supplies, your 10% share of the good's Forge day (the case's books hold
     // five days at the best ask, so the share binds), the P3s a Broadcast Node takes sit at it and say so, and the purchases are totalled.
     {
-      const toggle = page.locator('[data-planets="setup:bought"] button[aria-expanded="false"]', { hasText: 'What it makes' });
-      if (await toggle.count()) await toggle.click().catch(() => undefined);
       const lines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       const byName = new Map(FXP.goods.map((g) => [g.name, g]));
       // What's bought at Jita: the whole line's amount when Jita is the only place, its Jita part when the hub takes some first (T11-7).
@@ -3794,10 +3820,12 @@ try {
         if (nm && train.includes(nm)) problems.push(`setup ${k} tells you to train for ${nm}, whose own line says no level fits it: “${train}”`);
       }
     }
-    const upkeep = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
-    // Led by what you do (Plan it's fix): how often, then the planets each time; the seeded colony's 47.5-hour program.
-    if (!/Resets Every 47\.5 hours \d+ planets \(\d+ extractors\) each time: about [\d.]+ sittings and [\d.]+ planet resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
+    // Led by what you do (Plan it's fix): how often, then the planets each time; the seeded colony's 47.5-hour program. A tile of the plan at
+    // a glance since the plan board.
+    const upkeep = await text('[data-planets="setup:p2"] [data-planets="resets"]');
+    if (!/Resets Every 47\.5 hours \d+ planets \(\d+ extractors\) each time: about [\d.]+ sittings and [\d.]+ planet resets a week/i.test(upkeep)) problems.push(`P0 → P2’s resets: “${upkeep}”`);
     if (SHOTS) { await page.locator('[data-planets="setup:p2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-plan.png` }); }
+    await undoAll();
 
     // --- Not Brave's space: no tax assumed, so the tax is not known and the rows are before it.
     await page.locator('[data-planets="notBrave"]').click().catch((e) => problems.push(`no “Not Brave’s space”: ${e.message.split('\n')[0]}`));
@@ -3811,7 +3839,13 @@ try {
 
     // --- a typed Gas rate: the Gas planets' lines go from "if your extractors deliver" to typed.
     const gasIds = FXP.planets.filter((p) => p.type_id === 13).map((p) => p.planet_id);
-    const gasLines = async () => (await Promise.all(gasIds.map((id) => page.locator(`[data-planets="planet:${id}"], [data-planets^="setup:"] [data-planets="role:${id}"]`).allInnerTexts()))).flat().map((t) => t.replace(/\s+/g, ' '));
+    // Every row opened with its details, so each Gas planet's card says its rates in words (the plan board), then folded again.
+    const gasLines = async () => {
+      const undo = await openAll();
+      const out = (await Promise.all(gasIds.map((id) => page.locator(`[data-planets="planet:${id}"], [data-planets^="setup:"] [data-planets="role:${id}"]`).allInnerTexts()))).flat().map((t) => t.replace(/\s+/g, ' '));
+      await undo();
+      return out;
+    };
     const before = await gasLines();
     if (!before.some((t) => t.includes('if your extractors deliver'))) problems.push(`no Gas planet’s line says “if your extractors deliver” before a rate is typed: ${JSON.stringify(before.slice(0, 2))}`);
     for (const p0 of [2268, 2267, 2309, 2310, 2311]) {
@@ -3855,10 +3889,12 @@ try {
     await settled();
 
     // Ruling F10 on a chain: each character's share said as a day, a week and a month, and the chain's figure in all when it spans more.
+    const undoChain = await openRow('chain', false);
     for (const t of (await page.locator('[data-planets^="chain-char:"]').allInnerTexts()).map((x) => x.replace(/\s+/g, ' '))) {
       if (/a day as its share/.test(t) && !/a day as its share \([\d.,]+ (?:[kMB] )?ISK a week, [\d.,]+ (?:[kMB] )?ISK a month\)/.test(t)) problems.push(`a chain's character line without its week and month: “${t}”`);
     }
     for (const t of await page.locator('[data-planets="chain-all"]').allInnerTexts()) if (!/^in all [\d.,]+ (?:[kMB] )?ISK a day · [\d.,]+ (?:[kMB] )?ISK a week · [\d.,]+ (?:[kMB] )?ISK a month$/.test(t.trim())) problems.push(`a chain's figure in all: “${t}”`);
+    await undoChain();
 
     // --- the skills panel, at the shown character: the main's Command Center Upgrades IV here, the Alpha alt's II under Show for (m5).
     const skillsAt = await text('[data-planets="skills"]');
@@ -4123,6 +4159,7 @@ try {
       await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew with Sell at UALX-3'));
       await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (Sell at UALX-3): ${e.message.split('\n')[0]}`));
       await settled();
+      await openAll();
       const fell = await page.locator('[data-planets="fallback-goods"]').allInnerTexts();
       if (!fell.some((t) => /^Valued at Jita’s for want of a UALX-3 figure: .+ \(each line says why\)\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, no setup names the goods valued at Jita's: ${JSON.stringify(fell)}`);
       const lines = (await page.locator('[data-planets="fallback"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
@@ -4130,9 +4167,6 @@ try {
       // Ruling F11b: the inputs UALX-3 doesn't sell are bought at Jita with the freight in, named on the setup and said on each line.
       const fellIn = await page.locator('[data-planets="setup:bought"] [data-planets="fallback-inputs"]').allInnerTexts();
       if (!fellIn.some((t) => /^Bought at Jita, with the freight in, for want of UALX-3: .+ \(each line says why\)\.$/.test(t.trim()))) problems.push(`with Sell at UALX-3, bought doesn't name the inputs it buys at Jita: ${JSON.stringify(fellIn)}`);
-      const boughtOpen = page.locator('[data-planets="setup:bought"] button[aria-expanded="false"]', { hasText: 'What it makes' });
-      if (await boughtOpen.count()) await boughtOpen.click().catch(() => undefined);
-      await page.waitForTimeout(300);
       const inLines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!inLines.some((t) => /a day at Jita with the freight in \((no price at UALX-3|UALX-3’s weekly movement isn’t known, so its depth can’t be judged|not read at UALX-3 yet)\)/.test(t))) problems.push(`with Sell at UALX-3, no bought input says it's bought at Jita for want of UALX-3: ${JSON.stringify(inLines.slice(0, 3))}`);
       if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN with Sell at UALX-3');
@@ -4153,6 +4187,8 @@ try {
       await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (5 heads): ${e.message.split('\n')[0]}`));
       await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('5-NZNW’s planets never listed (5 heads)'));
       await settled();
+      // The plan board: P0 → P2 opened with its details, for its glance and its planets' words.
+      await openRow('p2');
       // Ruling F10: no PLEX price read (the stand-in market answers no PLEX book): the share is "–" and says why, never 0%; the periods still show.
       {
         const om = await text('[data-planets="setup:p2"] [data-planets="omega"]');
@@ -4164,9 +4200,6 @@ try {
       if (/don’t fit at|No Command Center Upgrades level fits/.test(line)) problems.push(`with 5 heads an extractor, planet I in P0 → P2 is still ranked at a layout that doesn’t fit: “${line.slice(0, 300)}”`);
       if (!/stay on the planet: a unit nets −[\d.]+ ISK after freight and fees, so it doesn’t pay to ship/.test(line)) problems.push(`planet I’s P0 left over isn’t said to stay for not paying to ship: “${line.slice(0, 500)}”`);
       if (await page.locator('[data-planets="setup:p2"] [data-planets="train"]').count()) problems.push(`P0 → P2 still tells you to train: “${await text('[data-planets="setup:p2"] [data-planets="train"]')}”`);
-      const toggle = page.locator('[data-planets="setup:p2"] button[aria-expanded="false"]', { hasText: 'What it makes' });
-      if (await toggle.count()) await toggle.click().catch(() => undefined);
-      await page.waitForTimeout(300);
       const outs = (await page.locator('[data-planets="setup:p2"] .pl-lines').filter({ hasText: 'What it makes, valued' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!outs.some((t) => /^(Base Metals|Microorganisms|Noble Metals): [\d,]+ a day, none shipped: it stays on the planet, building up, untaxed: a unit nets −[\d.]+ ISK after freight and fees, so it doesn’t pay to ship$/.test(t))) problems.push(`P0 → P2's outputs don't say the P0 left over stays: ${JSON.stringify(outs).slice(0, 500)}`);
       if (outs.some((t) => /sold at nowhere|[^\d,]0 sold/.test(t))) problems.push(`an output kept on the planet reads as sold at nowhere: ${JSON.stringify(outs).slice(0, 400)}`);
@@ -4216,9 +4249,8 @@ try {
       const order = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets')));
       if (order[order.length - 1] !== 'setup:bought') problems.push(`bought isn't below the setups that use the system's planets: ${JSON.stringify(order)}`);
       // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
-      const feedOpen = page.locator('[data-planets="setup:feed"] button[aria-expanded="false"]', { hasText: 'What it makes' });
-      if (await feedOpen.count()) await feedOpen.click().catch(() => undefined);
-      await page.waitForTimeout(300);
+      await openRow('feed');
+      await openRow('bought', false);
       const feedRoles = (await page.locator('[data-planets="setup:feed"] [data-planets^="role:"]').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       if (!feedRoles.some((t) => /factory planet/.test(t) && /Makes .*Gel-Matrix Biopaste a day/i.test(t))) problems.push(`the feed's factory planet doesn't make Gel-Matrix Biopaste: ${JSON.stringify(feedRoles.map((t) => t.slice(0, 200)))}`);
       // Planner fix 1: Lava II's second line, which the recipe doesn't use, says it's an extra; the factory takes each good from one planet.
@@ -4236,9 +4268,10 @@ try {
       if (!/^On each of your 2 characters doing planetary industry: it suits only Owner\. Planet Alt: Command Center Upgrades III\./.test(rep)) problems.push(`the feed's repeat line: “${rep}”`);
       const repB = await text('[data-planets="setup:bought"] [data-planets="repeat"]');
       if (!/^On each of your 2 characters doing planetary industry: it suits only Owner\. Planet Alt: Command Center Upgrades III\./.test(repB)) problems.push(`bought's repeat line: “${repB}”`);
+      await openRow('chain', false);
       if (await page.locator('[data-planets="setup:chain"] [data-planets="repeat"]').count()) problems.push('a chain has a repeat line');
       // Resets at the typed 72 hours: every 3 days, the feed's planets each time, and the week's sittings and planet resets.
-      const feedUp = await text('[data-planets="setup:feed"] [data-planets="upkeep"]');
+      const feedUp = await text('[data-planets="setup:feed"] [data-planets="resets"]');
       if (!/Resets Every 3 days \d+ planets \(\d+ extractors\) each time: about 2\.3 sittings and [\d.]+ planet resets a week/i.test(feedUp)) problems.push(`the feed's resets at 72 hours: “${feedUp.slice(0, 300)}”`);
       // The old tile's label, upper-cased by the stylesheet ("planet resets a week" in the new note is lower case).
       if (/RESETS A WEEK/.test(await text('[data-planets="plan"]'))) problems.push('a setup still counts resets a week as its lead');
@@ -4365,6 +4398,189 @@ try {
       delete ESI[HIST];
     }
 
+    // --- The plan board and Check my setup (planets-board.md). The user (24 October 2026): "the planner itself suffers from information
+    // overload", and "a button i could press per planet to have it check if i have done the setup right. just be sure it doesn't moan if
+    // i was able to fit 3 factories if it recommends 2 for example because that is better". Plan it on Gel-Matrix Biopaste: the feed opens
+    // to a card a planet (its badge: Extracts or Factory), a line from each feeder labelled with each good it ships to the factory planet
+    // (the factory's own words, "Takes in", name the same), the plan at a glance, the other setups folded to a row; Build it, its ticks
+    // kept in this browser and cleared when the planet's layout changes; then, the plan kept, Check my setup on a feeder: the main's colony
+    // read fresh (ESI stubbed in its own shape) as planned ("All set"), with 3 Basics on its line where the plan has 2 (no fault), and
+    // making another P1 (that fault, in those words); Hand Alt, handed over without the planets permission, said.
+    {
+      const GEL = 2348, HAND = 900106, OWNER = ownerAuth().characterId;
+      const BUNDLE = JSON.parse(fs.readFileSync(new URL('../src/data/planets.json', import.meta.url), 'utf8'));
+      const goodName = (id) => BUNDLE.commodities.find((c) => c.id === id)?.name ?? `#${id}`;
+      const typeOfId = Object.fromEntries(Object.entries(BUNDLE.planetTypes).map(([t, d]) => [d.typeId, t]));
+      const planetOf = (id) => FXP.planets.find((p) => p.planet_id === id);
+      // ESI's pin type IDs by planet type (CCP's static data, as colonyChain.ts keeps them).
+      const PINS = {
+        Barren: { command: 2524, extractor: 2848, basic: 2473, advanced: 2474, launchpad: 2544 }, Gas: { command: 2534, extractor: 3060, basic: 2492, advanced: 2494, launchpad: 2543 },
+        Ice: { command: 2533, extractor: 3061, basic: 2493, advanced: 2491, launchpad: 2552 }, Lava: { command: 2549, extractor: 3062, basic: 2469, advanced: 2470, launchpad: 2555 },
+        Oceanic: { command: 2525, extractor: 3063, basic: 2490, advanced: 2485, launchpad: 2542 }, Plasma: { command: 2551, extractor: 3064, basic: 2471, advanced: 2472, launchpad: 2556 },
+        Storm: { command: 2550, extractor: 3067, basic: 2483, advanced: 2484, launchpad: 2557 }, Temperate: { command: 2254, extractor: 3068, basic: 2481, advanced: 2480, launchpad: 2256 },
+      };
+      const basicOf = (p0) => BUNDLE.schematics.find((x) => x.facility === 'basic' && x.inputs[0].id === p0);
+      // A colony in ESI's own shape: each line an extractor (CCP's example programme, 16,617 an hour, enough for 2 Basics) into its Basics,
+      // their P1 to the launchpad, an Advanced drawing from it for each P2 the plan makes there.
+      const rawOf = (t, lines, makes) => {
+        const P = PINS[t];
+        let id = 5000;
+        const pad = id++;
+        const pins = [{ pin_id: id++, type_id: P.command, contents: [] }, { pin_id: pad, type_id: P.launchpad, contents: [] }];
+        const routes = [];
+        for (const l of lines) {
+          const ecu = id++, sch = basicOf(l.p0);
+          pins.push({ pin_id: ecu, type_id: P.extractor, install_time: iso(now - 8 * 3600_000), expiry_time: iso(now + 40 * 3600_000), last_cycle_start: iso(now - 600_000),
+            extractor_details: { cycle_time: 1800, product_type_id: l.p0, qty_per_cycle: 6965, heads: Array.from({ length: l.heads }, (_, i) => ({ head_id: i })) }, contents: [] });
+          for (let b = 0; b < l.basics; b++) { const f = id++; pins.push({ pin_id: f, type_id: P.basic, schematic_id: sch.id, last_cycle_start: iso(now - 600_000), contents: [] }); routes.push([ecu, f, l.p0, 3000], [f, pad, sch.out.id, 20]); }
+        }
+        for (const m of makes) {
+          const sch = BUNDLE.schematics.find((x) => x.out.id === m.id);
+          for (let a = 0; a < m.count; a++) { const f = id++; pins.push({ pin_id: f, type_id: P.advanced, schematic_id: sch.id, last_cycle_start: iso(now - 600_000), contents: [] }); for (const i of sch.inputs) routes.push([pad, f, i.id, i.qty]); routes.push([f, pad, m.id, sch.out.qty]); }
+        }
+        return { links: [], pins, routes: routes.map(([a, b, c, q]) => ({ source_pin_id: a, destination_pin_id: b, content_type_id: c, quantity: q })) };
+      };
+      // The seeded Barren colony, as ESI would send it.
+      const rawKept = (k) => ({ links: [], routes: [], pins: k.pins.map((p) => ({ pin_id: p.id, type_id: p.typeId, install_time: p.install ?? undefined, expiry_time: p.expiry ?? undefined, last_cycle_start: p.lastCycle ?? undefined,
+        schematic_id: p.schematic ?? undefined, extractor_details: p.extractor ? { cycle_time: p.extractor.cycle, product_type_id: p.extractor.product, qty_per_cycle: p.extractor.qty, heads: Array.from({ length: p.extractor.heads }, (_, i) => ({ head_id: i })) } : undefined, contents: [] })) });
+      const headOf = (planetId, t, n) => ({ planet_id: planetId, planet_type: t.toLowerCase(), solar_system_id: SYS, upgrade_level: 4, num_pins: n, last_update: iso(now - 600_000) });
+      const handAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(HAND, 'Hand Alt', { scopes: ['esi-skills.read_skills.v1'] })] },
+        [`alt:${HAND}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 4, 2406: 3 }, meta: { cloneDetected: 'omega', attributes: ATTRS } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, planets: { systems: {}, programHours: 72 }, industry: DOC, cloud: CLOUD_STATE }, handAlts, { prospects: SCAN });
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan?good=${GEL}`);
+      await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Plan never drew (the plan board)'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is” (the plan board): ${e.message.split('\n')[0]}`));
+      await settled();
+      const feed = '[data-planets="setup:feed"]';
+      // The board: the best (the feed) opens by itself, every other setup is a row with no board until opened.
+      if ((await page.locator(`${feed} [data-planets="open"]`).getAttribute('aria-expanded').catch(() => null)) !== 'true') problems.push('the best setup, the feed, isn’t open by itself');
+      for (const k of ['p1', 'p2', 'bought', 'chain']) if (await page.locator(`[data-planets="setup:${k}"] [data-planets^="role:"]`).count()) problems.push(`setup ${k} shows its planets while folded`);
+      const cards = await page.locator(`${feed} [data-planets^="role:"]`).evaluateAll((xs) => xs.map((x) => ({ id: Number(x.getAttribute('data-planets').slice(5)), does: x.getAttribute('data-does'), badge: x.querySelector('[data-planets="does"]')?.textContent?.trim() ?? '' })));
+      const factories = cards.filter((c) => c.does === 'factory'), feeders = cards.filter((c) => c.does === 'extract');
+      if (factories.length !== 1 || factories[0].badge !== 'Factory' || feeders.length < 2 || feeders.some((c) => c.badge !== 'Extracts') || new Set(cards.map((c) => c.id)).size !== cards.length) problems.push(`the feed's board isn't a card a planet with its badge, one factory: ${JSON.stringify(cards)}`);
+      // Each line's goods are what the factory says it takes in, from that planet: the same goods from the same planets.
+      const edges = (await page.locator(`${feed} [data-planets^="edge:"]`).evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets')))).map((e) => { const [, from, id] = e.split(':'); return `${goodName(Number(id))}@${planetOf(Number(from))?.name}`; }).sort();
+      const undoFeed = await openRow('feed');
+      const factoryWords = factories[0] ? await text(`${feed} [data-planets="role:${factories[0].id}"] .pl-card-words`) : '';
+      const takes = [...(/Takes in (.*?)(?: Makes |$)/i.exec(factoryWords)?.[1] ?? '').matchAll(/[\d.,]+ ([A-Z][\w -]+?) a day from (5-NZNW [IVX]+)/g)].map((m) => `${m[1]}@${m[2]}`).sort();
+      if (!edges.length || JSON.stringify(edges) !== JSON.stringify(takes)) problems.push(`the feed's lines don't carry what the factory takes in: lines ${JSON.stringify(edges)}, takes in ${JSON.stringify(takes)}`);
+      const wires = await page.locator(`${feed} .pl-wires path.pl-wire`).count();
+      if (wires !== new Set(edges.map((e) => e.split('@')[1])).size) problems.push(`the feed draws ${wires} lines for ${new Set(edges.map((e) => e.split('@')[1])).size} feeders shipping to its factory`);
+      await undoFeed();
+      // The plan at a glance: the good's units a day first, the planets it uses of the five, and how often it's reset.
+      const made = (await text(`${feed} [data-planets="made"]`)).trim();
+      if ((await text(`${feed} [data-planets="units"] .tile-v`)).trim() !== made) problems.push(`the glance doesn't lead with the good's units a day (${made}): “${await text(`${feed} [data-planets="periods"]`)}”`);
+      if (!/^\d+ of 5$/.test((await text(`${feed} [data-planets="planets"] .tile-v`)).trim())) problems.push(`the glance's planets used: “${await text(`${feed} [data-planets="planets"]`)}”`);
+      if (!/^Every 3 days$/.test((await text(`${feed} [data-planets="resets"] .tile-v`)).trim())) problems.push(`the glance's resets: “${await text(`${feed} [data-planets="resets"]`)}”`);
+      if (SHOTS) { await page.locator(feed).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(400); await page.screenshot({ path: `${SHOTS}-planets-board.png` }); }
+
+      // Kept, so a fresh read's rates don't move the plan the check is against (planner fix 2).
+      await page.locator(`${feed} [data-planets="keep"]`).click().catch((e) => problems.push(`no Keep this plan (the plan board): ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-planets="kept-setup:feed"] [data-planets^="role:"]', { timeout: 20_000 }).catch(() => problems.push('the kept plan never drew its board'));
+      const kept = '[data-planets="kept-setup:feed"]';
+      // A feeder that isn't planet I (the seeded colony's), its lines from the kept layout, and the line its goods for the factory come from.
+      const layout = (await page.locator(kept).getAttribute('data-layout').catch(() => null)) ?? '';
+      const segs = layout.split('|')[1]?.split(' ') ?? [];
+      const keptEdges = await page.locator(`${kept} [data-planets^="edge:"]`).evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets').split(':').slice(1).map(Number)));
+      const P = keptEdges.map(([from]) => from).find((id) => id !== PLANET_I);
+      const seg = segs.find((x) => x.startsWith(`${P}:extract:`));
+      const t = typeOfId[planetOf(P)?.type_id];
+      const lines = (seg?.split(':')[2] ?? '').split('+').filter(Boolean).map((l) => { const m = /^(\d+)h(\d+|\?)b(\d+)$/.exec(l); return m ? { p0: Number(m[1]), heads: m[2] === '?' ? 10 : Number(m[2]), basics: Number(m[3]) } : null; }).filter(Boolean);
+      const makes = (seg?.split(':')[3] ?? '').split(',').filter(Boolean).map((m) => { const [id, n] = m.split('x').map(Number); return { id, count: n }; });
+      const goods = keptEdges.filter(([from]) => from === P).map(([, id]) => id);
+      const needLine = lines.find((l) => goods.includes(basicOf(l.p0)?.out.id));
+      if (!P || !t || !needLine) problems.push(`couldn't read a feeder's layout from the kept plan: ${layout.slice(0, 300)} / ${JSON.stringify(keptEdges)}`);
+      else {
+        const card = `${kept} [data-planets="role:${P}"]`;
+        // Build it: in the order it's placed, each step ticked in this browser.
+        await page.locator(`${card} [data-planets="build"]`).click().catch((e) => problems.push(`no Build it: ${e.message.split('\n')[0]}`));
+        const steps = (await page.locator(`${card} [data-planets^="build-step:"]`).allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+        if (!/^01 Command centre/.test(steps[0] ?? '') || !steps.some((x) => x.includes(`Extractor control unit on ${goodName(needLine.p0)}`)) || !steps.some((x) => x.includes(`${needLine.basics} Basic Industry Facilit`)) || !steps.some((x) => /^\d+ Route .+ to the launchpad$/.test(x)) || !steps.some((x) => /Launchpad/.test(x))) problems.push(`the feeder's Build it list: ${JSON.stringify(steps)}`);
+        const tickAt = (i) => page.locator(`${card} [data-planets^="build-step:"] [role="checkbox"]`).nth(i);
+        await tickAt(1).click().catch(() => undefined);
+        await page.waitForTimeout(200);
+        const held = await page.evaluate(() => { try { return JSON.parse(localStorage.getItem('jita-ledger:planets-build') ?? '{}'); } catch { return {}; } });
+        const mine = Object.entries(held).find(([k]) => k.endsWith(`:${P}:${OWNER}`));
+        if ((await tickAt(1).getAttribute('aria-checked')) !== 'true' || !mine || mine[1].done.length !== 1) problems.push(`a Build it tick isn't kept: ${JSON.stringify(held).slice(0, 300)}`);
+        // Keyed by system, good, the setup's kind (a kept plan's own) and planet and character (fix round 1, Important 2).
+        if (mine && mine[0] !== `${SYS}:${GEL}:kept-feed:${P}:${OWNER}`) problems.push(`a kept plan's Build it tick isn't keyed by its own kind: “${mine[0]}”`);
+        // Its planet's layout changes in the plan: the ticks kept under the old one clear (the stored layout made another here).
+        await page.evaluate(() => { const k = 'jita-ledger:planets-build'; const v = JSON.parse(localStorage.getItem(k) ?? '{}'); for (const x of Object.values(v)) x.sig = 'a layout from before'; localStorage.setItem(k, JSON.stringify(v)); });
+        await page.locator(`${card} [data-planets="build"]`).click().catch(() => undefined);
+        await page.locator(`${card} [data-planets="build"]`).click().catch(() => undefined);
+        if ((await tickAt(1).getAttribute('aria-checked').catch(() => null)) !== 'false') problems.push('a Build it tick kept under another layout of the planet didn’t clear');
+        // Deleted, not just ignored, so switching the layout back brings no old tick back (fix round 1, Minor 6).
+        const stale = await page.evaluate(() => { try { return Object.values(JSON.parse(localStorage.getItem('jita-ledger:planets-build') ?? '{}')).filter((v) => v.sig === 'a layout from before').length; } catch { return -1; } });
+        if (stale !== 0) problems.push(`ticks kept under another layout weren't deleted: ${stale} left`);
+        await tickAt(1).click().catch(() => undefined);
+        if (SHOTS) { await page.locator(card).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-build.png` }); }
+        // The same planet's card in today's feed, folded under the kept plan (the same layout until a read moves the rates): its own ticks
+        // (fix round 1, Important 2).
+        await page.locator('[data-planets="others"] button[aria-expanded="false"]', { hasText: 'Every setup worked out today' }).click().catch(() => undefined);
+        const today = `[data-planets="others"] [data-planets="setup:feed"] [data-planets="role:${P}"]`;
+        await page.waitForSelector(today, { timeout: 10_000 }).catch(() => problems.push('today’s feed never drew the kept feeder’s planet'));
+        await page.locator(`${today} [data-planets="build"]`).click().catch(() => undefined);
+        if ((await page.locator(`${today} [data-planets^="build-step:"] [role="checkbox"]`).nth(1).getAttribute('aria-checked').catch(() => null)) !== 'false') problems.push('a tick on the kept plan’s card ticked today’s feed’s card for the same planet');
+
+        // Check my setup: the main's colonies read fresh from ESI, the Hand Alt's not read (its login has no planets permission).
+        let raw = rawOf(t, lines, makes);
+        ESI[`/characters/${OWNER}/planets/`] = (url, req, json) => json([headOf(PLANET_I, 'Barren', 3), headOf(P, t, raw.pins.length)]);
+        ESI[`/characters/${OWNER}/planets/${PLANET_I}/`] = (url, req, json) => json(rawKept(colonies.colonies[0]));
+        ESI[`/characters/${OWNER}/planets/${P}/`] = (url, req, json) => json(raw);
+        const line = `${card} [data-planets="check:${OWNER}"]`;
+        const press = async (want, said) => {
+          await page.locator(`${card} [data-planets="check"]`).click().catch((e) => problems.push(`no Check my setup (${said}): ${e.message.split('\n')[0]}`));
+          await page.waitForFunction(([sel, re]) => { const x = document.querySelector(sel)?.textContent ?? ''; return !/Reading/.test(x) && new RegExp(re).test(x); }, [line, want.source], { timeout: 30_000 })
+            .catch(async () => problems.push(`Check my setup (${said}) never read “${want.source}”: “${await text(line)}”`));
+          await page.waitForTimeout(300);
+          return text(line);
+        };
+        const items = async () => {
+          const head = page.locator(`${line} .pl-check-head[aria-expanded="false"]`);
+          if (await head.count()) await head.click().catch(() => undefined);
+          return page.locator(`${line} [data-planets="check-item"]`).evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-kind'), x.textContent.replace(/\s+/g, ' ').trim()]));
+        };
+        const need = goodName(basicOf(needLine.p0).out.id);
+        // First with nothing built on the planet yet (ESI lists the seeded colony alone, so the rates don't move): said so, and today's feed's
+        // card for the same planet opens no result it wasn't asked for (fix round 1, Important 2).
+        const listAll = ESI[`/characters/${OWNER}/planets/`];
+        ESI[`/characters/${OWNER}/planets/`] = (url, req, json) => json([headOf(PLANET_I, 'Barren', 3)]);
+        const none = await press(/Nothing built on this planet yet/, 'nothing built');
+        if (!/Read just now/.test(none)) problems.push(`Check my setup on an empty planet doesn't say it read fresh: “${none}”`);
+        if (await page.locator(`${today} [data-planets="check-result"]`).count()) problems.push('Check my setup on the kept plan’s card opened a result on today’s feed’s card for the same planet');
+        ESI[`/characters/${OWNER}/planets/`] = listAll;
+        const asPlanned = await press(/All set/, 'as planned');
+        if (!/Read just now\. As EVE last saved it, \d+ (?:min|h) ago\./.test(asPlanned)) problems.push(`Check my setup doesn't say it read fresh, as EVE last saved it: “${asPlanned}”`);
+        const okItems = await items();
+        if (okItems.some(([k]) => k === 'fault') || !okItems.some(([k, x]) => (k === 'ok' || k === 'plus') && x.includes(need))) problems.push(`a colony built as planned: ${JSON.stringify(okItems)}`);
+        const hand = await text(`${card} [data-planets="check:${HAND}"]`);
+        if (!/Hand the cloud Hand Alt’s login again on the Characters page: it was handed over without the permission to read colonies/.test(hand)) problems.push(`Hand Alt (no planets permission) isn't said: “${hand}”`);
+        // 3 Basics on its line where the plan has 2: as planned, or more; never a fault, never moaned about.
+        raw = rawOf(t, lines.map((l) => (l === needLine ? { ...l, basics: l.basics + 1 } : l)), makes);
+        await press(/All set/, '3 Basics where the plan has 2');
+        const more = await items();
+        if (more.some(([k]) => k === 'fault') || !more.some(([k, x]) => (k === 'ok' || k === 'plus') && x.includes(need))) problems.push(`more Basics than the plan read as a fault: ${JSON.stringify(more)}`);
+        if (more.some(([k, x]) => k !== 'plus' && /where the plan has/.test(x))) problems.push(`the Basics against the plan's are said other than as a plus: ${JSON.stringify(more)}`);
+        // Another P1 than the plan's (the user's own mistake of 23 October): that fault, in those words.
+        const other = BUNDLE.planetTypes[t].p0.find((x) => !lines.some((l) => l.p0 === x));
+        raw = rawOf(t, lines.map((l) => (l === needLine ? { ...l, p0: other } : l)), makes);
+        const wrong = await press(/1 thing to fix|\d+ things to fix/, 'another P1');
+        const faults = (await items()).filter(([k]) => k === 'fault').map(([, x]) => x);
+        if (!faults.includes(`Makes ${goodName(basicOf(other).out.id)} where the plan has ${need}.`)) problems.push(`a colony making another P1 isn't said so: “${wrong}” ${JSON.stringify(faults)}`);
+        if (SHOTS) { await page.locator(card).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-check.png` }); }
+        delete ESI[`/characters/${OWNER}/planets/`]; delete ESI[`/characters/${OWNER}/planets/${PLANET_I}/`]; delete ESI[`/characters/${OWNER}/planets/${P}/`];
+        // The tick stays through a reload.
+        await page.reload();
+        await page.waitForSelector(`${card} [data-planets="build"]`, { timeout: 30_000 }).catch(() => problems.push('the kept plan’s card never drew again after a reload'));
+        await page.locator(`${card} [data-planets="build"]`).click().catch(() => undefined);
+        if ((await tickAt(1).getAttribute('aria-checked').catch(() => null)) !== 'true') problems.push('a Build it tick didn’t stay through a reload');
+      }
+      if (/\bNaN\b/.test(await text('[data-planets="plan"]'))) problems.push('Plan shows NaN (the plan board)');
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the plan board): ${o}`);
+      await page.locator('[data-planets="forget"]').click().catch(() => undefined);
+    }
+
     // --- Accounts (accounts.ts): Show for lists characters under their account, the main's first and those not set last, and the
     // repeat line sets what they make together against the months of Omega their accounts pay for. Owner on the main account, Alpha
     // Alt on Account 2; first Planet Alt and Unread Alt not set (bought's line counts Owner's account and Planet Alt's own: 2, one not
@@ -4392,7 +4608,8 @@ try {
         if (JSON.stringify(groups) !== JSON.stringify(k.groups)) problems.push(`Show for's accounts (${k.said}): ${JSON.stringify(groups)}`);
         const order = await page.locator('[aria-label="Show for"] button').allTextContents();
         if (JSON.stringify(order) !== JSON.stringify(k.order)) problems.push(`Show for's characters, by account (${k.said}): ${JSON.stringify(order)}`);
-        // Its tip's "i" ends the text.
+        // Its tip's "i" ends the text. Bought opened (the plan board folds every setup but the best).
+        await openRow('bought', false);
         const om = (await text('[data-planets="setup:bought"] [data-planets="repeat-omega"]')).trim();
         if (!k.omega.test(om)) problems.push(`bought's repeat line against their accounts' Omega (${k.said}): “${om}” in “${await text('[data-planets="setup:bought"] [data-planets="repeat"]')}”`);
         const repB = await text('[data-planets="setup:bought"] [data-planets="repeat"]');

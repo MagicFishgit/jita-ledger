@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { byAccount } from '../../lib/accounts';
 import { altLedger } from '../../lib/altLedger';
-import { useAlts } from '../../lib/altStore';
+import { getAlts, refreshAlts, useAlts } from '../../lib/altStore';
 import { hasScope } from '../../lib/auth';
+import { cloudAltRead } from '../../lib/cloud';
+import { altPulledWhy } from '../../lib/setupCheck';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { ColoniesRead } from '../../lib/colonyTotals';
 import { SCOPE } from '../../lib/config';
@@ -123,6 +125,16 @@ export function Planets({ route }: { route: Route }) {
     return [c.charId, entry!.scopes.includes(SCOPE.planets) ? { state: 'unread' } : { state: 'handOver' }];
   })), [chars, colonies, alts.roster, canPlanets]);
 
+  // Check my setup on an alt's planet (planets-board.md): the cloud reads the alt now (its colonies with the rest of its sheet), and the
+  // alt store pulls what changed. `refreshAlts` keeps a failed roster read to itself, so whether the alt's copy was pulled after the read
+  // is checked on the store's state (`altPulledWhy`): never taken as read when it wasn't (Important 1 of the review).
+  const readAlt = useMemo(() => async (id: number): Promise<string | null> => {
+    await cloudAltRead(id);
+    const since = Date.now();
+    await refreshAlts();
+    return altPulledWhy(getAlts(), id, since);
+  }, []);
+
   const [ix, setIx] = useState<PiIndex | 'failed' | null>(null);
   const [graph, setGraph] = useState<Graph | 'failed' | null>(null);
   useEffect(() => {
@@ -160,7 +172,7 @@ export function Planets({ route }: { route: Route }) {
               <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} ready={alts.ready} />
             ) : (
               <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
-                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} />
+                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} />
             )}
           </Suspense>
         )}

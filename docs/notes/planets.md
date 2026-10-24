@@ -107,6 +107,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     re-rank could name more). Only an input whose contents changed starts it (planets-planner.md), never a write elsewhere.
   - **Plan**: the setups first, ranked, then the inputs (tax chips, "Not Brave's space", rates) and the planets; the programme length
     sits at the top beside the system (the user: "that control seems like it should rather be at the top": it changes every row).
+    Each setup is a row until opened, then a board of planet cards (planets-board.md).
     P0 → P2 is always there, with how far it is from the best (`data-planets="gap"`). A row says its reason when blocked, a search
     cut short as "The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this
     system can do", a tax not known with each 1%'s cost, and outputs not valued by count. A planet whose layout fits at no level is

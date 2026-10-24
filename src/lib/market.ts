@@ -408,8 +408,8 @@ type RawPlanetHead = {
 };
 
 /** The planets you have a command centre on. */
-export async function myPlanets(characterId: number): Promise<PlanetHead[]> {
-  const { data } = await esi<RawPlanetHead[]>(`/characters/${characterId}/planets/`, { auth: true });
+export async function myPlanets(characterId: number, fresh = false): Promise<PlanetHead[]> {
+  const { data } = await esi<RawPlanetHead[]>(`/characters/${characterId}/planets/`, { auth: true, fresh });
   return data.map((p) => ({
     planetId: p.planet_id, planetType: p.planet_type, solarSystemId: p.solar_system_id,
     upgradeLevel: p.upgrade_level, numPins: p.num_pins, lastUpdate: p.last_update,
@@ -417,7 +417,7 @@ export async function myPlanets(characterId: number): Promise<PlanetHead[]> {
 }
 
 /** One colony's layout: every pin, with extraction programmes and what each is holding. */
-export async function colonyLayout(characterId: number, planetId: number): Promise<RawColony> {
-  const { data } = await esi<RawColony>(`/characters/${characterId}/planets/${planetId}/`, { auth: true });
+export async function colonyLayout(characterId: number, planetId: number, fresh = false): Promise<RawColony> {
+  const { data } = await esi<RawColony>(`/characters/${characterId}/planets/${planetId}/`, { auth: true, fresh });
   return data;
 }

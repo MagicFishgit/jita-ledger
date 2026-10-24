@@ -73,6 +73,12 @@ export type Chain = {
    */
   imports: { id: number; perDay: number }[];
   /**
+   * What of each good reaches storage, a launchpad or the command centre and is left there once the factories routed from it have
+   * drawn theirs, a day: what the colony sends on, ready to leave the planet (Check my setup reads it, planets-board.md). Empty when
+   * what it makes isn't known. Unlike `outputs`, it holds no market's cap and nothing stuck on its maker.
+   */
+  exported: { id: number; perDay: number }[];
+  /**
    * Every good the colony makes that its factories don't use up, sold once (piPlan's `Output`): `sold` on what reaches storage or a
    * launchpad, taken as exported; `buildingUp` what doesn't sell (the market's cap) or can't leave. A good none of which can leave
    * (no route to storage or a launchpad) sells none, said why ("isn’t shipped"), and is counted in `unshipped`, never as unpriced.
@@ -579,7 +585,8 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     heads: x.pin.extractor?.heads ?? 0, ends: x.pin.expiry ? Date.parse(x.pin.expiry) : null, why: x.why,
   }));
   const imports = flow ? [...flow.imports].sort((a, b) => tierAt(a[0]) - tierAt(b[0]) || a[0] - b[0]).map(([id, perHour]) => ({ id, perDay: perHour * 24 })) : [];
-  const base = { planetId: k.planetId, planetType: k.planetType, level: k.level, lastUpdate: k.lastUpdate, extracts, makes: makesList, imports, flags };
+  const exported = flow ? [...flow.exported].filter(([, v]) => v > MIN_FLOW).sort((a, b) => tierAt(a[0]) - tierAt(b[0]) || a[0] - b[0]).map(([id, perHour]) => ({ id, perDay: perHour * 24 })) : [];
+  const base = { planetId: k.planetId, planetType: k.planetType, level: k.level, lastUpdate: k.lastUpdate, extracts, makes: makesList, imports, exported, flags };
   const blank = { iskDay: null, iskDayHigh: null, taxDay: null, perPct: 0, taxes: [], before: [] };
 
   if (!flow) {

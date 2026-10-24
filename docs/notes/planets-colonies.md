@@ -16,7 +16,7 @@ in planets.md and planets-planner.md.
   `colonyOfKept` rebuilds a `Colony` from it, so the panel, To do and the alerts work from the document.
 - **The browser's read writes it** (`colonyStore.readColonies`) through `update` against live state, only when the merge's JSON
   differs from what's held, and never after a wipe or a login change while it ran (Task 4's fix: `dataGeneration` and the
-  logged-in character, as the alt store does).
+  logged-in character, as the alt store does). Check my setup reads them again on asking, past the browser's copy (`readColonies(0, true)`, planets-board.md).
 - **The cloud keeps the main's hourly, whatever the alert settings say** (`worker/src/planets.ts`, Task 5; cloud.md). The read
   lived inside the alert round behind `cfg.ev.pi && cfg.mailEv.pi` (alerts.ts), so a ledger with PI alerts off, or no sender,
   never had its colonies kept. Now `mainColoniesHourly` runs in `fiveMinutes` before each ledger's alert round, in its own

@@ -11575,5 +11575,200 @@ console.log('\n--- Planets: the main\'s colonies, kept as a synced document (col
     'Not read: EVE refused Gas Alt’s login; hand it over again on the Characters page.', 'Log in again: this login wasn’t given EVE’s permission to read your colonies.']);
 }
 
+console.log('\n--- Planets: Check my setup (setupCheck.ts) and the planet board (planetBoard.ts) ---');
+{
+  const fsP = await import('node:fs');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { colonyChain } = await import('../src/lib/colonyChain.ts');
+  const { setupCheck, checkSaid, needsOf, altPulledWhy, mainReadWhy, SHORT_UNDER, MORE_OVER } = await import('../src/lib/setupCheck.ts');
+  const { boardOf, buildSteps, levelNeeded, layoutOfRole, roleSig, cardKey, ticked, ticksDone, dropStale, TICKS_KEPT } = await import('../src/lib/planetBoard.ts');
+  const { fitOf } = await import('../src/lib/piFit.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
+  const schOf = (name) => ix.schematics.find((s) => s.name === name).id;
+  const MICRO = idOf('Microorganisms'), BASE = idOf('Base Metals'), NOBLE = idOf('Noble Metals'), CARBON = idOf('Carbon Compounds');
+  const BACT = idOf('Bacteria'), REACT = idOf('Reactive Metals'), PREC = idOf('Precious Metals'), FUEL = idOf('Biofuels');
+  const NAN = idOf('Nanites'), CELLS = idOf('Biocells'), TRANS = idOf('Transcranial Microcontrollers');
+  const T = Date.parse('2026-10-24T12:00:00Z'), H = 3600e3;
+  const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+  const CC = 2524, ECU = 2848, BASIC = 2473, ADV = 2474, STORE = 2541, PAD = 2544;
+  const pin = (id, typeId, over = {}) => ({ id, typeId, install: null, expiry: null, lastCycle: null, schematic: null, extractor: null, contents: [], ...over });
+  // Hour-long cycles over a 72-hour programme (unless `ends` says otherwise), read on the per-cycle reading so a quantity is an hour's.
+  const ecu = (id, p0, qty, heads = 10, ends = T + 60 * H) => pin(id, ECU, { install: iso(ends - 72 * H), expiry: iso(ends), lastCycle: iso(T - H), extractor: { cycle: 3600, product: p0, qty, heads } });
+  const fac = (id, typeId, sch) => pin(id, typeId, { lastCycle: iso(T - 0.2 * H), schematic: schOf(sch) });
+  const colony = (pins, routes) => ({ planetId: 40000001, systemId: 30004865, planetType: 'Barren', level: 4, lastUpdate: iso(T - H), pins: pins.sort((a, b) => a.id - b.id), links: [], routes });
+  const unpriced = () => ({ isk: null, units: 0, where: [], why: 'not priced here' });
+  const brave = { rate: 0.02, from: 'brave', npc: 0, interbus: false };
+  const chainOf = (k) => colonyChain(k, ix, unpriced, T, brave, 'perCycle');
+  // One P0 line into Basics, their P1 to the launchpad: what a P0 → P1 planet is.
+  const p1Colony = ({ p0 = MICRO, sch = 'Bacteria', out = BACT, qty = 12000, heads = 10, basics = 2, ends, routeOut = true } = {}) => {
+    const bs = Array.from({ length: basics }, (_, i) => fac(41 + i, BASIC, sch));
+    return colony([pin(1, CC), ecu(10, p0, qty, heads, ends), pin(20, STORE), pin(30, PAD), ...bs],
+      [[10, 20, p0, 1], ...bs.map((b) => [20, b.id, p0, 3000]), ...(routeOut ? bs.map((b) => [b.id, 30, out, 20]) : [])]);
+  };
+  const role = (over) => ({ planetId: 40000001, charId: 1, does: 'extract', extracts: [], makes: [], ships: [], imports: undefined, fit: null, why: null, ...over });
+  // The plan: Microorganisms at 12,000 an hour on 10 heads into 2 Basics, 1,920 Bacteria a day sold.
+  const planP1 = role({ extracts: [{ p0: MICRO, perHour: 12000, heads: 10, rate: null }], makes: [{ id: BACT, perDay: 1920, facility: 'basic', count: 2 }], ships: [{ id: BACT, perDay: 1920, to: 'market' }] });
+  const said = (c) => c.items.map((x) => `${x.kind}${x.plus ? '+' : ''}: ${x.said}${x.why ? ` [${x.why.join(' | ')}]` : ''}`);
+  const check = (k, r = planP1) => setupCheck(r, chainOf(k), ix);
+
+  eq('setup check: under 90% is clearly short, 5% over is more than planned', [SHORT_UNDER, MORE_OVER], [0.9, 0.05]);
+  eq('setup check: the colony the plan describes is all set', [said(check(p1Colony())), checkSaid(check(p1Colony()))], [['ok: Makes and sends on 1,920 Bacteria a day, as the plan has'], 'All set']);
+  // The user's own case: 3 Basics where the plan has 2. On the same extraction it makes the same, and the third Basic is short of
+  // Microorganisms (the chain flags it starving): nothing is said of it, no fault, no "3 Basic".
+  const three = check(p1Colony({ basics: 3 }));
+  eq('setup check: 3 Basics making what 2 would is as planned, never a fault', [said(three), three.faults], [['ok: Makes and sends on 1,920 Bacteria a day, as the plan has'], 0]);
+  eq('setup check: and the chain does flag the third Basic short, which the check keeps to itself', chainOf(p1Colony({ basics: 3 })).flags.map((f) => f.flag), ['starving']);
+  eq('setup check: 3 Basics on more extraction making more is a plus, said once with the count',
+    said(check(p1Colony({ basics: 3, qty: 18000 }))), ['ok+: Makes and sends on 2,880 Bacteria a day, more than the plan’s 1,920: 3 Basic where the plan has 2']);
+  // The user's mistake of 23 October: another P1 than the plan's.
+  const wrong = check(p1Colony({ p0: NOBLE, sch: 'Precious Metals', out: PREC }));
+  eq('setup check: another product made instead of the plan’s is said that way', [said(wrong), checkSaid(wrong)], [['fault: Makes Precious Metals where the plan has Bacteria'], '1 thing to fix']);
+  // With the chain's root cause beside it when there is one (Minor 5 of the review): the plan's line is there with no programme.
+  const idleLine = colony([pin(1, CC), pin(10, ECU, { extractor: { cycle: 0, product: MICRO, qty: null, heads: 0 } }), ecu(11, NOBLE, 12000), pin(20, STORE), pin(30, PAD),
+    fac(41, BASIC, 'Bacteria'), fac(42, BASIC, 'Bacteria'), fac(43, BASIC, 'Precious Metals'), fac(44, BASIC, 'Precious Metals')],
+    [[10, 41, MICRO, 3000], [10, 42, MICRO, 3000], [11, 20, NOBLE, 1], [20, 43, NOBLE, 3000], [20, 44, NOBLE, 3000], [41, 30, BACT, 20], [42, 30, BACT, 20], [43, 30, PREC, 20], [44, 30, PREC, 20]]);
+  eq('setup check: another product made instead, with the root cause the chain names', said(check(idleLine)).filter((x) => x.startsWith('fault')),
+    ['fault: Makes Precious Metals where the plan has Bacteria [An extractor has no programme: it extracts nothing; with it, the Bacteria factories make nothing]']);
+  eq('setup check: made and routed nowhere is made but not sent on, with the chain’s own words',
+    said(check(p1Colony({ routeOut: false }))), ['fault: Makes 1,920 Bacteria a day but sends none on [Bacteria from a Basic factory isn’t routed anywhere]']);
+  eq('setup check: one Basic where the plan has two is clearly short, and says so',
+    said(check(p1Colony({ basics: 1 }))), ['fault: Sends on 960 Bacteria a day, under the plan’s 1,920 [It has 1 Basic on Bacteria where the plan has 2]']);
+  const fewHeads = said(check(p1Colony({ qty: 8000, heads: 5 })));
+  eq('setup check: fewer heads and less extraction: short, with the chain’s flag and the heads beside it', [fewHeads.length, fewHeads[0].startsWith('fault: Sends on 1,280 Bacteria a day, under the plan’s 1,920 [Microorganisms: 8,000 an hour reach the Bacteria factories'), fewHeads[0].endsWith('Its Microorganisms extractor runs 5 heads where the plan has 10]')], [1, true, true]);
+  // The band: 1,760 a day is 92% of 1,920 (as planned, "about"), 1,600 is 83% (short).
+  eq('setup check: 92% of the plan is about it; 83% is short',
+    [said(check(p1Colony({ qty: 11000 })))[0], said(check(p1Colony({ qty: 10000 })))[0].split(' [')[0]],
+    ['ok: Makes and sends on 1,760 Bacteria a day, about the plan’s 1,920', 'fault: Sends on 1,600 Bacteria a day, under the plan’s 1,920']);
+  // Programmes: ended is to fix (reset its heads), ending within a day is to see to soon; both in the chain's words.
+  const ended = check(p1Colony({ ends: T - 2 * H }));
+  eq('setup check: an ended programme is a fault', [ended.faults, ended.items[0].kind, ended.items[0].said.startsWith('The Microorganisms programme ended')], [1, 'fault', true]);
+  const soon = check(p1Colony({ ends: T + 10 * H }));
+  eq('setup check: ending soon is to see to, not a fault', [soon.faults, soon.soon, checkSaid(soon), soon.items[0].said.startsWith('The Microorganisms programme ends in 10 h')], [0, 1, 'All set · 1 to see to', true]);
+  // Two programmes that end alike are said together, once.
+  const twoEnd = colony([pin(1, CC), ecu(10, MICRO, 12000, 5, T + 10 * H), ecu(11, BASE, 12000, 5, T + 10 * H), pin(30, PAD), fac(41, BASIC, 'Bacteria'), fac(42, BASIC, 'Bacteria'), fac(43, BASIC, 'Reactive Metals'), fac(44, BASIC, 'Reactive Metals')],
+    [[10, 41, MICRO, 3000], [10, 42, MICRO, 3000], [11, 43, BASE, 3000], [11, 44, BASE, 3000], [41, 30, BACT, 20], [42, 30, BACT, 20], [43, 30, REACT, 20], [44, 30, REACT, 20]]);
+  eq('setup check: programmes ending alike are said together', said(check(twoEnd)).filter((x) => x.startsWith('soon')), ['soon: The Microorganisms and Base Metals programmes end in 10 h: reset their heads before then']);
+  const twoEnded = check(colony(twoEnd.pins.map((p) => (p.extractor ? { ...p, install: iso(T - 74 * H), expiry: iso(T - 2 * H) } : p)), twoEnd.routes));
+  eq('setup check: and ended alike, one fault', [twoEnded.faults, said(twoEnded).filter((x) => x.startsWith('fault'))[0]?.startsWith('fault: The Microorganisms and Base Metals programmes ended 2 h ago: they extract nothing until their heads are reset')], [1, true]);
+  // ESI sent no quantity a cycle: what it makes can't be told, never a fault or a pass.
+  const unknown = check(colony([pin(1, CC), pin(10, ECU, { install: iso(T - H), expiry: iso(T + 71 * H), extractor: { cycle: 3600, product: MICRO, qty: null, heads: 10 } }), pin(30, PAD), fac(41, BASIC, 'Bacteria')], [[10, 41, MICRO, 3000], [41, 30, BACT, 20]]));
+  eq('setup check: what it makes not known is said, neither a fault nor all set', [unknown.known, unknown.faults, checkSaid(unknown), unknown.items[0].kind, unknown.items[0].said.startsWith('What it makes can’t be told yet: what it makes isn’t known: ESI sent no quantity')], [false, 0, 'Can’t tell yet', 'info', true]);
+  // A planet whose own rate is poor (planet rates): information, never a fault.
+  const poorRole = role({ ...planP1, extracts: [{ p0: MICRO, perHour: 12000, heads: 10, rate: { perHour: 12000, higher: null, from: 'learned', programHours: 72, heads: 10, otherP0: false, checked: true, own: true, factor: 0.67 } }] });
+  const poor = check(p1Colony(), poorRole);
+  eq('setup check: a planet poor a head is said as information', [poor.faults, said(poor)], [0, ['ok: Makes and sends on 1,920 Bacteria a day, as the plan has', 'info: This planet gives about 67% a head of your other Barren planets’ Microorganisms, learned on it: the plan is worked out at that']]);
+  eq('setup check: a planet at its type’s rate a head says nothing of it', said(check(p1Colony(), role({ ...planP1, extracts: [{ ...poorRole.extracts[0], rate: { ...poorRole.extracts[0].rate, factor: 0.9 } }] }))).length, 1);
+  // What the plan needs: a line it marks Extra isn't needed; a feeder's goods for the factory are, its market sales aren't; a P0 → P2
+  // planet's P2, never its surplus P1.
+  const withExtra = role({ extracts: [{ p0: MICRO, perHour: 12000, heads: 5, rate: null }, { p0: BASE, perHour: 12000, heads: 5, rate: null, extra: 'Extra: it’s sold' }],
+    makes: [{ id: BACT, perDay: 1920, facility: 'basic', count: 2 }, { id: REACT, perDay: 1920, facility: 'basic', count: 2 }], ships: [{ id: BACT, perDay: 1920, to: 'market' }, { id: REACT, perDay: 1920, to: 'market' }] });
+  eq('setup check: a line the plan marks Extra isn’t needed', [...needsOf(withExtra, ix)], [[BACT, 1920]]);
+  eq('setup check: so a colony without it is all set', checkSaid(check(p1Colony(), withExtra)), 'All set');
+  const feeder = role({ ...withExtra, extracts: withExtra.extracts.map((e) => ({ ...e, extra: undefined })), ships: [{ id: BACT, perDay: 1500, to: 40000009 }, { id: REACT, perDay: 1920, to: 'market' }] });
+  eq('setup check: a feeder needs what it ships to the factory planet, at that amount', [...needsOf(feeder, ix)], [[BACT, 1500]]);
+  // A line that tops up the factory: the factory takes the last 54 a day of the 1,920 the planet makes, the rest sold. The planet built as
+  // planned sends on 1,920: as the plan has, never "more than the plan's 54".
+  const topsUp = role({ ...planP1, extracts: [{ ...planP1.extracts[0], topsUp: 'Tops up Bacteria' }], ships: [{ id: BACT, perDay: 54, to: 40000009 }, { id: BACT, perDay: 1866, to: 'market' }] });
+  eq('setup check: a good the factory tops up from is needed at all the planet sends on of it', [[...needsOf(topsUp, ix)], said(check(p1Colony(), topsUp))], [[[BACT, 1920]], ['ok: Makes and sends on 1,920 Bacteria a day, as the plan has']]);
+  const p2 = role({ extracts: [{ p0: MICRO, perHour: 12000, heads: 5, rate: null }, { p0: BASE, perHour: 18000, heads: 5, rate: null }],
+    makes: [{ id: BACT, perDay: 1920, facility: 'basic', count: 2 }, { id: REACT, perDay: 2880, facility: 'basic', count: 3 }, { id: NAN, perDay: 240, facility: 'advanced', count: 2 }],
+    ships: [{ id: NAN, perDay: 240, to: 'market' }, { id: REACT, perDay: 960, to: 'market' }] });
+  eq('setup check: a P0 → P2 planet needs its P2, not the P1 left over', [...needsOf(p2, ix)], [[NAN, 240]]);
+
+  // The factory planet: Transcranial Microcontrollers from Nanites and Biocells it makes from four P1s brought in (the user's real shape).
+  const factoryPlan = role({ does: 'factory', imports: [BACT, REACT, FUEL, PREC].map((id, i) => ({ id, perDay: 960, from: 40000010 + i })),
+    makes: [{ id: NAN, perDay: 120, facility: 'advanced', count: 1 }, { id: CELLS, perDay: 120, facility: 'advanced', count: 1 }, { id: TRANS, perDay: 36, facility: 'advanced', count: 1 }],
+    ships: [{ id: TRANS, perDay: 36, to: 'market' }] });
+  const factoryColony = ({ drop = [] } = {}) => colony([pin(1, CC), pin(30, PAD), fac(51, ADV, 'Nanites'), fac(52, ADV, 'Biocells'), fac(53, ADV, 'Transcranial Microcontroller')],
+    [[30, 51, BACT, 40], [30, 51, REACT, 40], [30, 52, FUEL, 40], [30, 52, PREC, 40], [51, 30, NAN, 5], [52, 30, CELLS, 5], [30, 53, NAN, 10], [30, 53, CELLS, 10], [53, 30, TRANS, 3]]
+      .filter((r) => !drop.some((d) => d.every((x, i) => x === r[i]))));
+  const asPlannedF = check(factoryColony(), factoryPlan);
+  eq('setup check: a factory planet built as planned: its inputs routed into its factories, its steps and its product made, and what it can’t judge said',
+    said(asPlannedF), ['ok: Bacteria, Reactive Metals, Biofuels and Precious Metals are routed into its factories', 'ok: Makes Biocells and Nanites on the planet', 'ok: Can make 36 Transcranial Microcontrollers a day kept stocked, as the plan has',
+      'info: Judged here: its routes and what it makes, with what it takes in kept stocked; whether its feeders send that is on their cards']);
+  // Minor 4 of the review: a factory's card judges its own routes alone, so it reads "Routes set" until every feeder's card is checked with
+  // nothing to fix for this character; a bought factory (no feeders) always "Routes set".
+  eq('setup check: a factory card reads routes set until its feeders are checked and set', [checkSaid(asPlannedF), checkSaid(asPlannedF, { of: 4, checked: 0, faults: 0 }), checkSaid(asPlannedF, { of: 4, checked: 3, faults: 0 }),
+    checkSaid(asPlannedF, { of: 4, checked: 4, faults: 2 }), checkSaid(asPlannedF, { of: 4, checked: 4, faults: 0 })],
+    ['Routes set', 'Routes set · 4 of its 4 feeders not checked yet', 'Routes set · 1 of its 4 feeders not checked yet', 'Routes set · its feeders have 2 things to fix', 'All set']);
+  const boughtPlan = { ...factoryPlan, imports: factoryPlan.imports.map((x) => ({ ...x, from: 'market' })) };
+  eq('setup check: a bought factory says what it judges with what it buys kept stocked', said(check(factoryColony(), boughtPlan)).at(-1), 'info: Judged here: its routes and what it makes, with what it buys kept stocked');
+  // Minor 7: a role with nothing to check says so, never "All set".
+  const nothing = check(p1Colony(), role({ ...planP1, ships: [] }));
+  const nothingF = check(factoryColony(), role({ does: 'factory', makes: [], ships: [], imports: [] }));
+  eq('setup check: nothing to check is said, never all set', [checkSaid(nothing), said(nothing), checkSaid(nothingF), said(nothingF)],
+    ['Nothing here to check', ['info: The plan sends nothing on from this planet, so nothing here was checked'], 'Nothing here to check', ['info: The plan sends nothing on from this planet, so nothing here was checked']]);
+  // Messenger from God's case (23 October): the P2s made on the planet, none routed into the P3 factory. The route missing is named once.
+  const noP3 = check(factoryColony({ drop: [[30, 53, NAN, 10], [30, 53, CELLS, 10]] }), factoryPlan);
+  eq('setup check: a P3 factory with none of its P2 routed in says which route is missing', said(noP3).filter((x) => x.startsWith('fault')),
+    ['fault: Doesn’t make Transcranial Microcontrollers [Nothing routes Biocells and Nanites into an Advanced factory making Transcranial Microcontrollers, so it makes none]']);
+  const noInput = check(factoryColony({ drop: [[30, 51, REACT, 40]] }), factoryPlan);
+  eq('setup check: an input brought in that no route takes to its factory is said, and the product waits on it', said(noInput).filter((x) => x.startsWith('fault')), [
+    'fault: Reactive Metals isn’t routed into the factories that take it [Nothing routes Reactive Metals into an Advanced factory making Nanites, so it makes none]',
+    'fault: Doesn’t make Nanites [Its factories make none until what’s above reaches them]',
+    'fault: Doesn’t make Transcranial Microcontrollers [Its factories make none until what’s above reaches them]',
+  ]);
+
+  // Important 1 of the review: an alt's check is fresh only when its copy here was pulled after the cloud's read. The roster read after it,
+  // live, no error, the copy at the roster's revision: pulled. Anything less says why, and nothing is judged as fresh.
+  const pulled = { error: null, rosterAt: 2000, rosterLive: true, failedAlt: null, roster: [{ charId: 7, rev: 5 }], alts: { 7: { rev: 5 } } };
+  eq('fresh reads: an alt pulled after the cloud read it is fresh', altPulledWhy(pulled, 7, 1000), null);
+  eq('fresh reads: an alt not pulled after the read says why', [
+    altPulledWhy({ ...pulled, error: 'Couldn’t reach the cloud' }, 7, 1000), altPulledWhy({ ...pulled, rosterAt: 900 }, 7, 1000), altPulledWhy({ ...pulled, rosterLive: false }, 7, 1000),
+    altPulledWhy({ ...pulled, alts: { 7: { rev: 4 } } }, 7, 1000), altPulledWhy({ ...pulled, alts: {} }, 7, 1000), altPulledWhy({ ...pulled, roster: [] }, 7, 1000),
+    altPulledWhy({ ...pulled, failedAlt: { charId: 7, message: 'Cloud 500' } }, 7, 1000),
+  ], ['Couldn’t reach the cloud', 'the cloud’s list of your characters wasn’t read again', 'the cloud’s list of your characters wasn’t read again', 'its copy here is behind the cloud’s',
+    'its copy here is behind the cloud’s', 'the cloud no longer lists this character', 'Cloud 500']);
+  // Minor 3: the main's read is fresh only when a new read came back.
+  eq('fresh reads: the main read just now only when a new read came back', [
+    mainReadWhy('2026-10-24T10:00:00Z', { read: { at: '2026-10-24T10:05:00Z' }, error: null, busy: null }), mainReadWhy('2026-10-24T10:00:00Z', { read: { at: '2026-10-24T10:00:00Z' }, error: null, busy: null }),
+    mainReadWhy(null, { read: null, error: null, busy: null }), mainReadWhy(null, { read: null, error: 'ESI returned 502', busy: null }), mainReadWhy(null, { read: null, error: null, busy: 'Reading colony 2 of 5…' }),
+  ], [null, 'no new read of them came back', 'no new read of them came back', 'ESI returned 502', 'another read of your colonies was still running']);
+
+  // Important 2: a card's key carries the setup's kind (a kept plan's is its own), so one setup's ticks never tick another's, and Minor 6:
+  // ticks kept under another layout are deleted when seen, so switching back brings none back.
+  const kFeed = cardKey(30004865, 2348, 'feed', 40307991, 1), kKept = cardKey(30004865, 2348, 'kept-feed', 40307991, 1), kP1 = cardKey(30004865, null, 'p1', 40307991, 1);
+  eq('ticks: a card is keyed by system, good, kind, planet and character', [kFeed, kKept, kP1], ['30004865:2348:feed:40307991:1', '30004865:2348:kept-feed:40307991:1', '30004865:all:p1:40307991:1']);
+  const t1 = ticked({}, kKept, 'L1', 'cc', true, 1);
+  eq('ticks: ticking in the kept plan leaves the same planet’s card in today’s feed unticked', [ticksDone(t1, kKept, 'L1'), ticksDone(t1, kFeed, 'L1')], [['cc'], []]);
+  const t2 = ticked(t1, kFeed, 'L1', 'pad', true, 2);
+  eq('ticks: and each keeps its own', [ticksDone(t2, kKept, 'L1'), ticksDone(t2, kFeed, 'L1')], [['cc'], ['pad']]);
+  const moved = dropStale(t2, kKept, 'L2');
+  eq('ticks: a layout changed deletes what was ticked under the old one; switching back brings nothing back', [kKept in moved, ticksDone(moved, kKept, 'L1'), ticksDone(moved, kFeed, 'L1'), dropStale(t2, kKept, 'L1') === t2], [false, [], ['pad'], true]);
+  eq('ticks: ticking under a new layout drops the old', ticked(t2, kKept, 'L2', 'pad', true, 3)[kKept], { sig: 'L2', done: ['pad'], at: 3 });
+  const many = Array.from({ length: TICKS_KEPT + 5 }, (_, i) => i).reduce((t, i) => ticked(t, `k${i}`, 'L', 'cc', true, i), {});
+  eq('ticks: the newest kept', [Object.keys(many).length, 'k0' in many, `k${TICKS_KEPT + 4}` in many], [TICKS_KEPT, false, true]);
+
+  // The board: a fed setup is feeders on the left, the factory on the right, a line each labelled with what it ships to it; a chain groups
+  // the feeders by character; one-planet setups are a row.
+  const fA = role({ planetId: 1, charId: 7, ships: [{ id: BACT, perDay: 960, to: 3 }, { id: REACT, perDay: 10, to: 'market' }] });
+  const fB = role({ planetId: 2, charId: 8, ships: [{ id: REACT, perDay: 960, to: 3 }] });
+  const fF = role({ planetId: 3, charId: 7, does: 'factory', imports: [{ id: BACT, perDay: 960, from: 1 }, { id: REACT, perDay: 960, from: 2 }] });
+  const unused = role({ planetId: 4, does: 'unused' });
+  const feedBoard = boardOf({ kind: 'feed', roles: [fF, fA, fB, unused] });
+  eq('board: a feed is a flow, the factory apart, every feeder in one group, each line what it ships to the factory', [feedBoard.layout, feedBoard.factory?.planetId, feedBoard.groups.map((g) => [g.charId, g.roles.map((r) => r.planetId)]), [...feedBoard.edges.values()]],
+    ['flow', 3, [[null, [1, 2]]], [[{ id: BACT, perDay: 960 }], [{ id: REACT, perDay: 960 }]]]);
+  eq('board: a chain groups its feeders by character', boardOf({ kind: 'chain', roles: [fF, fA, fB] }).groups.map((g) => [g.charId, g.roles.map((r) => r.planetId)]), [[7, [1]], [8, [2]]]);
+  eq('board: one-planet setups are a row with no lines', [boardOf({ kind: 'p2', roles: [fA, unused] }).layout, boardOf({ kind: 'p2', roles: [fA, unused] }).groups[0].roles.length], ['row', 1]);
+
+  // Build it: the command centre, extractors, factories, the launchpad, then the routes from the ground up.
+  const p2Steps = buildSteps(p2, ix, { level: 4, checked: true }, 72);
+  eq('build it: in the order you’d place it', p2Steps.map((s) => s.id), ['cc', `ecu:${MICRO}:0`, `ecu:${BASE}:1`, `fac:basic:${BACT}`, `fac:basic:${REACT}`, `fac:advanced:${NAN}`, 'pad',
+    `route:p0:${MICRO}:0`, `route:p0:${BASE}:1`, `route:out:${BACT}`, `route:out:${REACT}`, `route:in:${NAN}`, `route:out:${NAN}`]);
+  eq('build it: its words', p2Steps.map((s) => s.text), ['Command centre, upgraded to level IV (Command Center Upgrades IV)', 'Extractor control unit on Microorganisms, 5 heads, a 3-day programme', 'Extractor control unit on Base Metals, 5 heads, a 3-day programme',
+    '2 Basic Industry Facilities on Bacteria', '3 Basic Industry Facilities on Reactive Metals', '2 Advanced Industry Facilities on Nanites', '1 Launchpad: what the planet makes collects here to leave (Plan counts one, and no storage)',
+    'Route Microorganisms from its extractor to its 2 Basics', 'Route Base Metals from its extractor to its 3 Basics', 'Route Bacteria from its 3 factories to the launchpad'.replace('3 factories', '2 factories'), 'Route Reactive Metals from its 3 factories to the launchpad',
+    'Route Bacteria and Reactive Metals from the launchpad to each of its 2 Advanced on Nanites', 'Route Nanites from its 2 factories to the launchpad']);
+  eq('build it: a factory planet routes what’s brought in from the launchpad, a tier at a time', buildSteps(factoryPlan, ix, { level: null, checked: false }, 72).map((s) => s.text).slice(-6),
+    ['Route Biofuels and Precious Metals from the launchpad to the Advanced on Biocells', 'Route Biocells from its factory to the launchpad', 'Route Bacteria and Reactive Metals from the launchpad to the Advanced on Nanites', 'Route Nanites from its factory to the launchpad',
+      'Route Biocells and Nanites from the launchpad to the Advanced on Transcranial Microcontrollers', 'Route Transcranial Microcontrollers from its factory to the launchpad']);
+  eq('build it: a planet whose size isn’t known says the level isn’t worked out', buildSteps(factoryPlan, ix, levelNeeded(factoryPlan, ix, 'Barren', null), null)[0].text, 'Command centre: this planet’s size isn’t known, so the level its layout needs isn’t worked out');
+  // The level is the lowest the layout fits at on the planet's own size: it fits there and not one below.
+  const need = levelNeeded(p2, ix, 'Barren', 3750);
+  eq('build it: the level needed is the lowest that fits', [need.checked, need.level != null && fitOf(ix, 'Barren', need.level, layoutOfRole(p2), 3750).fits, need.level === 0 || !fitOf(ix, 'Barren', need.level - 1, layoutOfRole(p2), 3750).fits], [true, true, true]);
+  eq('build it: a tick is kept under the planet’s layout, which a change of heads or factories moves', [roleSig(p2) === roleSig({ ...p2 }), roleSig(p2) === roleSig({ ...p2, extracts: [{ ...p2.extracts[0], heads: 6 }, p2.extracts[1]] }), roleSig(p2) === roleSig({ ...p2, makes: [{ ...p2.makes[0], count: 3 }, ...p2.makes.slice(1)] })], [true, false, false]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

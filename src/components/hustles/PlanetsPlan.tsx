@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
+import type { ColoniesRead } from '../../lib/colonyTotals';
 import { ago, fmtShort, iskBig, units } from '../../lib/format';
-import { monthOfOmega, omegaShare, periods, shareSaid } from '../../lib/iskPeriods';
+import { monthOfOmega, omegaShare, periods, shareSaid, type Periods } from '../../lib/iskPeriods';
 import { accountCount, accountCountSaid, type AccountRef } from '../../lib/accounts';
 import { useNow } from '../../lib/hooks';
 import { usePlexPrice } from '../plexPrice';
@@ -24,11 +25,12 @@ import { changedSince, keepable, keptOf, keptPlanetsOf, layoutKey } from '../../
 import { update, useData } from '../../lib/store';
 import { system as systemInfo } from '../../lib/universe';
 import { Points } from '../Facts';
-import { Check, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
+import { Check, cssVars, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { LIVE_READ_BOUND_MS, useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { SystemPlanet } from './planetsMarket';
 import { NO_SYS, usePlanning } from './planetsPlanning';
+import { PlanetBoard, type CheckCtx } from './PlanetBoard';
 import { useMainSystem } from './rightNow';
 
 /** An amount a day as a pace is said (N2): whole from 10, one decimal under it, "under 0.1" below that; never a known 0.4 read as 0. */
@@ -74,8 +76,15 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false }: {
+export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false, reads = {}, readAlt = null }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
+  /** Where each character's colonies stand (Planets.tsx, colonyTotals' words): Check my setup says why one can't be read fresh. */
+  reads?: Record<number, ColoniesRead>;
+  /**
+   * Check my setup: runs an alt's full read in the cloud and waits for its pull (Planets.tsx reads the alt store); null when the alt's copy
+   * here was pulled after that read, else why not.
+   */
+  readAlt?: ((id: number) => Promise<string | null>) | null;
   systemId: number | null; onSystem: (id: number | null) => void; mainName: string;
   /** Plan it: the good Plan is held to (from the address, else kept), or null for every product; `onEveryProduct` lets it go. */
   good: number | null; onEveryProduct: () => void;
@@ -100,6 +109,10 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
 
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   const blockedWhy = charWhy(planChar);
+  // Check my setup (planets-board.md): every character, those doing planetary industry, their kept colonies, how each was read.
+  const sellFor = market.ready ? market.sell : morning.sell;
+  const check: CheckCtx = useMemo(() => ({ chars, pi: [planChar, ...others].filter((x) => !charWhy(x)).map((x) => x.charId), colonies, reads, readAlt, sell: sellFor }),
+    [chars, planChar, others, colonies, reads, readAlt, sellFor]);
 
   return (
     <section className="col" style={{ gap: 16 }} data-planets="plan">
@@ -127,7 +140,7 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             {!blockedWhy && morning.ready && heldLate > 0 && rows && <p className="note small" style={{ margin: 0 }} data-planets="late">{heldLate} of the live reads hadn’t come back after {LIVE_READ_BOUND_MS / 1000} seconds, so these are worked out on what had: those goods are on this morning’s books, and it’s all worked out again when they land.</p>}
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
               <Setups setups={rows} working={!rowsWorking ? null : good != null || !rowsLive ? 'Working them out again…' : `Working them out again ${market.liveSaid}…`} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good}
-                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} />
+                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} check={check} board={{ systemId: value.system.systemId, good }} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
               learned={learned} programHours={programHours} />
@@ -522,7 +535,7 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
 /** A kept plan as Setups draws it (planner fix 2): the plan, it worked out on today's inputs, the layout offered beside it and what changed. */
 type KeptView = { plan: KeptPlan; now: Setup | null; newer: { s: Setup; more: number | null } | null; changed: string[]; forget: () => void };
 
-function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf, kept = null, onKeep = null }: {
+function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf, kept = null, onKeep = null, check = null, board = null }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
   programHours: number; good: number | null;
   /** Each character's account, as the Characters page sets it: the repeat line counts months of Omega by account, a chain names them. */
@@ -531,6 +544,8 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   kept?: KeptView | null;
   /** Plan it: keeps a setup as the plan for this system and good; null when none can be kept here. */
   onKeep?: ((s: Setup) => void) | null;
+  /** Check my setup on each planet card (planets-board.md); null offers none. `board`: the system and good, in each card's key. */
+  check?: CheckCtx | null; board?: BoardKey | null;
 }) {
   // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
   const plex = usePlexPrice();
@@ -541,7 +556,7 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   // Plan it's rows are the live pass's alone (planner fix 2): until it lands, nothing is drawn as the answer.
   const waiting = <p className="note small" style={{ margin: 0 }} data-planets="working">{good != null ? 'Working it out…' : 'Working out each setup…'}</p>;
   const keptBlock = kept && <KeptPlanBlock kept={kept} good={good!} name={name} onKeep={onKeep}
-    row={(s, tag, opens) => <SetupRow key={tag} s={s} rank={null} best={null} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} tag={tag} opens={opens} />} />;
+    row={(s, tag, opens) => <SetupRow key={tag} s={s} rank={null} best={null} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} tag={tag} opens={opens} check={check} board={board} />} />;
   if (!setups) return kept ? <div className="col" style={{ gap: 10 }}>{keptBlock}{waiting}</div> : waiting;
   // Plan it: the setups that make the good from the system's planets, the most a day first; bought apart, below them (planner fix 1):
   // it buys its inputs and doesn't use the system's planets for them.
@@ -549,7 +564,7 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   const buyInstead = good != null ? setups.find((s) => s.kind === 'bought') ?? null : null;
   const best = ranked.find((s) => s.iskDay != null) ?? null;
   const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf}
-    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} />;
+    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} check={check} board={board} />;
   const ranking = (
     <>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
@@ -617,26 +632,31 @@ function KeptPlanBlock({ kept, good, name, onKeep, row }: {
   );
 }
 
+/** The system and the good planned (null: every product), which every planet card's key starts with (planetBoard.ts' `cardKey`). */
+type BoardKey = { systemId: number; good: number | null };
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan' }: {
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan', check = null, board = null }: {
   /** Its place in the ranking; null for one shown apart (Plan it's bought, a kept plan, the layout offered beside it). */
   s: Setup; rank: number | null; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
   accountOf: (charId: number) => AccountRef | null;
-  /** Its `data-planets` (`setup:<kind>` by default); `opens`, whether its detail opens by itself (else the best and P0 → P2 do). */
+  /** Its `data-planets` (`setup:<kind>` by default); `opens`, whether it opens by itself (else the best does). */
   tag?: string; opens?: boolean;
   /** Plan it: keeps this setup as the plan for its system and good (planner fix 2); null when it can't be kept. */
   onKeep?: (() => void) | null; keepSaid?: string;
+  check?: CheckCtx | null; board?: BoardKey | null;
 }) {
-  const [open, setOpen] = useState(false);
-  // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
-  // set holds only for the place it was set in (m3): when a live re-rank makes this row the best, it opens; when it stops being
-  // the best, it folds again, unless set by hand in that place too.
-  const opensItself = opens ?? (rank === 1 || s.kind === 'p2');
+  // The plan board (planets-board.md): every setup is a compact row (its kind, its figure, the planets it uses and its tags) until it's
+  // opened, when it shows the plan at a glance and a card for each planet; the fine print folds under Details. The best opens by itself.
+  // A fold the user set holds only for the place it was set in (m3): when a live re-rank makes this row the best, it opens; when it
+  // stops being the best, it folds again, unless set by hand in that place too.
+  const opensItself = opens ?? rank === 1;
   const [setByHand, setSetByHand] = useState<{ open?: boolean; shut?: boolean }>({});
   const place = opensItself ? 'open' : 'shut';
-  const detail = setByHand[place] ?? opensItself;
-  const setDetail = (v: boolean) => setSetByHand((x) => ({ ...x, [place]: v }));
+  const open = setByHand[place] ?? opensItself;
+  const setOpen = (v: boolean) => setSetByHand((x) => ({ ...x, [place]: v }));
+  const [details, setDetails] = useState(false);
+  const [how, setHow] = useState(false);
   const planet = (id: number) => planets.find((p) => p.planetId === id);
   const pname = (id: number) => planet(id)?.name ?? `planet ${id}`;
   const who = (id: number) => chars.find((x) => x.charId === id);
@@ -653,23 +673,29 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   const share = per ? omegaShare(per.month, omega.perMonth, omega.price) : null;
   const cost = monthOfOmega(omega.perMonth, omega.price);
   const taxedPlanets = new Set(s.taxes.filter((t) => t.perDay == null).map((t) => t.planetId));
+  // Said where the row is, folded or open: why it has no figure.
+  const reasons: ReactNode[] = [];
+  if (s.why) reasons.push(s.why === RAN_OUT ? `${RAN_OUT}: nothing was found within it, which says nothing of what this system can do.` : `${s.why}.`);
+  // The fine print, under Details: the words stay whole (the page check reads them), out of the way of the board.
   const notes: ReactNode[] = [];
-  if (s.why) notes.push(s.why === RAN_OUT ? `${RAN_OUT}: nothing was found within it, which says nothing of what this system can do.` : `${s.why}.`);
-  // A kept plan's own words (planner fix 2): planets it takes past what the character shown has.
-  for (const k of s.kept?.notes ?? []) notes.push(<span data-planets="kept-note">{`${k}.`}</span>);
   if (s.cut && s.why == null) notes.push('The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.');
-  if (priced && s.before.includes('tax')) notes.push(`Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.`);
-  if (priced && s.before.includes('extraction')) notes.push('Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.');
+  const taxSaid = priced && s.before.includes('tax') ? `Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.` : null;
+  if (taxSaid) notes.push(taxSaid);
+  const noRate = priced && s.before.includes('extraction') ? 'Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.' : null;
+  if (noRate) notes.push(noRate);
   // Ruling F11: goods the hub doesn't price, valued at Jita's, named once on the setup; each output's line says its figure.
   const fell = fallbackGoods(s.outputs);
-  if (priced && fell.length) notes.push(<span data-planets="fallback-goods">{`Valued at Jita’s for want of a ${s.outputs.find((o) => o.sold.fallback)!.sold.fallback!.hub} figure: ${listSaid(fell.map(name))} (each line says why).`}</span>);
+  const fellSaid = priced && fell.length ? `Valued at Jita’s for want of a ${s.outputs.find((o) => o.sold.fallback)!.sold.fallback!.hub} figure: ${listSaid(fell.map(name))} (each line says why).` : null;
+  if (fellSaid) notes.push(<span data-planets="fallback-goods">{fellSaid}</span>);
   // Ruling F11b: inputs the hub doesn't sell, bought at Jita with the freight in, named once.
   const fellIn = s.inputs.filter((i) => i.bought.fallback && i.bought.isk != null);
   if (priced && fellIn.length) notes.push(<span data-planets="fallback-inputs">{`Bought at Jita, with the freight in, for want of ${fellIn[0].bought.fallback!.hub}: ${listSaid(fellIn.map((i) => name(i.id)))} (each line says why).`}</span>);
-  if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted, and ${s.unvalued === 1 ? 'its' : 'their'} customs not counted either: never as 0.`);
-  // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
+  const unvaluedSaid = priced && s.unvalued ? `${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted, and ${s.unvalued === 1 ? 'its' : 'their'} customs not counted either: never as 0.` : null;
+  if (unvaluedSaid) notes.push(unvaluedSaid);
+  // A layout that doesn't fit is kept and priced as if it did (the planner's rule): said on the row's tag and in the fine print.
   const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
-  if (priced && unfit.length) notes.push(`${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.`);
+  const unfitSaid = priced && unfit.length ? `${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.` : null;
+  if (unfitSaid) notes.push(unfitSaid);
   // What fixes each planet that doesn't fit, a planet at a time (Ruling T11-2): a level is named only for the planets it fixes.
   const lacks = trainSaid(used, pname);
   // Plan it ranks by the good's units (planner fix 1), so the gap is said in them.
@@ -677,22 +703,39 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
     : best === s || !best || best.iskDay == null ? 'The best here.'
       : s.made && best.made ? `${aDay(Math.max(0, best.made.perDay - s.made.perDay))} ${name(s.made.id)} a day under the best here${best.kind === 'chain' ? ' (a chain’s in all)' : ''}.`
         : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
-  const steps = open ? setupSteps(s.kind, {
+  const steps = how ? setupSteps(s.kind, {
     p0s: [...new Set(used.flatMap((r) => r.extracts.map((e) => name(e.p0))))],
     makes: [...new Set(used.filter((r) => r.does === 'factory' || s.kind === 'p2').flatMap((r) => r.makes.filter((m) => m.facility !== 'basic').map((m) => name(m.id))))],
     takesIn: [...new Set(used.flatMap((r) => (r.imports ?? []).filter((x) => x.from === 'market').map((x) => name(x.id))))],
     topFrom: factoryRoutes(ix, s),
   }) : [];
+  // The planets it uses, against the planets the character shown may have (a chain's across its characters).
+  const usedSaid = s.why != null ? null : perChar ? `${used.length} planets across ${inChain.length} characters` : `${used.length} of ${shown.planets ?? '–'} planets`;
+  const tags: { k: string; l: string; tip: string; c?: string }[] = [
+    ...(s.cut && s.why == null ? [{ k: 'cut', l: 'May be short', tip: 'The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.' }] : []),
+    ...(unfitSaid ? [{ k: 'unfit', l: 'Doesn’t fit', tip: `${unfitSaid}${lacks ? `\n\n${lacks}.` : ''}`, c: 'red' }] : []),
+    ...(noRate ? [{ k: 'norate', l: 'No rate yet', tip: noRate }] : []),
+    ...(fellSaid ? [{ k: 'jita', l: 'Valued at Jita’s', tip: fellSaid }] : []),
+    ...(unvaluedSaid ? [{ k: 'unvalued', l: `${s.unvalued} not valued`, tip: unvaluedSaid }] : []),
+  ];
 
   return (
-    <article className={'pl-setup' + (rank === 1 && priced ? ' best' : '')} data-planets={tag ?? `setup:${s.kind}`}
+    <article className={'pl-setup' + (rank === 1 && priced ? ' best' : '') + (open ? ' open' : ' folded')} data-planets={tag ?? `setup:${s.kind}`}
       data-layout={s.made ? layoutKey(s.kind, keptPlanetsOf(s)) : undefined}>
       <div className="pl-setup-head">
-        <span className="pl-rank">{rank ?? '·'}</span>
+        <button type="button" className="pl-open" aria-expanded={open} onClick={() => setOpen(!open)} data-planets="open" aria-label={open ? `Fold ${label}` : `Open ${label}: its planets, what each does, and how to build it`}>
+          <ChevronRight className="chev" aria-hidden="true" /><span className="pl-rank">{rank ?? '·'}</span>
+        </button>
         <div className="pl-setup-name">
           <b>{label}</b>{s.kind === 'p2' && !s.kept && <span className="pl-yours">your setup</span>}{s.kept && <span className="pl-yours">kept</span>}<Tip title={KIND[s.kind].label} text={KIND[s.kind].tip} />
           {perChar && <span className="sub">{listSaid(inChain)}: {inChain.length} characters, ranked per character</span>}
-          {onKeep && <button type="button" className="link-btn" onClick={onKeep} data-planets="keep">{keepSaid}</button>}
+          {usedSaid && <span className="sub" data-planets="used">{usedSaid}</span>}
+          {(tags.length > 0 || onKeep) && (
+            <span className="pl-tags">
+              {tags.map((t) => <span key={t.k} className={'pl-badge ' + (t.c ?? 'amber')} data-tip={t.tip} data-planets={`tag:${t.k}`}>{t.l}</span>)}
+              {onKeep && <button type="button" className="link-btn" onClick={onKeep} data-planets="keep">{keepSaid}</button>}
+            </span>
+          )}
         </div>
         <div className="pl-isk">
           {/* Plan it: the head figure is the good's units a day, the ISK beside it as information (planner fix 1). */}
@@ -703,25 +746,12 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
                 <Tip title="At today’s price" text={`Every ${name(s.made.id)} made, at what its first unit fetches today, with no market cap: how fast they sell is yours to judge.\n\n• What else it makes is valued at your share of its own market.\n• Customs on what each planet exports, the factory’s import and export too.`} /></span>
             </>
           ) : priced ? <><b>{iskBig(s.iskDay)}</b><span className="sub">a day{perChar ? ' per character' : ''}</span></> : <b>–</b>}
-          {per && (
-            <span className="sub" data-planets="periods">
-              <span data-planets="week">{iskBig(per.week)} a week</span> · <span data-planets="month">{iskBig(per.month)} a month</span>{perChar ? ' per character' : ''}
-            </span>
-          )}
-          {/* A chain across characters: what they make together, as a day, a week and a month (Ruling F10). */}
-          {chainAll && <span className="sub" data-planets="chain-all">in all {iskBig(chainAll.day)} a day · {iskBig(chainAll.week)} a week · {iskBig(chainAll.month)} a month</span>}
-          {per && (
-            <span className="sub" data-planets="omega">
-              {share != null ? <>{shareSaid(share)} of a month of Omega</> : 'Omega: – (PLEX price not read yet)'}
-              <Tip title="Against a month of Omega" text={cost != null
-                ? `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}) over what one account's month of Omega costs: ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.${perChar ? '\n\nA chain’s figure is per character, so this is per character too.' : ''}`
-                : 'The PLEX price hasn’t been read yet, so a month of Omega can’t be priced. It is read when this page opens; type one on Omega to use your own.'} />
-            </span>
-          )}
+          {/* A figure before a tax that isn't known says so where the figure is, its sentence in the tip. */}
+          {taxSaid && <span className="sub pl-up" data-planets="before-tax">before the customs tax<Tip title="Before the customs tax" text={taxSaid} /></span>}
           {priced && high && <span className="sub pl-high">up to {iskBig(s.iskDayHigh)} if the game reads extraction the other way</span>}
         </div>
       </div>
-      {notes.length > 0 && <div className="col pl-notes">{notes.map((n, i) => <span key={i} className="note small">{n}</span>)}</div>}
+      {reasons.length > 0 && <div className="col pl-notes">{reasons.map((n, i) => <span key={i} className="note small">{n}</span>)}</div>}
       {s.kind === 'chain' && s.why != null && s.perChar.length > 0 && (
         <span className="note small">{(() => {
           const can = s.perChar.filter((p) => !p.lacks.includes('Omega')).map((p) => who(p.charId)?.name ?? `Character ${p.charId}`);
@@ -730,12 +760,13 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
         })()}</span>
       )}
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
-      {priced && s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} />}
-      {priced && (
+      {open && priced && (
         <>
-          <div data-planets="upkeep">
-            <Tiles min={150} items={upkeepTiles(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} />
-          </div>
+          <Glance s={s} per={per} chainAll={chainAll} share={share} cost={cost} omega={omega} perChar={perChar} name={name} usedSaid={usedSaid}
+            resets={resetsTile(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} />
+          {/* A kept plan's own words (planner fix 2): planets it takes past what the character shown has. */}
+          {(s.kept?.notes ?? []).map((k) => <span key={k} className="note small pl-up" data-planets="kept-note">{`${k}.`}</span>)}
+          {s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} />}
           {(s.kind === 'chain' || lacks) && (
             <div className="col pl-lines">
               {s.kind === 'chain' && s.perChar.map((p) => {
@@ -749,46 +780,86 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
               {s.kind !== 'chain' && lacks && <span className="pl-line" data-planets="train">{lacks}.</span>}
             </div>
           )}
-          <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
-          {detail && <>
-          <Outputs outputs={s.outputs} name={name} held={s.made?.id ?? null} />
-          {s.inputs.length > 0 && (
-            <div className="col pl-lines">
-              <span className="lbl">Bought</span>
-              {s.inputs.map((i) => {
-                // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
-                const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
-                return (
-                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${boughtWhere(i.bought, i.perDay)}${i.bought.note ? ` (${clause(i.bought.note)})` : i.bought.fallback ? ` ${boughtFallbackSaid(i.bought)}` : ''}`}
-                    {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} {(i.bought.maxAt ?? '').includes(' and ') ? 'supply' : 'supplies'}{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
-                  </span>
-                );
-              })}
-              {(() => {
-                const all = s.inputs.reduce((n, i) => (i.bought.isk == null || n == null ? null : n + i.bought.isk), 0 as number | null);
-                return all == null ? null : <span className="pl-line" data-planets="bought-total">In all, <b>{iskBig(all)}</b> a day of purchases{priced ? `, for ${iskBig(s.iskDay)} a day after them` : ''}.</span>;
-              })()}
+          <PlanetBoard s={s} ix={ix} planets={planets} chars={chars} name={name} details={details} programHours={programHours} systemId={board?.systemId ?? 0} good={board?.good ?? null} ctx={check}
+            words={(r) => <RoleWords r={r} s={s} pname={pname} name={name} untaxed={taxedPlanets.has(r.planetId)} />} />
+          <div><Toggle open={details} onToggle={() => setDetails(!details)}>What it makes, and the details</Toggle></div>
+          {details && (
+            <div className="col pl-details" style={{ gap: 10 }}>
+              {notes.length > 0 && <div className="col pl-notes">{notes.map((n, i) => <span key={i} className="note small">{n}</span>)}</div>}
+              <Outputs outputs={s.outputs} name={name} held={s.made?.id ?? null} />
+              {s.inputs.length > 0 && (
+                <div className="col pl-lines">
+                  <span className="lbl">Bought</span>
+                  {s.inputs.map((i) => {
+                    // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
+                    const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
+                    return (
+                      <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${boughtWhere(i.bought, i.perDay)}${i.bought.note ? ` (${clause(i.bought.note)})` : i.bought.fallback ? ` ${boughtFallbackSaid(i.bought)}` : ''}`}
+                        {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} {(i.bought.maxAt ?? '').includes(' and ') ? 'supply' : 'supplies'}{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
+                      </span>
+                    );
+                  })}
+                  {(() => {
+                    const all = s.inputs.reduce((n, i) => (i.bought.isk == null || n == null ? null : n + i.bought.isk), 0 as number | null);
+                    return all == null ? null : <span className="pl-line" data-planets="bought-total">In all, <b>{iskBig(all)}</b> a day of purchases{priced ? `, for ${iskBig(s.iskDay)} a day after them` : ''}.</span>;
+                  })()}
+                </div>
+              )}
+              <div data-planets="upkeep">
+                <Tiles min={150} items={upkeepTiles(s)} />
+              </div>
+              {unused.length > 0 && <span className="note small">Not used: {unusedSaid(unused, pname)}.</span>}
+              <div>
+                <Toggle open={how} onToggle={() => setHow(!how)}>How to build it</Toggle>
+                {how && (
+                  <ol className="pl-steps">
+                    {steps.map((st, i) => (
+                      <li key={st.title}><span className="mono">{String(i + 1).padStart(2, '0')}</span><div><b>{st.title}</b><p>{st.body}</p>{st.tip && <p className="pl-tip">{st.tip}</p>}</div></li>
+                    ))}
+                  </ol>
+                )}
+              </div>
             </div>
           )}
-          <div className="col pl-lines">
-            <span className="lbl">Which planet does what</span>
-            {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} />)}
-            {unused.length > 0 && <span className="note small">Not used: {unusedSaid(unused, pname)}.</span>}
-          </div>
-          <div>
-            <Toggle open={open} onToggle={() => setOpen(!open)}>How to build it</Toggle>
-            {open && (
-              <ol className="pl-steps">
-                {steps.map((st, i) => (
-                  <li key={st.title}><span className="mono">{String(i + 1).padStart(2, '0')}</span><div><b>{st.title}</b><p>{st.body}</p>{st.tip && <p className="pl-tip">{st.tip}</p>}</div></li>
-                ))}
-              </ol>
-            )}
-          </div>
-          </>}
         </>
       )}
     </article>
+  );
+}
+
+/**
+ * The plan at a glance, on top of an opened setup (the plan board): under Plan it, the good's units a day first; its ISK a day, a week
+ * and a month; the month against a month of Omega; the planets it uses; how often it's reset. Each figure's words and qualifiers are
+ * its tile's note or tip, as they were beside the figure.
+ */
+function Glance({ s, per, chainAll, share, cost, omega, perChar, name, usedSaid, resets }: {
+  s: Setup; per: Periods | null; chainAll: Periods | null; share: number | null; cost: number | null; omega: OmegaCost; perChar: boolean; name: (id: number) => string;
+  usedSaid: string | null; resets: { l: string; v: string; n: string };
+}) {
+  if (!per) return null;
+  const pc = perChar ? ' per character' : '';
+  const tiles: { key: string; l: string; v: ReactNode; n?: ReactNode; tip?: string; c?: string }[] = [
+    ...(s.made ? [{ key: 'units', l: `${name(s.made.id)} a day`, v: aDay(s.made.perDay), n: perChar ? 'in all, across its characters' : 'as much as its planets make at your skills', c: 'var(--acc)' }] : []),
+    { key: 'day', l: 'ISK a day', v: iskBig(per.day), c: 'var(--pos)',
+      n: <>{s.made ? `at today’s price${pc}` : pc.trim() || (s.before.includes('tax') ? 'before the customs tax' : 'after customs')}{chainAll && <span data-planets="chain-all">in all {iskBig(chainAll.day)} a day · {iskBig(chainAll.week)} a week · {iskBig(chainAll.month)} a month</span>}</>,
+      tip: s.made ? `Every ${name(s.made.id)} made, at what its first unit fetches today, with no market cap: how fast they sell is yours to judge.\n\n• What else it makes is valued at your share of its own market.\n• Customs on what each planet exports, the factory’s import and export too.` : undefined },
+    { key: 'week', l: 'A week', v: iskBig(per.week), n: `seven days of it${pc}` },
+    { key: 'month', l: 'A month', v: iskBig(per.month), n: `thirty days of it${pc}` },
+    { key: 'omega', l: 'Of a month of Omega', v: share != null ? shareSaid(share) : '–', n: share != null ? `of one account’s month${pc}` : 'PLEX price not read yet',
+      tip: cost != null
+        ? `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}) over what one account's month of Omega costs: ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.${perChar ? '\n\nA chain’s figure is per character, so this is per character too.' : ''}`
+        : 'The PLEX price hasn’t been read yet, so a month of Omega can’t be priced. It is read when this page opens; type one on Omega to use your own.' },
+    ...(usedSaid ? [{ key: 'planets', l: 'Planets used', v: usedSaid.split(' planets')[0], n: usedSaid.includes('across') ? usedSaid.slice(usedSaid.indexOf('across')) : 'of the planets you may have' }] : []),
+    { key: 'resets', l: resets.l, v: resets.v, n: resets.n },
+  ];
+  return (
+    <div className="mini-tiles pl-glance" data-planets="periods">
+      {tiles.map((t) => (
+        <div key={t.key} className="mini-tile" style={cssVars({ '--c': t.c })} data-planets={t.key}>
+          <div className="tile-l">{t.l}{t.tip && <Tip text={t.tip} title={t.l} />}</div><div className="tile-v">{t.v}</div>{t.n && <div className="tile-n">{t.n}</div>}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -831,9 +902,12 @@ export function Outputs({ outputs, name, label = 'What it makes, valued', held =
   );
 }
 
-/** One planet's part: what it extracts (each extractor's rate and where it comes from), what its factories make, what it takes in and ships, its customs. */
-function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
-  r: Role; s: Setup; planet: SystemPlanet | undefined; pname: (id: number) => string; name: (id: number) => string; whose: string | null; untaxed: boolean;
+/**
+ * One planet's part in words, as the board's card shows it under Details: what it extracts (each extractor's rate and where it comes
+ * from), what it takes in, what its factories make, what it ships and its customs, and the planner's notes for it (`r.why`).
+ */
+function RoleWords({ r, s, pname, name, untaxed }: {
+  r: Role; s: Setup; pname: (id: number) => string; name: (id: number) => string; untaxed: boolean;
 }) {
   // It doesn't fit, and no Command Center Upgrades level fits it either: judged on this planet alone (Ruling T11-2).
   const noLevel = !!r.fit && !r.fit.fits && !r.lacks;
@@ -856,18 +930,15 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
     ...(tax ? [['Customs', tax] as [string, string]] : []),
   ];
   return (
-    <div className="pl-role" data-planets={`role:${r.planetId}`}>
-      <div className="pl-role-name"><b>{pname(r.planetId)}</b><span className="pl-type">{[planet?.type ?? 'no planetary industry', r.does === 'factory' ? 'factory planet' : null, whose ? `${whose}’s` : null].filter(Boolean).join(' · ')}</span></div>
-      <div className="pl-role-parts">
-        {parts.map(([k, v]) => <span key={k} className="pl-line"><span className="pl-k">{k}</span> {v}</span>)}
-        {/* Plan it: a line the factory draws nothing from, said as an extra (planner fix 1), so it isn't built as if the recipe needed it. */}
-        {r.extracts.filter((e) => e.extra).map((e) => <span key={`extra:${e.p0}`} className="pl-line pl-up" data-planets="extra">{e.extra}.</span>)}
-        {/* A line the factory draws from only after another planet's all of the same good (Ruling FX1-1). */}
-        {r.extracts.filter((e) => e.topsUp).map((e) => <span key={`tops-up:${e.p0}`} className="pl-line pl-why" data-planets="tops-up">{e.topsUp}.</span>)}
-        {r.does === 'factory' && untaxed && <span className="pl-line pl-up">Picked before its customs tax, which isn’t known here.</span>}
-        {r.why && <span className="pl-line pl-why">{r.why}.</span>}
-        {noLevel && <span className="pl-line pl-up">No Command Center Upgrades level fits it on this planet: {r.extracts.some((e) => e.rate && e.rate.heads > 0) ? 'the heads its rate was measured with are more than this layout leaves room for' : 'its factories are more than the planet holds'}.</span>}
-      </div>
+    <div className="pl-role-parts">
+      {parts.map(([k, v]) => <span key={k} className="pl-line"><span className="pl-k">{k}</span> {v}</span>)}
+      {/* Plan it: a line the factory draws nothing from, said as an extra (planner fix 1), so it isn't built as if the recipe needed it. */}
+      {r.extracts.filter((e) => e.extra).map((e) => <span key={`extra:${e.p0}`} className="pl-line pl-up" data-planets="extra">{e.extra}.</span>)}
+      {/* A line the factory draws from only after another planet's all of the same good (Ruling FX1-1). */}
+      {r.extracts.filter((e) => e.topsUp).map((e) => <span key={`tops-up:${e.p0}`} className="pl-line pl-why" data-planets="tops-up">{e.topsUp}.</span>)}
+      {r.does === 'factory' && untaxed && <span className="pl-line pl-up">Picked before its customs tax, which isn’t known here.</span>}
+      {r.why && <span className="pl-line pl-why">{r.why}.</span>}
+      {noLevel && <span className="pl-line pl-up">No Command Center Upgrades level fits it on this planet: {r.extracts.some((e) => e.rate && e.rate.heads > 0) ? 'the heads its rate was measured with are more than this layout leaves room for' : 'its factories are more than the planet holds'}.</span>}
     </div>
   );
 }
@@ -939,7 +1010,7 @@ const perWeekSaid = (x: number) => (!(x > 0) ? '0' : x < 1 ? `one every ${weeksS
  * m³ hauled to market and brought in (and how much of that from Jita); freight contracts each way, "at least" one a week once a
  * week's m³ is over the route's batch (no contract's size is known), else time between; customs.
  */
-function upkeepTiles(s: Setup, programHours: number, charName: (id: number) => string) {
+function upkeepTiles(s: Setup) {
   const u = s.upkeep;
   const factories = s.roles.filter((r) => r.does === 'factory').length;
   const dirs = [
@@ -952,7 +1023,6 @@ function upkeepTiles(s: Setup, programHours: number, charName: (id: number) => s
   const freightN = u.contractsPerWeek == null ? 'no freight route to Jita picked' : !dirs.length ? 'nothing goes to or from Jita'
     : `${dirs.map((d) => `${units(d.m3)} m³ ${d.to}${d.c < 1 - 1e-9 ? ` (one contract every ${weeksSaid(1 / d.c)})` : ''}`).join(', ')}${full ? `: one contract a week${full > 1 ? ' each way' : ''} at the least, more if one can’t carry it` : ''}`;
   return [
-    resetsTile(s, programHours, charName),
     ...(u.restocksPerWeek > 0 ? [{ l: 'Restocks a week', v: perWeekSaid(u.restocksPerWeek),
       n: `a launchpad (10,000 m³) emptied and refilled, on what comes in and what it makes${factories > 1 ? `, across ${factories} factory planets` : ''}` }] : []),
     { l: 'Hauled a week', v: `${units(u.haulM3PerWeek)} m³`, n: 'from the planets to market' },

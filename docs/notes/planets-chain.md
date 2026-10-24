@@ -26,6 +26,8 @@ in planets-planner.md.
     counted here", T15-7), but "so it makes none" was false for a factory the user tops up. **A P0 is never brought in** (T15-7): from
     a holder nothing fills, an idle extractor on the planet says it ("with it, the Bacteria factories make nothing"), else "so it
     makes none"; a fresh extractor with no product read 288,000 Microorganisms a day imported.
+  - **`exported`**: what reaches storage, a launchpad or the command centre a day and is left there, with no market's cap: Check my
+    setup's "sends on" (planets-board.md).
   - **Imports** (Ruling T15-2): an input nothing on the planet makes, routed in from storage or a launchpad, is brought in (a
     factory planet fed from its launchpad): never starving, worked out as kept stocked (`imports`), and the planet's ISK a day is
     null, "Its … come from off the planet, and their cost isn't known here", never 0. The first version read such a planet as
