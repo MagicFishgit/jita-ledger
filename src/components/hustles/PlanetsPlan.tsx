@@ -93,7 +93,7 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
   return (
     <section className="col" style={{ gap: 16 }} data-planets="plan">
       <div className="col" style={{ gap: 8 }}>
-        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Give it a system: every way of setting its planets up is ranked by ISK a day, with the upkeep beside it and which planet does what.</p>
+        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Give it a system: every way of setting its planets up is ranked by {good != null ? `how much ${name(good)} it makes a day` : 'ISK a day'}, with the upkeep beside it and which planet does what.</p>
         <Points compact items={[
           { kind: 'info', icon: ListOrdered, lead: 'Five setups', text: 'P0 → P1 or P0 → P2 on each planet, planets feeding a factory planet, a factory on bought inputs, and chains across characters.' },
           { kind: 'info', icon: Pickaxe, lead: 'Extraction', text: 'is learned from your own extractors by planet type, or typed; with neither, a setup is worked out at what its factories can take, and says so.' },
@@ -673,7 +673,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
           )}
           <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
           {detail && <>
-          <Outputs outputs={s.outputs} name={name} />
+          <Outputs outputs={s.outputs} name={name} held={s.made?.id ?? null} />
           {s.inputs.length > 0 && (
             <div className="col pl-lines">
               <span className="lbl">Bought</span>
@@ -720,7 +720,11 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
  * doesn't take.
  */
 /** What a setup makes, or a real colony (Colonies), valued: each output's line, sold, kept or not valued, and why. */
-export function Outputs({ outputs, name, label = 'What it makes, valued' }: { outputs: readonly Output[]; name: (id: number) => string; label?: string }) {
+export function Outputs({ outputs, name, label = 'What it makes, valued', held = null }: {
+  outputs: readonly Output[]; name: (id: number) => string; label?: string;
+  /** Plan it's good (planner fix 1): valued at today's price with no market cap, so its line says that, never that it sells. */
+  held?: number | null;
+}) {
   return (
     <div className="col pl-lines">
       <span className="lbl">{label}</span>
@@ -737,6 +741,7 @@ export function Outputs({ outputs, name, label = 'What it makes, valued' }: { ou
               : stuck ? <span className="pl-up">, none of it leaves: {clause(o.sold.why!)}</span>
               : o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}; its customs not counted either`
                 : o.sold.fallback ? (o.sold.units > 0 ? `, ${aDay(o.sold.units)} for ${iskBig(o.sold.isk)} a day` : ', none valued: nothing sells at Jita at your share')
+                  : o.id === held ? `, ${iskBig(o.sold.isk)} a day at today’s price ${o.sold.where.length ? `at ${listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub')))}` : ''}`.trimEnd()
                   : `, ${aDay(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
             {!all && o.sold.isk != null && o.sold.fallback && <span className="pl-up" data-planets="fallback">. {fallbackSaid(o.sold)}</span>}
             {!all && kept && <span className="pl-up">; {aDay(kept.perDay)} a day stay on the planet, untaxed: {clause(kept.why)}</span>}

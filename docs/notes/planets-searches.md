@@ -96,3 +96,8 @@ Moved here from planets-planner.md with the rules above: state these rather than
   it beats in 8 of 21; at 50,000–100,000 an hour it can find nothing within its budget and says so (5-NZNW, two characters of 5:
   a bigger budget finds 44–83 M ISK a day). A P4 one character makes alone is planned only for the character shown, so the
   main's view doesn't offer an alt's (one case: 10.83 M a character across both against 18.70 M for the alt alone).
+- **Plan it's units rest on what each planet is planned at** (planner fix 1): a feeder whose least layout fits at no level is still
+  ranked at its rates' layout, said with what it lacks (the planner's ruling), so at a low Command Center Upgrades level the units can
+  count lines that don't fit (round 17,000 rates: 102 a day at I, where II, its feeders fitting as fewer factories, makes 36). Only the
+  factory is held to the level. **A P3 the shown character's planets cover isn't chained** even when the feed's factory is too big for
+  their level and an alt's would hold it: the chain says the feed plans it "or says why it can’t" (`coverable` places no layout).

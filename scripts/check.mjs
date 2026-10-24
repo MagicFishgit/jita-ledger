@@ -8642,7 +8642,7 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   eq('  Gel-Matrix Biopaste at 5-NZNW: P0 → P1 and P0 → P2 say why they can’t, the chain that the feed plans it',
     ['p1', 'p2', 'chain'].map((k) => of(held, k).why),
     ['Can’t make Gel-Matrix Biopaste, a P3: it sells P1 only', 'Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only',
-      'Gel-Matrix Biopaste fits in your 5 planets, so the feed plans it: a chain makes a P3 only when one character’s planets can’t']);
+      'Gel-Matrix Biopaste fits in your 5 planets, so the feed plans it, or says why it can’t: a chain makes a P3 only when one character’s planets can’t']);
   // The feed: its factory planet makes Gel-Matrix Biopaste from Oxides, Biocells and Superconductors its four planets feed it; bought,
   // every factory makes it on bought inputs. Pinned (read from this run): 11,532,535 and 80,814,306 ISK a day (bought read 79,512,359
   // before planner fix 1, its Gel-Matrix Biopaste held to what Jita takes at your share; now uncapped at its first unit's net).
@@ -8740,7 +8740,7 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
     // placed, or the feed says it's too big at that level.
     eq('  units first: the factory fits at the character’s own level, or says so, at every level',
       [0, 1, 2, 3, 4, 5].flatMap((cc) => { const s = feedOf({ ...u, char: { ...owner, ccLevel: cc } }); const r = s.roles.find((x) => x.does === 'factory');
-        return (r ? r.fit?.fits === true && !r.lacks : /too big for its planet at your Command Center Upgrades/.test(s.why ?? '')) ? [] : [[cc, s.why, r?.fit?.fits]]; }), []);
+        return (r ? r.fit?.fits === true && !r.lacks : /^Every factory these planets could feed is too big for its planet (at Command Center Upgrades [IV]+|without Command Center Upgrades), your level$/.test(s.why ?? '')) ? [] : [[cc, s.why, r?.fit?.fits]]; }), []);
     // Each good the factory takes from one planet; every line it draws nothing from is an extra, and says why.
     const from = new Map();
     for (const i of fac.imports) from.set(i.id, [...(from.get(i.id) ?? []), i.from]);

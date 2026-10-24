@@ -2637,7 +2637,7 @@ export const NO_FIT = 'Every factory these planets could feed is too big for its
 /** `NO_FIT`, or under Plan it at the characters' own level (`fitLevel`): its factory is sized for all its planets ship. */
 const noFitWhy = (input: PlanInput, who: readonly Who[]) => {
   const lv = fitLevel(input, who);
-  return lv == null ? NO_FIT : `Every factory these planets could feed is too big for its planet at ${who.length > 1 ? 'your characters’ highest Command Center Upgrades' : 'your Command Center Upgrades'}, ${ROMAN[lv]}`;
+  return lv == null ? NO_FIT : `Every factory these planets could feed is too big for its planet ${atCcu(lv)}, ${who.length > 1 ? 'your characters’ highest level' : 'your level'}`;
 };
 export const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
 /** Held to one good whose P0s are all here (`onlyWhy` passed) and still no feeder ships every P1 it takes. */
@@ -2679,7 +2679,8 @@ export function* planChainSteps(given: PlanInput): Steps<Setup> {
   for (const [k, covers] of alone(p3).entries()) { if (!covers()) p3Many.push(p3[k]); yield; }
   const many = [...p4, ...p3Many];
   if (!many.length) {
-    return blocked(input, 'chain', input.only != null ? `${goodName(input.ix, input.only)} fits in your ${char.planets} planets, so the feed plans it: a chain makes a P3 only when one character’s planets can’t`
+    // Whether the feed's factory fits isn't asked here (`coverable` places no layout): under Plan it the feed may say it's too big.
+    return blocked(input, 'chain', input.only != null ? `${goodName(input.ix, input.only)} fits in your ${char.planets} planets, so the feed plans it, or says why it can’t: a chain makes a P3 only when one character’s planets can’t`
       : `No P4 is priced here, and every P3 made here fits in your ${char.planets} planets (the feed plans those)`, []);
   }
 
