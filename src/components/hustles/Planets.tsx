@@ -11,12 +11,15 @@ import { SCOPE } from '../../lib/config';
 import { navigate, type Route } from '../../lib/hooks';
 import type { Graph } from '../../lib/jumps';
 import { regionOf, type PiIndex } from '../../lib/piBundle';
+import { planCharOf } from '../../lib/piChar';
+import { flowChars, goodWhy, sanitizeFlow, setupWhy, systemWhy, type FlowChoice } from '../../lib/piFlow';
 import { reloadApp } from '../../lib/reload';
 import { jobOk, loginState } from '../../lib/roster';
 import { PI_SKILLS } from '../../lib/skills';
 import { useData } from '../../lib/store';
 import { PilotProvider } from '../pilot';
 import { Seg } from '../ui';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import type { Colonies as ColoniesSection } from './Colonies';
 import { loadGraph } from './industryBundle';
 import { useIndustryChars } from './industryChars';
@@ -24,6 +27,7 @@ import { loadPlanets, loadRegions } from './planetsBundle';
 import type { PlanetsChart as ChartSection } from './PlanetsChart';
 import type { PlanetsFind as FindSection } from './PlanetsFind';
 import type { PlanetsPlan as PlanSection } from './PlanetsPlan';
+import type { PlanetsSetup as SetupSection } from './PlanetsSetup';
 import { SkillPanel } from './SkillPanel';
 
 /**
@@ -58,6 +62,7 @@ const PlanetsPlan = section<Parameters<typeof PlanSection>[0]>(() => import('./P
 const PlanetsChart = section<Parameters<typeof ChartSection>[0]>(() => import('./PlanetsChart'), 'PlanetsChart');
 const Colonies = section<Parameters<typeof ColoniesSection>[0]>(() => import('./Colonies'), 'Colonies');
 const PlanetsFind = section<Parameters<typeof FindSection>[0]>(() => import('./PlanetsFind'), 'PlanetsFind');
+const PlanetsSetup = section<Parameters<typeof SetupSection>[0]>(() => import('./PlanetsSetup'), 'PlanetsSetup');
 const SECTION_KEY = 'jita-ledger:planets-section';
 const SHOW_KEY = 'jita-ledger:planets-show';
 const COLONIES_SHOW_KEY = 'jita-ledger:planets-colonies-show';
@@ -66,6 +71,10 @@ const SYSTEM_KEY = 'jita-ledger:planets-system';
 const GOOD_KEY = 'jita-ledger:planets-plan-good';
 /** Find: the region the system finder last looked in, kept per browser. */
 const REGION_KEY = 'jita-ledger:planets-find-region';
+/** Step 2's choices (planets-flow.md): the characters left out, the setup type and the skills what-if, kept per browser. */
+const FLOW_KEY = 'jita-ledger:planets-flow';
+/** The Chart's own pick (PlanetsChart.tsx keeps it): step 1's good when Plan isn't held to one. */
+const CHART_PICK_KEY = 'jita-ledger:planets-good';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
 const forget = (k: string) => { try { localStorage.removeItem(k); } catch { /* just not kept */ } };
@@ -73,13 +82,19 @@ const forget = (k: string) => { try { localStorage.removeItem(k); } catch { /* j
 /** A good Plan can be held to: one the bundle knows that a setup makes (P1 to P4); a P0 or an address's stray ID is every product. */
 const heldTo = (ix: PiIndex, id: number | null): number | null => (id != null && ix.makes.has(id) ? id : null);
 
+/**
+ * The four steps (planets-flow.md: product, who and how, system, plan), then Colonies apart. The addresses stay as they were
+ * (`chart`, `find`, `plan`, `colonies`), with `setup` for step 2, so every deep link and kept section lands where it did.
+ */
 export const SECTIONS = [
-  { key: 'plan', label: 'Plan', tip: 'Give it a system: each way of setting planets up, ranked by ISK a day, and which planet does what' },
-  { key: 'chart', label: 'Chart', tip: 'Every planetary good from P0 to P4, and how each is made' },
-  { key: 'colonies', label: 'Colonies', tip: 'Every character’s colonies as last read: what each makes a day, what’s wrong at its root, when each program ends, and how it compares with the planner’s best' },
-  { key: 'find', label: 'Find', tip: 'The best systems in a region for one good: each planned at your skills and rates, the most of it a day first' },
+  { key: 'chart', step: 1, label: 'Product', tip: 'Step 1: pick the good to make, from every planetary good from P0 to P4, and see how each is made' },
+  { key: 'setup', step: 2, label: 'Who and how', tip: 'Step 2: the characters to plan with, the factory character, the setup type and the skills to plan at' },
+  { key: 'find', step: 3, label: 'System', tip: 'Step 3: the best systems in a region for the good, the most of it a day across the characters ticked first' },
+  { key: 'plan', step: 4, label: 'Plan', tip: 'Step 4: the plan at the system chosen, each way of setting its planets up ranked, which planet does what, and how to build it' },
+  { key: 'colonies', step: null, label: 'Colonies', tip: 'Every character’s colonies as last read: what each makes a day, what’s wrong at its root, when each program ends, and how it compares with the planner’s best' },
 ] as const;
 type Section = (typeof SECTIONS)[number]['key'];
+const readFlow = (): FlowChoice => { try { return sanitizeFlow(JSON.parse(localStorage.getItem(FLOW_KEY) ?? 'null')); } catch { return sanitizeFlow(null); } };
 
 export function Planets({ route }: { route: Route }) {
   // The alt store is read here because this is the file allowed to read it (scripts/check.mjs keeps the list).
@@ -165,6 +180,17 @@ export function Planets({ route }: { route: Route }) {
     return altPulledWhy(getAlts(), id, since);
   }, []);
 
+  // Step 2's choices (planets-flow.md), kept per browser: Plan, Find and the Chart plan with them.
+  const [flow, setFlow] = useState<FlowChoice>(readFlow);
+  const chooseFlow = (f: FlowChoice) => { setFlow(f); keep(FLOW_KEY, JSON.stringify(f)); };
+  // Step 1's good: the Chart's pick (it says which as it changes), else the good Plan is held to.
+  const [chartPick, setChartPick] = useState<number | null>(() => Number(readKept(CHART_PICK_KEY)) || null);
+  const [systemName, setSystemName] = useState<{ id: number; name: string } | null>(null);
+  const pickSystem = useCallback((id: number, name: string | null) => {
+    setSystemId(id); keep(SYSTEM_KEY, String(id));
+    if (name) setSystemName({ id, name });
+  }, []);
+
   const [ix, setIx] = useState<PiIndex | 'failed' | null>(null);
   const [graph, setGraph] = useState<Graph | 'failed' | null>(null);
   useEffect(() => {
@@ -174,10 +200,28 @@ export function Planets({ route }: { route: Route }) {
     return () => { alive = false; };
   }, []);
 
+  // The steps (planets-flow.md): each has Back and Next, Next named for where it goes and disabled with its reason until its step is
+  // complete. Step 1's good is the Chart's pick, else the good Plan is held to.
+  const ixOk = ix && ix !== 'failed' ? ix : null;
+  const heldGood = ixOk ? heldTo(ixOk, asked ?? keptGood) : null;
+  const productGood = ixOk ? heldTo(ixOk, chartPick) ?? (chartPick == null ? heldGood : null) : null;
+  const listed = flowChars(chars.map((c) => planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone })), flow, shown.charId);
+  const sysSaid = systemId == null ? null : systemName?.id === systemId ? systemName.name : (graph && graph !== 'failed' ? graph[String(systemId)]?.[1] : null) ?? null;
+  const toSetup = (good: number) => { setKeptGood(good); keep(GOOD_KEY, String(good)); keep(SECTION_KEY, 'setup'); navigate('hustles/planets/setup'); };
+  const toPlan = () => { if (heldGood != null) planGood(heldGood); else choose('plan'); };
+  const nav: { back: { label: string; go: () => void } | null; next: { label: string; go: () => void; why: string | null } | null } | null = !ixOk || section === 'colonies' ? null
+    : section === 'chart' ? { back: null, next: { label: 'Next: who and how', why: chartPick != null && !productGood ? goodWhy(ixOk, chartPick) : goodWhy(ixOk, productGood), go: () => productGood != null && toSetup(productGood) } }
+      : section === 'setup' ? { back: { label: 'Back: product', go: () => choose('chart') }, next: { label: 'Next: find a system', why: goodWhy(ixOk, heldGood) ?? setupWhy(listed, shown.charId), go: () => heldGood != null && findNear(heldGood) } }
+        // Back from step 3 holds Plan to Find's good, so a find?good= link's good reaches step 2 (fix round 1's M2).
+        : section === 'find' ? { back: { label: 'Back: who and how', go: () => { const g = heldTo(ixOk, findGood ?? keptGood); if (g != null) toSetup(g); else choose('setup'); } }, next: { label: sysSaid ? `Next: plan it at ${sysSaid}` : 'Next: plan it', why: systemWhy(systemId) ?? goodWhy(ixOk, findGood ?? keptGood), go: () => { const g = heldTo(ixOk, findGood ?? keptGood); if (g != null) planGood(g); else toPlan(); } } }
+          : { back: { label: 'Back: system', go: () => (heldGood != null ? findNear(heldGood) : choose('find')) }, next: null };
+  const stepOf = SECTIONS.find((x) => x.key === section)?.step ?? null;
+
   return (
     <div className="col" style={{ gap: 16 }} data-planets="tab">
       <div className="row pl-head">
-        <Seg label="Planets section" value={section} onChange={choose} options={SECTIONS.map((s) => ({ v: s.key, label: s.label, tip: s.tip }))} />
+        <Seg label="Planets section" value={section} onChange={choose}
+          options={SECTIONS.map((s) => ({ v: s.key, label: s.step ? <><span className="pl-step-n" aria-hidden="true">{s.step}</span>{s.label}</> : s.label, tip: s.tip, tipTitle: s.step ? `Step ${s.step} of 4: ${s.label}` : s.label }))} />
         {chars.length > 1 && (section === 'colonies' ? (
           // The same picker with All in front: Colonies alone shows every character at once.
           <Seg<'all' | number> size="sm" label="Show for" value={coloniesFor} onChange={chooseColonies}
@@ -188,32 +232,59 @@ export function Planets({ route }: { route: Route }) {
             options={byAccount(chars).map((c) => ({ v: c.charId, label: c.name, group: c.group, tip: c.isMain ? 'Your skills, clone, fees and colonies' : `${c.name}’s skills, clone and fees, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
         ))}
       </div>
+      {nav && <StepNav step={stepOf} section={section} back={nav.back} next={nav.next} tag="step-nav" />}
       <PilotProvider value={shown.pilot}>
-        {ix === 'failed' || (section !== 'colonies' && graph === 'failed') ? (
+        {ix === 'failed' || (section !== 'colonies' && section !== 'setup' && graph === 'failed') ? (
           <p className="note small" style={{ margin: 0 }}>Couldn’t load {ix === 'failed' ? 'the planets’ data' : 'the stargate map'} just now. {/* A chunk that failed can't be asked for again in the same page (gotchas.md): trying again is a reload. */}
             <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload to try again</button></p>
-        ) : !ix || (section !== 'colonies' && !graph) ? (
-          <p className="note small" style={{ margin: 0 }}>{section === 'colonies' ? 'Loading the planets’ data…' : 'Loading the planets’ data and the map…'}</p>
+        ) : !ix || (section !== 'colonies' && section !== 'setup' && !graph) ? (
+          <p className="note small" style={{ margin: 0 }} data-planets="loading">{section === 'colonies' || section === 'setup' ? 'Loading the planets’ data…' : 'Loading the planets’ data and the map…'}</p>
         ) : (
-          <Suspense fallback={<p className="note small" style={{ margin: 0 }}>Loading this section…</p>}>
+          <Suspense fallback={<p className="note small" style={{ margin: 0 }} data-planets="loading">Loading this section…</p>}>
             {section === 'colonies' ? (
               <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} />
             ) : section === 'chart' ? (
-              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} onFind={findNear} ready={alts.ready} />
+              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} onFind={findNear} ready={alts.ready}
+                flow={flow} onPickChange={setChartPick} />
+            ) : section === 'setup' ? (
+              <PlanetsSetup chars={chars} shown={shown.charId} onShow={chooseShow} flow={flow} onFlow={chooseFlow} ix={ix} good={heldGood} />
             ) : section === 'find' ? (
               <PlanetsFind key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} good={heldTo(ix, findGood ?? keptGood)} regionId={regionNow} planSystem={systemId}
-                onGood={(id) => findFor(id, regionNow)} onRegion={(id) => { setKeptRegion(id); keep(REGION_KEY, String(id)); findFor(findGood ?? keptGood, id); }} onPlanHere={planHere} ready={alts.ready} />
+                onGood={(id) => findFor(id, regionNow)} onRegion={(id) => { setKeptRegion(id); keep(REGION_KEY, String(id)); findFor(findGood ?? keptGood, id); }} onPlanHere={planHere} ready={alts.ready}
+                flow={flow} onPick={pickSystem} mainName={main.name} />
             ) : (
               <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
-                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} onFind={findNear} />
+                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} onFind={findNear} flow={flow} />
             )}
           </Suspense>
         )}
+        {nav && section !== 'plan' && <StepNav step={stepOf} section={section} back={nav.back} next={nav.next} tag="step-nav-bottom" />}
         <div data-planets="skills">
           <SkillPanel title="Skills this wants" needs={PI_SKILLS}
             note="Interplanetary Consolidation is the one that pays for itself fastest: every level is another whole planet, and every setup above scales off the planet count." />
         </div>
       </PilotProvider>
+    </div>
+  );
+}
+
+/**
+ * A step's Back and Next (planets-flow.md): Next named for where it goes, disabled with its reason (said beside it, and in its tip) until the
+ * step is complete.
+ */
+function StepNav({ step, section, back, next, tag }: {
+  step: number | null; section: Section; tag: string;
+  back: { label: string; go: () => void } | null; next: { label: string; go: () => void; why: string | null } | null;
+}) {
+  const label = SECTIONS.find((x) => x.key === section)?.label ?? '';
+  return (
+    <div className="row pl-nav" data-planets={tag}>
+      {step != null && <span className="pl-nav-step note small">Step {step} of 4 · {label}</span>}
+      <span className="pl-nav-go">
+        {back && <button type="button" className="btn" onClick={back.go} data-planets="back"><ArrowLeft aria-hidden="true" />{back.label}</button>}
+        {next && <button type="button" className="btn primary" onClick={next.go} disabled={!!next.why} data-tip={next.why ?? undefined} data-planets="next">{next.label}<ArrowRight aria-hidden="true" /></button>}
+      </span>
+      {next?.why && <span className="note small pl-nav-why" data-planets="next-why">{next.why}.</span>}
     </div>
   );
 }

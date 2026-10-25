@@ -7,7 +7,10 @@ import { slotDay, type Freight, type Sale } from './industryRank';
 import { fmtShort, isk, units as unitsSaid, plainNum } from './format';
 import { dayCount, perDaySaid } from './split';
 import { maximise } from './lp';
-import { keptTeam, planTeamSteps, type TeamFigures } from './piTeam';
+import { keptTeam, planTeamSteps, type TeamFigures, type TeamMeter } from './piTeam';
+import { charWhy, type PlanChar } from './piChar';
+export { ALPHA_NO_PI, charWhy, customsLevel, NO_SKILLS, PI_SKILL, planCharOf } from './piChar';
+export type { PlanChar } from './piChar';
 
 /**
  * Units a day, said as split.ts says a pace (N2): whole from 10, one decimal under it, "under 0.1" for less, so a known 0.3 never
@@ -25,8 +28,7 @@ const qtyAday = (n: number, what: string) => (n > 0 && n < 0.1 ? `under 0.1 ${wh
 
 /** A planet of the system: its PI type (null for Shattered and Scorched Barren), its radius from the static data (null when not known), its customs tax. */
 export type PlanPlanet = { planetId: number; name: string; type: PlanetType | null; radiusKm: number | null; tax: Tax };
-/** Whose setup: planets allowed (1 + Interplanetary Consolidation), Command Center Upgrades, the clone state. Null is not read. */
-export type PlanChar = { charId: number; name: string; planets: number | null; ccLevel: number | null; alpha: boolean | null };
+/** Whose setup: piChar.ts' `PlanChar`, re-exported here with its rules (`planCharOf`, `charWhy`). */
 /**
  * A good's whole output a day, sold: ISK net after sales tax, broker and freight from home to Jita (null when no price is
  * read, with `why`), the units that sell (the rest builds up), and every place that sells some. `jitaUnits`, when given,
@@ -411,8 +413,6 @@ const HOURS_A_WEEK = 168;
 export const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 export const TIERS_DOWN: Tier[] = ['P4', 'P3', 'P2', 'P1', 'P0'];
 export const NO_PI = 'No planetary industry on this kind of planet';
-export const NO_SKILLS = 'Skills not read';
-export const ALPHA_NO_PI = 'Alphas can’t do planetary industry';
 export const NO_PI_HERE = 'No planet here has planetary industry';
 
 /** Units an hour a schematic takes or makes per factory, from its cycle (colonyChain.ts reads a real colony's factories by it). */
@@ -1159,34 +1159,6 @@ export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, r
     restocksPerWeek, haulM3PerWeek: haul, jitaM3PerWeek: jita, contractsPerWeek: contracts(jita),
     inM3PerWeek: inM3, jitaInM3PerWeek: jitaIn, contractsInPerWeek: contracts(jitaIn),
   };
-}
-
-/** The skills a character's planets rest on, by CCP's static data (build 3569502): Interplanetary Consolidation, Command Center Upgrades, Customs Code Expertise. */
-export const PI_SKILL = { consolidation: 2495, ccu: 2505, customs: 33467 } as const;
-/** Skills read: absent before the main's first sync, an empty map in an alt's copy before the cloud's first read. */
-const skillsRead = (s: Record<number, number> | undefined): s is Record<number, number> => !!s && Object.keys(s).length > 0;
-/**
- * Whose setup, from a character's skills and clone state: 1 + Interplanetary Consolidation planets, Command Center Upgrades for
- * the fits. Skills not read are null, never level 0; once read, a skill missing from them was never injected, and is 0. Alpha
- * only when known: a clone state not read is null, worked out as Omega and said by the page.
- */
-export function planCharOf(c: { charId: number; name: string; skills: Record<number, number> | undefined; clone: 'alpha' | 'omega' | 'unknown' }): PlanChar {
-  const read = skillsRead(c.skills);
-  return {
-    charId: c.charId, name: c.name,
-    planets: read ? 1 + (c.skills![PI_SKILL.consolidation] ?? 0) : null,
-    ccLevel: read ? c.skills![PI_SKILL.ccu] ?? 0 : null,
-    alpha: c.clone === 'alpha' ? true : c.clone === 'omega' ? false : null,
-  };
-}
-/** Customs Code Expertise's level (a high-sec player office's NPC part), or null while the skills aren't read. */
-export const customsLevel = (skills: Record<number, number> | undefined): number | null => (skillsRead(skills) ? skills[PI_SKILL.customs] ?? 0 : null);
-
-/** Why a character can't plan at all, or null. */
-export function charWhy(c: PlanChar): string | null {
-  if (c.alpha === true) return ALPHA_NO_PI;
-  if (c.planets == null || c.ccLevel == null || !(c.planets > 0)) return NO_SKILLS;
-  return null;
 }
 
 /**
@@ -3696,10 +3668,11 @@ export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 
  * One setup a step at a time (Ruling T11-13): feed and chain yield through their searches, the others are one step. The page drives
  * these in slices of a few milliseconds; drained, each is the plain call's answer.
  */
-export function* planSteps(input: PlanInput, kind: SetupKind): Steps<Setup> {
+export function* planSteps(input: PlanInput, kind: SetupKind, meter?: TeamMeter): Steps<Setup> {
   if (kind === 'feed') return yield* planFeedSteps(input);
   if (kind === 'chain') return yield* planChainSteps(input);
-  if (kind === 'team') return yield* planTeamSteps(input);
+  // `meter`: how far a factory character's search has got, read by the page's progress (it changes nothing the search does).
+  if (kind === 'team') return yield* planTeamSteps(input, meter);
   return kind === 'bought' ? planBought(input) : planSingle(input, kind);
 }
 

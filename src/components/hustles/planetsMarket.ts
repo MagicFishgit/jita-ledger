@@ -15,7 +15,7 @@ import { planet as planetInfo, system as systemInfo, typeName, type SystemInfo }
 import { loadRadii } from './planetsBundle';
 import type { IndustryChar } from './industryChars';
 import { homeSaid } from './industryFinder';
-import { useHomeHistoryRead, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveRead, useScanCache, type Loaded } from './industryMarket';
+import { useHomeHistoryRead, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveRead, useScanCache, type Loaded, type ReadCount } from './industryMarket';
 
 /**
  * One unit's net at the better place, uncapped (for the chart: `sell(id, 1)` would be capped on a thin P4). `book`: what that
@@ -39,6 +39,8 @@ export type PlanetMarket = {
   freight: Freight | null;
   /** What the live pass ranks again on, said after "Working them out again": Jita's books now, or the hub region's trading history when Jita isn't used. */
   liveSaid: string;
+  /** How far the live reads have got (planets-flow.md, step 4's progress): Jita's books, and the hub region's histories still to read. */
+  reads: { books: ReadCount; history: ReadCount; hub: string | null };
 };
 
 /** A sale's makes: so large that a week's sales are bounded by the market's pace at your share, never by what's made, and a sale doesn't depend on the amount asked for. */
@@ -67,7 +69,7 @@ const unpriced = (place: 'jita' | 'home', why: string): Sale => ({
  * never nets more (or costs less) as the amount grows, and nothing is charged per call. No hub, or no route, leaves the home
  * side and Jita with its reason, never a 0.
  */
-export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { live?: readonly number[] } = {}): PlanetMarket {
+export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { live?: readonly number[]; counted?: boolean } = {}): PlanetMarket {
   const [doc] = useIndustryDoc();
   const scan = useScanCache();
   const { hubs, markets } = useHomeHubs();
@@ -80,8 +82,9 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
   const { broker, tax } = c;
   const home = useHomeQuotes(hub, hubOrders);
   const liveTypes = useMemo(() => [...new Set(opts.live ?? [])], [opts.live]);
-  const { books: liveBooks, settled: booksSettled, late: booksLate } = useLiveRead(liveTypes);
-  const { rows: homeHist, settled: histSettled, late: histLate } = useHomeHistoryRead(liveTypes, hub?.region ?? null);
+  // The reads are counted only where the count is shown (`counted`: Plan held to a good), so a page that doesn't show it isn't drawn for each read.
+  const { books: liveBooks, settled: booksSettled, late: booksLate, count: booksCount } = useLiveRead(liveTypes, !!opts.counted);
+  const { rows: homeHist, settled: histSettled, late: histLate, count: histCount } = useHomeHistoryRead(liveTypes, hub?.region ?? null, !!opts.counted);
   const now = useNow(60_000);
   const cache = scan.state === 'ok' ? scan.value : null;
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
@@ -251,7 +254,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
         : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so; what it doesn’t sell can’t be bought at Jita without one.`) : null,
     ].filter(Boolean).join(' '));
   return { ...fns, ready: !waiting, said, live: liveCount > 0, settled: booksSettled && histSettled, late: booksLate + histLate, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
-    liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region` };
+    liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region`,
+    reads: { books: booksCount, history: histCount, hub: hub?.short ?? null } };
 }
 
 /** A planet of the chosen system as the planner takes it, with its type's ID and, for a type with no planetary industry (Shattered, Scorched Barren), ESI's name for it. */

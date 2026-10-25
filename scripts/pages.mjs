@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/colonies', 'hustles/planets/find', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/setup', 'hustles/planets/colonies', 'hustles/planets/find', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -3924,7 +3924,9 @@ try {
 
     // --- the Chart (Task 12): the 83 goods by tier, each valued a unit and a m³; Nanites' recipe down to P0, the planet types its
     // P0s come from and 5-NZNW's planets that have them; which setups make it there (P0 → P2 can, made alone on Barren planets).
-    const section = async (name) => { await page.locator('[aria-label="Planets section"] button', { hasText: name }).click().catch((e) => problems.push(`no ${name} section: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(900); };
+    // The sections are the four steps since planets-flow.md (1 Product, 2 Who and how, 3 System, 4 Plan) and Colonies: the Chart is step 1, Product.
+    const STEP_LABEL = { Chart: 'Product', Find: 'System' };
+    const section = async (name) => { await page.locator('[aria-label="Planets section"] button', { hasText: STEP_LABEL[name] ?? name }).click().catch((e) => problems.push(`no ${name} section: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(900); };
     const NANITES = 2463, BACTERIA = 2393, REACTIVE = 2398, MICRO = 2073, BASE = 2267, FELSIC = 2307, NONCS = 2306, HEAVY = 2272, PLANKTIC = 2286, BROADCAST = 2867, OXIDES = 2317;
     const good = (id) => `[data-planets="chart"] [data-planets="good:${id}"]`;
     const disabledGoods = () => page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="good:"][aria-disabled="true"]')].map((e) => Number(e.getAttribute('data-planets').slice(5))));
@@ -4284,7 +4286,11 @@ try {
           const mine = ranks.find((x) => x[0] === 'setup:team');
           const opened = ranks.filter((x) => x[1] === 'true').map((x) => x[0]);
           const openRank = ranks.filter((x) => x[1] === 'true').map((x) => (x[2] ?? '').trim());
-          if (opened.length !== 1 || openRank[0] !== '1' || (mine[2] === '1') !== (mine[1] === 'true')) problems.push(`the setups' folds with the team row among them (only the best, rank 1, opens by itself): ${JSON.stringify(ranks)}`);
+          // Since the four steps (planets-flow.md) the row that opens by itself is the best for the characters ticked on step 2 ("the best for this
+          // team", the default): here the team, which makes more in all than the feed repeated on the one character it suits (the team-vs line
+          // below says by how much), though the feed ranks first per character. Exactly one opens, tagged with why.
+          const openTag = (await text('[data-planets="setup:team"] [data-planets="tag:open"]')).trim();
+          if (opened.length !== 1 || opened[0] !== 'setup:team' || mine[1] !== 'true' || !/^Best for the 2 characters ticked$/i.test(openTag)) problems.push(`the setups' folds with the team row among them (only the best for the 2 characters ticked opens by itself, tagged): ${JSON.stringify(ranks)}, “${openTag}”`);
           if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.locator('[data-planets="setup:team"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(400); await page.screenshot({ path: `${SHOTS}-planets-team-folded.png` }); }
           const undoTeam = await openRow('team', false);
           const head = await text('[data-planets="setup:team"] .pl-isk');
@@ -4297,6 +4303,67 @@ try {
           if (factories < 1 || !/factory planet/.test(await text('[data-planets="setup:team"] [data-planets="factories"]'))) problems.push(`the team's factory column: ${factories} cards`);
           if (!(await team.locator('[data-planets^="group-edge:"]').count())) problems.push('no line from a group to the factory column carries what it sends');
           if (SHOTS) { await team.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-open.png` }); }
+          // The board's layout (the user, 25 October 2026, on a 2000 px screen: "i feel like we are wasting space here and we can better design
+          // this so the charts on the right have more space to breathe"): the feeder column takes what its cards need, the factory column the
+          // rest; the wire labels sit in a gutter of their own, never over a card or a group's line, and each wire still runs from its group's
+          // line to the factory column; nothing scrolls sideways. At 1440 and at 2000 px wide.
+          const boardAt = (sel = '[data-planets="setup:team"] .pl-board.team', fsel = '[data-board="factories"]') => page.evaluate(([sel, fsel]) => {
+            const b = document.querySelector(sel);
+            if (!b) return null;
+            const r = (e) => e.getBoundingClientRect();
+            const boxes = [...b.querySelectorAll('.pl-card, .pl-team-head')].map(r);
+            const labels = [...b.querySelectorAll('.pl-wire-label')].map(r);
+            const hit = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
+            const fcol = r(b.querySelector(fsel)), feeders = r(b.querySelector('.pl-feeders')), base = r(b);
+            const ends = [...b.querySelectorAll('.pl-wires path.pl-wire')].map((p) => { const n = (p.getAttribute('d') ?? '').match(/-?[\d.]+/g)?.map(Number) ?? []; return [n[0], n[n.length - 2]]; });
+            // Since fix round 1 a feeder card is as wide as what it holds, so a feed's line starts at its own card's edge, a team's at its group's line.
+            const starts = [...b.querySelectorAll('.pl-feeders [data-board="feeder"], .pl-team-head')].map((e) => r(e).right);
+            const apart = labels.filter((l, i) => labels.some((m, j) => j > i && hit(l, m))).length;
+            // How far each feeder card runs past what it holds (its lines' rightmost part): fix round 1 sizes a card to its content.
+            const slack = [...b.querySelectorAll('.pl-feeders .pl-card')].map((card) => {
+              const parts = [...card.querySelectorAll('.pl-card-body .pl-term, .pl-card-body .pl-chip, .pl-card-body .pl-badge, .pl-card-body .pl-ins, .pl-card-body .pl-k')].map((e) => r(e).right);
+              return parts.length ? Math.round(r(card).right - Math.max(...parts)) : 0;
+            });
+            const scroller = b.closest('.pl-board-scroll'), content = document.querySelector('.content');
+            const asWell = [...b.querySelectorAll('[data-planets="as-well"]')].map((x) => [x.textContent.replace(/\s+/g, ' ').trim(), r(x).height]);
+            return { over: labels.filter((l) => boxes.some((c) => hit(l, c))).length, labels: labels.length, wires: ends.length,
+              meet: ends.every(([x1, x2]) => starts.some((x) => Math.abs(base.left + x1 - x) < 3) && Math.abs(base.left + x2 - fcol.left) < 3), apart, slack,
+              feederW: Math.round(feeders.width), factoryW: Math.round(fcol.width), scroll: [scroller ? scroller.scrollWidth - scroller.clientWidth : 0, content ? content.scrollWidth - content.clientWidth : 0], asWell };
+          }, [sel, fsel]);
+          const boardOk = (at, w, which = 'team') => {
+            if (!at) { problems.push(`the ${which} board at ${w} px: not drawn`); return; }
+            if (!at.labels || at.over) problems.push(`the ${which} board at ${w} px: ${at.over} of ${at.labels} wire labels over a card or a group's line`);
+            if (!at.wires || !at.meet) problems.push(`the ${which} board at ${w} px: the wires don't run from the feeders to the factory column (${at.wires} wires)`);
+            if (at.apart) problems.push(`the ${which} board at ${w} px: ${at.apart} wire labels over another`);
+            if (at.slack.some((x) => x > 160)) problems.push(`the ${which} board at ${w} px: a feeder card runs past what it holds by ${Math.max(...at.slack)} px: ${JSON.stringify(at.slack)}`);
+            if (at.scroll[0] > 1 || at.scroll[1] > 1) problems.push(`the ${which} board at ${w} px scrolls sideways: board ${at.scroll[0]} px, page ${at.scroll[1]} px`);
+            if (at.factoryW < 460) problems.push(`the ${which} board at ${w} px: the factory column is ${at.factoryW} px, too narrow for two rows to a line`);
+            if (at.asWell.some(([t, h]) => !/^As well: ships .+? ?a day as well as its P1$/.test(t) || h > 40)) problems.push(`the ${which} board at ${w} px: an “As well” line isn't one compact line: ${JSON.stringify(at.asWell)}`);
+          };
+          // The feed's board shares the layout (its factory card is the factory column): checked beside the team's.
+          const FEED_BOARD = ['[data-planets="setup:feed"] .pl-board.flow', '[data-board="factory"]'];
+          if (!PHONE) {
+            const at1440 = await boardAt();
+            boardOk(at1440, 1440);
+            boardOk(await boardAt(...FEED_BOARD), 1440, 'feed');
+            await page.setViewportSize({ width: 2000, height: SHOTS ? 1800 : 900 });
+            await page.waitForTimeout(700);
+            const at2000 = await boardAt();
+            boardOk(at2000, 2000);
+            boardOk(await boardAt(...FEED_BOARD), 2000, 'feed');
+            // At 2000 px the feeder column holds to what its cards and lines need, the factory column takes the rest.
+            if (at2000 && (at2000.feederW > 1000 || at2000.factoryW <= (at1440?.factoryW ?? 0))) problems.push(`the team board at 2000 px: feeders ${at2000.feederW} px, factories ${at2000.factoryW} px (at 1440 ${at1440?.factoryW} px): the factory column doesn't get the room`);
+            if (SHOTS) { await team.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-open-2000.png` }); }
+            // A group opened at 2000 px (its line the longest here, five goods, so the column is at its 680 px cap): its cards hug what they hold.
+            await team.locator('[data-planets^="group:"] [data-board="group"]').first().click().catch(() => undefined);
+            await page.waitForTimeout(700);
+            boardOk(await boardAt(), 2000, 'team, a group open,');
+            if (SHOTS) { await team.locator('[data-planets^="group:"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-group-2000.png` }); }
+            await team.locator('[data-planets^="group:"] [data-board="group"]').first().click().catch(() => undefined);
+            await page.waitForTimeout(300);
+            await page.setViewportSize(VIEW.viewport);
+            await page.waitForTimeout(500);
+          }
           // One group opened: its planet cards.
           await team.locator('[data-planets^="group:"] [data-board="group"]').first().click().catch((e) => problems.push(`couldn't open a group: ${e.message.split('\n')[0]}`));
           await page.waitForTimeout(400);
@@ -4905,6 +4972,183 @@ try {
       await page.locator('[data-planets="tree"] [data-planets="find-it"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Find the best system beside the Chart's Plan it: ${e.message.split('\n')[0]}`));
       await page.waitForFunction(() => /#\/hustles\/planets\/find/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
       if (await page.evaluate(() => location.hash) !== `#/hustles/planets/find?good=${GEL}&region=${TENERIFIS}`) problems.push(`Find from the Chart: the address “${await page.evaluate(() => location.hash)}”`);
+    }
+
+    // --- Planets in four steps (planets-flow.md): 1 Product, 2 Who and how, 3 System, 4 Plan, walked with Next and Back. Owner and Team Alt
+    // do planetary industry (both IV, five planets), Alpha Alt can't (listed, untickable), Unread Alt's skills aren't read. Step 3 runs in a
+    // synthetic region of three real Tenerifis systems (the regions' chunk answered with one more region): ZD1-Z2 has two Suspended Plasma
+    // planets (the scarce P0 for Gel-Matrix Biopaste), BW-WJ2 and 5-NZNW one each, so for a team ZD1-Z2 ranks over both. Every Next is
+    // disabled with its reason until its step is complete; the busy state and its count are seen on Next to step 3 and on to step 4; the
+    // what-if is said on steps 3 and 4.
+    {
+      const GEL = 2348, FLOW_REGION = 99000001, ZD1 = 30004817, BW = 30004804, TEAM_ALT = 900104, APP = `http://localhost:${PORT}/jita-ledger/`;
+      const regionRows = JSON.parse(fs.readFileSync(new URL('../src/data/planetRegions.json', import.meta.url), 'utf8'));
+      const ids = [ZD1, BW, SYS].sort((a, b) => a - b);
+      regionRows.push([FLOW_REGION, 'Flow Test', ids.map((x, i) => (i ? x - ids[i - 1] : x))]);
+      await page.route('**/src/data/planetRegions.json*', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: `export default ${JSON.stringify(regionRows)};` }));
+      const flowAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(TEAM_ALT, 'Team Alt')] },
+        [`alt:${TEAM_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 2495: 4, 2505: 4, 2406: 4 }, meta: { attributes: ATTRS } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, flowAlts, { prospects: SCAN });
+      await page.evaluate((r) => localStorage.setItem('jita-ledger:planets-find-region', String(r)), FLOW_REGION);
+      const nav = '[data-planets="step-nav"]';
+      const nextOf = async () => ({ label: (await text(`${nav} [data-planets="next"]`)).trim(), disabled: await page.locator(`${nav} [data-planets="next"]`).isDisabled().catch(() => null), why: (await text(`${nav} [data-planets="next-why"]`)).trim() });
+      const press = async (which) => { await page.locator(`${nav} [data-planets="${which}"]`).click().catch((e) => problems.push(`steps: no ${which}: ${e.message.split('\n')[0]}`)); };
+      const flowText = async () => text('[data-planets="tab"]');
+      // Step 1: no good picked, so Next is disabled with its reason; a good picked enables it.
+      await page.goto(`${APP}#hustles/planets/chart`);
+      await page.waitForSelector('[data-planets="chart"]', { timeout: 30_000 }).catch(() => problems.push('steps: step 1 (the Chart) never drew'));
+      // The stylesheet upper-cases the switch, so compared without case.
+      const seg = (await page.locator('[aria-label="Planets section"] button').allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim().toLowerCase());
+      if (JSON.stringify(seg) !== JSON.stringify(['1 product', '2 who and how', '3 system', '4 plan', 'colonies'])) problems.push(`steps: the sections read ${JSON.stringify(seg)}`);
+      let n = await nextOf();
+      if (!/^Next: who and how$/i.test(n.label) || n.disabled !== true || n.why !== 'Pick a good on the chart first.') problems.push(`steps: step 1's Next with no good: ${JSON.stringify(n)}`);
+      if (await page.locator(`${nav} [data-planets="back"]`).count()) problems.push('steps: step 1 has a Back');
+      await page.locator(good(GEL)).click().catch((e) => problems.push(`steps: couldn't pick Gel-Matrix Biopaste: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      n = await nextOf();
+      if (n.disabled !== false || n.why) problems.push(`steps: step 1's Next with a good picked: ${JSON.stringify(n)}`);
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(800); await page.screenshot({ path: `${SHOTS}-planets-flow-1-product.png` }); }
+      await press('next');
+      await page.waitForSelector('[data-planets="setup"]', { timeout: 20_000 }).catch(() => problems.push('steps: Next didn’t open step 2'));
+      if (await page.evaluate(() => location.hash) !== '#/hustles/planets/setup') problems.push(`steps: step 2's address “${await page.evaluate(() => location.hash)}”`);
+      // Step 2: every character listed, the Alpha and the unread alt untickable with why; nobody ticked disables Next with its reason.
+      const who = async (id) => page.locator(`[data-planets="who:${id}"] [role="checkbox"]`).first();
+      const whoState = async (id) => { const b = await who(id); return [await b.getAttribute('aria-checked').catch(() => null), await b.isDisabled().catch(() => null)]; };
+      const states = { owner: await whoState(95210486), team: await whoState(TEAM_ALT), alpha: await whoState(ALPHA), unread: await whoState(UNREAD) };
+      // The factory character (Owner, Show for) is always ticked: its box can't be unticked (fix round 1's M3).
+      if (JSON.stringify(states) !== JSON.stringify({ owner: ['true', true], team: ['true', false], alpha: ['false', true], unread: ['false', true] })) problems.push(`steps: step 2's characters (ticked, disabled): ${JSON.stringify(states)}`);
+      if (!/Owner · the factory character/.test(await text('[data-planets="who:95210486"]'))) problems.push(`steps: Owner's box doesn't say it's the factory character: “${await text('[data-planets="who:95210486"]')}”`);
+      if (!/Alphas can’t do planetary industry/.test(await text(`[data-planets="who:${ALPHA}"]`))) problems.push(`steps: the Alpha doesn't say why: “${await text(`[data-planets="who:${ALPHA}"]`)}”`);
+      if (!/skills aren’t read yet/.test(await text(`[data-planets="who:${UNREAD}"]`))) problems.push(`steps: the unread alt doesn't say why: “${await text(`[data-planets="who:${UNREAD}"]`)}”`);
+      await (await who(ALPHA)).click({ force: true }).catch(() => undefined);
+      if ((await whoState(ALPHA))[0] !== 'false') problems.push('steps: the Alpha could be ticked');
+      await (await who(95210486)).click({ force: true }).catch(() => undefined);
+      if ((await whoState(95210486))[0] !== 'true') problems.push('steps: the factory character could be unticked');
+      await (await who(TEAM_ALT)).click(); await page.waitForTimeout(300);
+      n = await nextOf();
+      if ((await whoState(TEAM_ALT))[0] !== 'false' || n.disabled !== false) problems.push(`steps: step 2 with Team Alt unticked, Owner alone: ${JSON.stringify(n)}`);
+      await (await who(TEAM_ALT)).click(); await page.waitForTimeout(200);
+      // Show for an Alpha picked elsewhere: it can't be the factory character, so Next waits, saying why; Show for Owner again.
+      await showFor('Alpha Alt');
+      n = await nextOf();
+      if (n.disabled !== true || n.why !== 'Alpha Alt can’t be the factory character (alphas can’t do planetary industry): pick one among those ticked.') problems.push(`steps: step 2's Next with an Alpha shown: ${JSON.stringify(n)}`);
+      await showFor('Owner');
+      n = await nextOf();
+      if (n.disabled !== false) problems.push(`steps: step 2's Next with Owner shown again: ${JSON.stringify(n)}`);
+      if (await page.locator('[data-planets="factory-char"]').inputValue().catch(() => '') !== '95210486') problems.push('steps: the factory character isn’t the main by default');
+      const kinds = await page.locator('[data-planets^="kind:"]').evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-planets'), x.getAttribute('aria-checked'), x.getAttribute('aria-disabled')]));
+      if (JSON.stringify(kinds) !== JSON.stringify([['kind:best', 'true', 'false'], ['kind:p1', 'false', 'true'], ['kind:p2', 'false', 'true'], ['kind:feed', 'false', 'false'], ['kind:team', 'false', 'false'], ['kind:chain', 'false', 'false']])) problems.push(`steps: the setup types (checked, disabled): ${JSON.stringify(kinds)}`);
+      if (!/Can’t make Gel-Matrix Biopaste: it sells P1 only\./.test(await text('[data-planets="kind:p1"]'))) problems.push(`steps: P0 → P1 doesn't say why it can't: “${await text('[data-planets="kind:p1"]')}”`);
+      await page.locator('[data-planets="setup-skills"] button', { hasText: 'Everyone at Interplanetary Consolidation V' }).click().catch((e) => problems.push(`steps: no what-if: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      if (!/^Planned as if everyone had Interplanetary Consolidation V and Command Center Upgrades V/.test((await text('[data-planets="setup-whatif"]')).trim())) problems.push(`steps: step 2 doesn't say the what-if: “${await text('[data-planets="setup-whatif"]')}”`);
+      if (SHOTS) { await page.screenshot({ path: `${SHOTS}-planets-flow-2-who.png` }); }
+      // Back to step 1 and on again.
+      await press('back');
+      await page.waitForSelector('[data-planets="chart"]', { timeout: 20_000 }).catch(() => problems.push('steps: Back from step 2 didn’t open step 1'));
+      await press('next');
+      await page.waitForSelector('[data-planets="setup"]', { timeout: 20_000 }).catch(() => problems.push('steps: step 1’s Next didn’t open step 2 again'));
+      // Step 3: busy at once, with a count, then the rows: ZD1-Z2 (two Suspended Plasma planets) over BW-WJ2 and 5-NZNW (one each).
+      await press('next');
+      await page.waitForSelector('[data-planets="find"]', { timeout: 30_000 }).catch(() => problems.push('steps: Next didn’t open step 3'));
+      if (!/^#\/hustles\/planets\/find\?good=2348/.test(await page.evaluate(() => location.hash))) problems.push(`steps: step 3's address “${await page.evaluate(() => location.hash)}”`);
+      const counted = await page.waitForFunction(() => /(Screening \d+ systems?: \d+ of \d+|Working out the best: \d+ of \d+)/.test(document.querySelector('[data-planets="find-progress"]')?.textContent ?? ''), null, { timeout: 30_000, polling: 50 }).then(() => true, () => false);
+      if (!counted) problems.push(`steps: step 3 never showed its busy state with a count: “${await text('[data-planets="find-progress"]')}”`);
+      if (SHOTS && counted) await page.screenshot({ path: `${SHOTS}-planets-flow-3-scanning.png` });
+      await page.waitForSelector('[data-planets="find-done"]', { timeout: 120_000 }).catch(async () => problems.push(`steps: step 3 never finished: “${await text('[data-planets="find-progress"]')}”`));
+      if (!/^Done: 3 systems (screened, \d+ worked out in full|worked out) in \d+/.test((await text('[data-planets="find-done"]')).trim())) problems.push(`steps: step 3's done line: “${await text('[data-planets="find-done"]')}”`);
+      if (!/^Planned as if everyone had Interplanetary Consolidation V and Command Center Upgrades V\.$/.test((await text('[data-planets="find-whatif"]')).trim())) problems.push(`steps: step 3 doesn't say the what-if: “${await text('[data-planets="find-whatif"]')}”`);
+      const order = await page.locator('[data-planets^="find-row:"]').evaluateAll((trs) => trs.map((tr) => [Number(tr.getAttribute('data-planets').split(':')[1]), Number((tr.querySelector('[data-planets="find-made"] b')?.textContent ?? '').replace(/,/g, '')), tr.querySelector('[data-planets="find-kind"]')?.textContent ?? '']));
+      const at = (id) => order.findIndex((r) => r[0] === id);
+      if (order.length !== 3 || at(ZD1) < 0 || at(ZD1) > at(BW) || at(ZD1) > at(SYS) || !(order[at(ZD1)][1] > order[at(BW)][1])) problems.push(`steps: for a team, ZD1-Z2 (two Suspended Plasma planets) doesn't rank over BW-WJ2 and 5-NZNW (one each): ${JSON.stringify(order)}`);
+      if (order.some((r) => !(r[1] > 0))) problems.push(`steps: a row's figure isn't over 0: ${JSON.stringify(order)}`);
+      if (!/^a factory character, 2 characters/.test(order[at(ZD1)]?.[2] ?? '')) problems.push(`steps: ZD1-Z2's kind line: “${order[at(ZD1)]?.[2]}”`);
+      if (/\bNaN\b|\b0 ISK\b|\bundefined\b/.test(await text('[data-planets="find"]'))) problems.push('steps: step 3 shows NaN, 0 ISK or undefined');
+      if (!PHONE) {
+        const wide = await page.evaluate(() => { const c = document.querySelector('.content'); const b = document.querySelector('[data-planets="find"] .tbl-scroll'); return [c ? c.scrollWidth - c.clientWidth : 0, b ? b.scrollWidth - b.clientWidth : 0]; });
+        if (wide[0] > 1 || wide[1] > 1) problems.push(`steps: step 3 scrolls sideways at 1440: page ${wide[0]} px, table ${wide[1]} px`);
+      }
+      n = await nextOf();
+      if (!/^Next: plan it$/i.test(n.label) || n.disabled !== true || n.why !== 'Pick a system: a row of the list, or one by name.') problems.push(`steps: step 3's Next with no system: ${JSON.stringify(n)}`);
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(400); await page.screenshot({ path: `${SHOTS}-planets-flow-3-done.png` }); }
+      // Picking a row picks the system: 5-NZNW here (the fixture holds its planets for step 4), lit, and Next names it.
+      await page.locator(`[data-planets="find-row:${SYS}"] td.l`).first().click().catch((e) => problems.push(`steps: couldn't pick 5-NZNW's row: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      if (await page.locator(`[data-planets="find-row:${SYS}"]`).getAttribute('aria-selected') !== 'true') problems.push('steps: the row picked isn’t lit');
+      n = await nextOf();
+      if (!/^Next: plan it at 5-NZNW$/i.test(n.label) || n.disabled !== false) problems.push(`steps: step 3's Next with 5-NZNW picked: ${JSON.stringify(n)}`);
+      // Back to step 2 and on again: the region's list stands.
+      await press('back');
+      await page.waitForSelector('[data-planets="setup"]', { timeout: 20_000 }).catch(() => problems.push('steps: Back from step 3 didn’t open step 2'));
+      await press('next');
+      await page.waitForSelector('[data-planets="find"]', { timeout: 20_000 }).catch(() => problems.push('steps: step 2’s Next didn’t open step 3 again'));
+      await page.waitForSelector('[data-planets="find-done"]', { timeout: 120_000 }).catch(() => problems.push('steps: step 3 never finished again'));
+      // Step 4: busy with a count, then Plan held to the good at 5-NZNW; the what-if said in its head and on the open row's glance.
+      await press('next');
+      const counted4 = await page.waitForFunction(() => /\d+ of \d+/.test(document.querySelector('[data-planets="plan"] [data-planets="working"]')?.textContent ?? ''), null, { timeout: 60_000, polling: 50 }).then(() => true, () => false);
+      if (!counted4) problems.push(`steps: step 4 never showed its busy state with a count: “${await text('[data-planets="working"]')}”`);
+      if (SHOTS && counted4) await page.screenshot({ path: `${SHOTS}-planets-flow-4-working.png` });
+      if (!/^#\/hustles\/planets\/plan\?good=2348$/.test(await page.evaluate(() => location.hash))) problems.push(`steps: step 4's address “${await page.evaluate(() => location.hash)}”`);
+      await settled();
+      if (!/^Planning Gel-Matrix Biopaste for Owner at 5-NZNW/i.test((await text('[data-planets="planning-head"]')).trim())) problems.push(`steps: step 4's head: “${await text('[data-planets="planning-head"]')}”`);
+      if (!/^Planned as if everyone had Interplanetary Consolidation V and Command Center Upgrades V\./.test((await text('[data-planets="plan-flow"]')).trim())) problems.push(`steps: step 4's head doesn't say the what-if: “${await text('[data-planets="plan-flow"]')}”`);
+      const openRows = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.filter((x) => x.querySelector('[data-planets="open"]')?.getAttribute('aria-expanded') === 'true').map((x) => x.getAttribute('data-planets')));
+      if (openRows.length !== 1) problems.push(`steps: step 4 opens ${JSON.stringify(openRows)}, not one row`);
+      else if (!/^Planned as if everyone had/.test((await text(`[data-planets="${openRows[0]}"] [data-planets="glance-whatif"]`)).trim())) problems.push(`steps: the open row's glance doesn't say the what-if: “${await text(`[data-planets="${openRows[0]}"] [data-planets="glance-whatif"]`)}”`);
+      if (/\bNaN\b|\bundefined\b/.test(await text('[data-planets="plan"]'))) problems.push('steps: step 4 shows NaN or undefined');
+      if (await page.locator(`${nav} [data-planets="next"]`).count()) problems.push('steps: step 4 has a Next');
+      if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-flow-4-plan.png` }); }
+      // Back to step 3: the region's list.
+      await press('back');
+      await page.waitForSelector('[data-planets="find"]', { timeout: 20_000 }).catch(() => problems.push('steps: Back from step 4 didn’t open step 3'));
+      if (!(await flowText()).includes('Flow Test')) problems.push('steps: Back from step 4 lost the region');
+      // A find?good= link with no good held for Plan: Back to step 2 brings the good along (fix round 1's M2).
+      await page.evaluate(() => localStorage.removeItem('jita-ledger:planets-plan-good'));
+      await page.goto(`${APP}#hustles/planets/find?good=${GEL}`);
+      await page.evaluate(() => location.reload());
+      await page.waitForSelector('[data-planets="find"]', { timeout: 30_000 }).catch(() => problems.push('steps: the find link never drew'));
+      await press('back');
+      await page.waitForSelector('[data-planets="setup"]', { timeout: 20_000 }).catch(() => problems.push('steps: Back from the find link didn’t open step 2'));
+      n = await nextOf();
+      if (!/Who plans Gel-Matrix Biopaste/.test(await text('[data-planets="setup-good"]')) || n.disabled !== false) problems.push(`steps: Back from a find link lost the good: “${await text('[data-planets="setup-good"]')}”, ${JSON.stringify(n)}`);
+      await page.unroute('**/src/data/planetRegions.json*');
+    }
+
+    // --- The "As well" line (fix round 1's I2). In 5-NZNW every factory character here feeds Biocells from a planet whose P1 its 2 Advanced take
+    // whole (1,920 of each: 2 × 40 an hour), so that planet ships its P2 alone and no "As well" is due: the rule is right. A feeder making a P2
+    // and shipping some of its P1 too is what draws it, as DT-PXH II on the user's board: DT-PXH with three characters at Command Center Upgrades
+    // IV does that here (its planets from the bundle, answered as ESI would). Each such line is one line: "As well: ships Biocells N a day as
+    // well as its P1".
+    {
+      const GEL = 2348, DTPXH = 30004806, TEAM_ALT = 900104, THIRD_ALT = 900105, APP = `http://localhost:${PORT}/jita-ledger/`;
+      const radiiRows = JSON.parse(fs.readFileSync(new URL('../src/data/planetRadii.json', import.meta.url), 'utf8'));
+      const PI_TYPES = [11, 12, 13, 2014, 2015, 2016, 2017, 2063];
+      const dtPlanets = []; { let id = 0; const row = radiiRows[String(DTPXH)] ?? []; for (let i = 0; i + 1 < row.length; i += 2) { id += row[i]; dtPlanets.push({ planet_id: id, type_id: PI_TYPES[row[i + 1] % 10] }); } }
+      const ROMAN_N = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+      ESI[`/universe/systems/${DTPXH}/`] = (url, req, json) => json({ system_id: DTPXH, name: 'DT-PXH', security_status: -0.113, constellation_id: 20000711, planets: dtPlanets.map((x) => ({ planet_id: x.planet_id })) });
+      dtPlanets.forEach((x, i) => { ESI[`/universe/planets/${x.planet_id}/`] = (url, req, json) => json({ planet_id: x.planet_id, name: `DT-PXH ${ROMAN_N[i]}`, system_id: DTPXH, type_id: x.type_id }); });
+      const skills = { 2495: 4, 2505: 4, 2406: 4 };
+      const threeAlts = { ...altStore, roster: { ...altStore.roster, list: [...altStore.roster.list, entry(TEAM_ALT, 'Team Alt'), entry(THIRD_ALT, 'Third Alt')] },
+        [`alt:${TEAM_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills, meta: { attributes: ATTRS } } },
+        [`alt:${THIRD_ALT}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills, meta: { attributes: ATTRS } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, threeAlts, { prospects: SCAN });
+      await page.evaluate((id) => localStorage.setItem('jita-ledger:planets-system', String(id)), DTPXH);
+      await page.goto(`${APP}#hustles/planets/plan?good=${GEL}`);
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 30_000 }).catch(() => problems.push('As well: Plan never drew at DT-PXH'));
+      await settled();
+      if (!/at DT-PXH/.test(await text('[data-planets="planning-head"]'))) problems.push(`As well: Plan isn't at DT-PXH: “${await text('[data-planets="planning-head"]')}”`);
+      const teamRow = page.locator('[data-planets="setup:team"]').first();
+      await openRow('team', false);
+      for (const head of await teamRow.locator('[data-planets^="group:"] [data-board="group"][aria-expanded="false"]').all()) { await head.click().catch(() => undefined); await page.waitForTimeout(250); }
+      const aw = await teamRow.locator('[data-planets="as-well"]').evaluateAll((xs) => xs.map((x) => [x.textContent.replace(/\s+/g, ' ').trim(), Math.round(x.getBoundingClientRect().height)]));
+      if (!aw.length || aw.some(([t, h]) => !/^As well: ships Biocells ?[\d,.]+ ?a day as well as its P1$/.test(t) || h > 40)) problems.push(`As well: the team's lines at DT-PXH (want at least one, each one line, “As well: ships Biocells N a day as well as its P1”): ${JSON.stringify(aw)}`);
+      if (!PHONE) {
+        const at = await page.evaluate(() => { const b = document.querySelector('[data-planets="setup:team"] .pl-board.team'); return b ? b.scrollWidth - (b.closest('.pl-board-scroll')?.clientWidth ?? b.scrollWidth) : null; });
+        if (at == null || at > 1) problems.push(`As well: the team board at DT-PXH scrolls sideways or isn't drawn: ${at}`);
+      }
+      if (SHOTS && aw.length) { await teamRow.locator('[data-planets="as-well"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-aswell.png` }); }
     }
     }
 

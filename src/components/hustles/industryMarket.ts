@@ -132,17 +132,26 @@ export function useLiveBooks(types: readonly number[]): Record<number, LiveBook>
 export const LIVE_READ_BOUND_MS = 45_000;
 type Settled = { key: string; late: number } | null;
 /**
+ * How many of the reads asked for have come back or failed, for a page's progress (planets-flow.md: "Reading Jita's books: 9 of 14…"). Kept
+ * only when asked for (`counted`): every read landing draws the page again, which Industry's finder of 1,652 rows doesn't want.
+ */
+export type ReadCount = { done: number; of: number };
+type Counted = { key: string; done: number; of: number } | null;
+const countOf = (c: Counted, key: string, n: number): ReadCount => (c?.key === key ? { done: c.done, of: c.of } : { done: 0, of: n });
+/**
  * `useLiveBooks`, and whether every book asked for has come back or failed (`settled`, for the types asked now), or `LIVE_READ_BOUND_MS`
  * has passed with `late` still out: Plan it works its setups out on the live books once, after they're all in, rather than batch by batch
  * (planner fix 2).
  */
-export function useLiveRead(types: readonly number[]): { books: Record<number, LiveBook>; settled: boolean; late: number } {
+export function useLiveRead(types: readonly number[], counted = false): { books: Record<number, LiveBook>; settled: boolean; late: number; count: ReadCount } {
   const key = types.join(',');
   const [got, setGot] = useState<Record<number, LiveBook>>({});
   const [doneKey, setDoneKey] = useState<Settled>(null);
+  const [count, setCount] = useState<Counted>(null);
   useEffect(() => {
     let alive = true;
     const queue = key ? key.split(',').map(Number) : [];
+    if (counted) setCount({ key, done: 0, of: queue.length });
     if (!queue.length) { setDoneKey({ key, late: 0 }); return () => { alive = false; }; }
     let next = 0, done = 0;
     // Each book landing re-ranked all 1,652 rows (about 25 ms) and reordered them 70 to 150 times: the books are held back and
@@ -156,6 +165,7 @@ export function useLiveRead(types: readonly number[]): { books: Record<number, L
         if (!alive) return;
         if (b) buf[t] = { bestBuy: b.bestBuy, bestSell: b.bestSell, topBuys: b.topBuys, topSells: b.topSells, ...(b.sold ? { sold: b.sold } : {}), at: b.fetchedAt };
         done++;
+        if (counted) setCount({ key, done, of: queue.length });
         if (done === 16 || (done > 16 && (done - 16) % 32 === 0) || done === queue.length) flush();
         if (done === queue.length) setDoneKey({ key, late: 0 });
       }
@@ -163,8 +173,8 @@ export function useLiveRead(types: readonly number[]): { books: Record<number, L
     for (let i = 0; i < 4; i++) void work();
     const bound = setTimeout(() => { if (alive && done < queue.length) { flush(); setDoneKey({ key, late: queue.length - done }); } }, LIVE_READ_BOUND_MS);
     return () => { alive = false; clearTimeout(bound); };
-  }, [key]);
-  return { books: got, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0 };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { books: got, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0, count: countOf(count, key, types.length) };
 }
 
 /** The regions the research found NPCs seeding Tech I originals in, besides The Forge (the scan's): looked in when a row opens. */
@@ -465,10 +475,11 @@ export function useHomeHistory(types: readonly number[], region: number | null):
  * investigation's 72-a-day shape for one render before the cached histories landed (planner-bugs-report.md, Bug 2, cause 3). A type
  * already held isn't asked for again; another region starts afresh.
  */
-export function useHomeHistoryRead(types: readonly number[], region: number | null): { rows: Record<number, HistRow[]>; settled: boolean; late: number } {
+export function useHomeHistoryRead(types: readonly number[], region: number | null, counted = false): { rows: Record<number, HistRow[]>; settled: boolean; late: number; count: ReadCount } {
   const key = region ? `${region}:${types.join(',')}` : '';
   const [got, setGot] = useState<{ region: number | null; rows: Record<number, HistRow[]> }>({ region: null, rows: {} });
   const [doneKey, setDoneKey] = useState<Settled>(null);
+  const [count, setCount] = useState<Counted>(null);
   const held = useRef(got);
   held.current = got;
   useEffect(() => {
@@ -477,6 +488,7 @@ export function useHomeHistoryRead(types: readonly number[], region: number | nu
     const keep = held.current.region === region ? held.current.rows : {};
     if (held.current.region !== region) setGot({ region, rows: {} });
     const queue = key.split(':')[1].split(',').filter(Boolean).map(Number).filter((t) => !keep[t]);
+    if (counted) setCount({ key, done: 0, of: queue.length });
     if (!queue.length) { setDoneKey({ key, late: 0 }); return () => { alive = false; }; }
     let next = 0, done = 0;
     // As useLiveBooks: each history landing re-ranked all 1,652 rows, so they are held back and set in batches.
@@ -489,6 +501,7 @@ export function useHomeHistoryRead(types: readonly number[], region: number | nu
         if (!alive) return;
         if (rows) buf[t] = rows;
         done++;
+        if (counted) setCount({ key, done, of: queue.length });
         if (done === 8 || (done > 8 && (done - 8) % 16 === 0) || done === queue.length) flush();
         if (done === queue.length) setDoneKey({ key, late: 0 });
       }
@@ -498,6 +511,6 @@ export function useHomeHistoryRead(types: readonly number[], region: number | nu
     const bound = setTimeout(() => { if (alive && done < queue.length) { flush(); setDoneKey({ key, late: queue.length - done }); } }, LIVE_READ_BOUND_MS);
     return () => { alive = false; clearTimeout(bound); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { rows: got.region === region ? got.rows : NO_ROWS, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0 };
+  return { rows: got.region === region ? got.rows : NO_ROWS, settled: doneKey?.key === key, late: doneKey?.key === key ? doneKey.late : 0, count: countOf(count, key, 0) };
 }
 const NO_ROWS: Record<number, HistRow[]> = {};

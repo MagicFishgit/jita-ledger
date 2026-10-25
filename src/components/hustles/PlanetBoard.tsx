@@ -142,6 +142,8 @@ function Term({ id, n, name, out, tip }: { id: number; n?: number; name: (id: nu
   );
 }
 const Arrow = () => <span className="pl-arrow" aria-hidden="true">→</span>;
+/** How far apart two wire labels sit in a factory character's gutter, at least: a label is two lines. */
+const LABEL_GAP = 44;
 
 export function PlanetBoard({ s, ix, planets, chars, name, details, words, systemId, good, programHours, ctx, accountOf = () => null }: {
   s: Setup; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; name: (id: number) => string;
@@ -194,15 +196,23 @@ function Flow({ b, card, name, charName, planets }: {
       const f = el.querySelector<HTMLElement>('[data-board="factory"]')?.getBoundingClientRect();
       if (!f) return;
       const rows = [...el.querySelectorAll<HTMLElement>('[data-board="feeder"]')];
+      // A feeder card is as wide as what it holds (fix round 1), so its line starts at its own edge; the column's edge is where the gutter starts.
+      const colRight = (el.querySelector<HTMLElement>('.pl-feeders')?.getBoundingClientRect().right ?? f.left) - base.left;
       const into = feeders.map((r, i) => ({ r, rect: rows[i]?.getBoundingClientRect(), goods: b.edges.get(r) ?? [] })).filter((x) => x.rect && x.goods.length);
       // Each line meets the factory card's left edge at its own height, spread over the middle of the card in the feeders' order.
       const span = Math.min(f.height * 0.6, Math.max(0, into.length - 1) * 28);
       const list: Wire[] = into.map((x, i) => {
         const x1 = x.rect!.right - base.left, y1 = x.rect!.top - base.top + Math.min(x.rect!.height / 2, 46);
         const x2 = f.left - base.left, y2 = f.top - base.top + f.height / 2 - span / 2 + (into.length > 1 ? (span * i) / (into.length - 1) : 0);
-        const xa = Math.min(x2 - 30, x1 + 150), m = (xa + x2) / 2;
-        return { key: `${x.r.planetId}:${x.r.charId}`, d: `M${x1} ${y1} H${xa} C${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`, x: (x1 + xa) / 2, y: y1, goods: x.goods, from: x.r.planetId };
+        const xa = Math.max(x1, x2 - 30), m = (xa + x2) / 2;
+        // The label in the gutter's middle, on the line's straight run: never over a card (the gutter holds none).
+        return { key: `${x.r.planetId}:${x.r.charId}`, d: `M${x1} ${y1} H${xa} C${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`, x: (colRight + x2) / 2, y: y1, goods: x.goods, from: x.r.planetId };
       });
+      // Apart from each other, as a factory character's are (fix round 1's M4): a label of several goods is taller.
+      for (let i = 1; i < list.length; i++) {
+        const gap = Math.max(LABEL_GAP, 10 + 18 * (list[i - 1].goods.length + list[i].goods.length) / 2);
+        if (list[i].y < list[i - 1].y + gap) list[i] = { ...list[i], y: list[i - 1].y + gap };
+      }
       const next = { w: base.width, h: base.height, list };
       setWires((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     };
@@ -273,8 +283,10 @@ function TeamFlow({ b, card, name, charName, accountOf, factoryChar, parts, good
         const x1 = x.rect!.right - base.left, y1 = x.rect!.top - base.top + x.rect!.height / 2;
         const x2 = f.left - base.left, y2 = f.top - base.top + Math.min(f.height / 2, 160) - span / 2 + (into.length > 1 ? (span * i) / (into.length - 1) : 0);
         const xa = Math.min(x2 - 30, x1 + 60), m = (xa + x2) / 2;
-        return { key: String(x.g.charId), d: `M${x1} ${y1} H${xa} C${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`, x: (xa + x2) / 2, y: (y1 + y2) / 2, goods: x.g.sends, charId: x.g.charId! };
+        return { key: String(x.g.charId), d: `M${x1} ${y1} H${xa} C${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`, x: (x1 + x2) / 2, y: (y1 + y2) / 2, goods: x.g.sends, charId: x.g.charId! };
       });
+      // The labels sit in the gutter between the columns, centred across it, and apart from each other: never over a card or a group's line.
+      for (let i = 1; i < list.length; i++) if (list[i].y < list[i - 1].y + LABEL_GAP) list[i] = { ...list[i], y: list[i - 1].y + LABEL_GAP };
       const next = { w: base.width, h: base.height, list };
       setWires((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     };
@@ -405,7 +417,8 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
         {/* A feeder making a P2 beside its P1 (a factory character's): said, so the P2 is built as what it ships, not a by-product. */}
         {r.does === 'extract' && above.filter((m) => r.ships.some((x) => x.id === m.id && typeof x.to === 'number') && r.ships.some((x) => x.id !== m.id && typeof x.to === 'number')).map((m) => {
           const n = r.ships.filter((x) => x.id === m.id && typeof x.to === 'number').reduce((t, x) => t + x.perDay, 0);
-          return <div key={`as-well:${m.id}`} className="pl-bline" data-planets="as-well"><span className="pl-badge blue" data-tip={`Its ${m.count} Advanced make ${name(m.id)} here, which it ships to the factory planets beside its P1`}>As well</span> Ships <Term id={m.id} n={n} name={name} out /> as well as its P1</div>;
+          // One line (the user's screenshot, 25 October 2026, drew it as a full-width bar on three lines): "As well: ships Biocells 240 a day as well as its P1".
+          return <div key={`as-well:${m.id}`} className="pl-bline aswell" data-planets="as-well" data-tip={`Its ${m.count} Advanced make ${name(m.id)} here, which it ships to the factory planets beside its P1`}><span className="pl-k">As well:</span> ships <Term id={m.id} n={n} name={name} out /> as well as its P1</div>;
         })}
         {market.length > 0 && (
           <div className="pl-bline out" data-planets="to-market"><span className="pl-k">Sold</span>

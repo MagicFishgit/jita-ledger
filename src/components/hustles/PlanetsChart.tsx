@@ -14,6 +14,7 @@ import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { UnitBook, UnitNet } from './planetsMarket';
 import { usePlanning } from './planetsPlanning';
+import type { FlowChoice } from '../../lib/piFlow';
 import { FindButton, KIND, Selling } from './PlanetsPlan';
 
 /**
@@ -55,7 +56,7 @@ const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jitaâ€
 /** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
 const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
-export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, onFind = null, ready: collected = false }: {
+export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, onFind = null, ready: collected = false, flow, onPickChange }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
   /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
   ready?: boolean;
@@ -63,13 +64,18 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanG
   onPlanGood: (id: number) => void;
   /** Find the best system for this good (the system finder, planets-finder.md). */
   onFind?: ((id: number) => void) | null;
+  /** Step 2's choices (planets-flow.md): one ranking with Plan's, so the Chart plans with the same characters and skills. */
+  flow?: FlowChoice;
+  /** Step 1 (planets-flow.md): the good picked, as it changes, for the steps' Next. */
+  onPickChange?: (id: number | null) => void;
 }) {
-  const p = usePlanning({ c, chars, colonies, ix, systemId, ready: collected });
+  const p = usePlanning({ c, chars, colonies, ix, systemId, ready: collected, flow });
   const tiers = useMemo(() => goodsByTier(ix), [ix]);
   const [pick, setPick] = useState<number | null>(() => { const k = readPick(); return k != null && ix.byId.has(k) ? k : null; });
   // A pick made now brings its recipe into view; a kept one drawn on opening the Chart doesn't scroll past the grid.
   const pickedNow = useRef(false);
   const choose = (id: number | null) => { pickedNow.current = id != null; setPick(id); keepPick(id); };
+  useEffect(() => { onPickChange?.(pick); }, [pick, onPickChange]);
   const value = p.value;
   const sysName = value?.system.name ?? null;
   const types = useMemo(() => [...new Set((value?.planets ?? []).map((x) => x.type).filter((t): t is PlanetType => !!t))], [value]);

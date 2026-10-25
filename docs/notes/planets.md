@@ -177,6 +177,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   - **Chart**: the goods by tier, a picked good's recipe drawn, which setups can make it: planets-chart.md.
   - **Find**, the best systems in a region for one good: planets-finder.md.
   - **A factory character**, the team kind, one character's factory planets fed by every PI character: planets-team.md.
+  - **The four steps** (product, who and how, system, plan) and step 2's choices, which Plan and Find use: planets-flow.md.
   - **Phone**: the Chart's tiers wrap two goods a row; a setup's planet lines stack; Colonies in planets-colonies.md.
 - **The page case** (`scripts/pages.mjs`, the `planets` ledger; `scripts/fixtures/planets-5nznw.json`, committed so the deploy
   can read it: 5-NZNW's and UALX-3's planets as ESI answered, the goods' books and Goonmetrics rows from the research's prices)

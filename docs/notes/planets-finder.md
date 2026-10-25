@@ -29,6 +29,11 @@ ratings ("not option 3"). The rest of Planets is in planets.md, the planner in p
   `rankSetups`. Not the chain (it spans characters, and is how a P4 is made: a P4 says so and runs nothing) nor bought (it uses none of
   the system's planets). Prices are Plan's morning pass (`usePlanetMarket` with no live reads): the lead figure is the good a day, ISK
   beside it for information. The good unpriced (no home hub, say) or a character that can't plan is said once, and nothing is run.
+- **Since the four steps it runs across the characters ticked on step 2, in two phases** (planets-flow.md, 25 October 2026): the kinds that can make
+  the good (`kindOptions`: the feed's and P0 → P2's as above, a factory character with two ticked, the chain for a P3 or a P4, which Find now
+  runs), or the one pinned; each system planned for the factory character with the others ticked (`others`, no longer `[]`), ranked by the good
+  a day across them (`teamFigure`: a one-character setup on each it suits, a team's or a chain's in all); every system screened, then those that
+  could enter the top ten worked out in full (`flowSteps`). The rest of this bullet is the one-character case, as it ran before.
 - **Rates and customs are each system's own** (`finderRateOf`, `finderTaxOf`): rates typed for that system over the learned ones by
   planet type, a planet's own first where a colony taught it (`rateFor`'s planet argument); customs at the system's own security and
   prefs (Brave's rates in null-sec, said once: "Brave's rates assumed in sovereign null-sec; a system that isn't Brave's may charge
@@ -72,8 +77,8 @@ State these rather than letting them be discovered.
   such row says "on a borrowed rate"). A
   planet you've measured as poor ranks under one nobody has measured, planned at your type's average. Systems alike in planet types tie,
   and the nearer goes first.
-- **Only one character's setups** (P0 → P1, P0 → P2, the feed): not the chain, so no P4, and not bought. Prices are this morning's Jita
-  books and the hub's last read, with no live read; the ISK is for information.
+- **Not bought** (it uses none of the system's planets), and since the four steps every other kind, across the characters ticked (planets-flow.md).
+  Prices are this morning's Jita books and the hub's last read, with no live read; the ISK is for information.
 - **Brave's customs rates are assumed in every null-sec system outside wormhole space**, NPC null-sec too, unless marked not Brave's on
   Plan; **who owns each customs office or skyhook isn't known**, nor the sovereignty or your standings there: none is checked.
 - **Jumps are any route by stargate from the home hub's system**, gate camps and danger unweighed; a wormhole or closed region has none.

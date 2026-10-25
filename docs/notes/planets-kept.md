@@ -69,6 +69,9 @@ planets.md, the ranking in planets-planner.md.
 - **Causes 3 and 4** (the hub region's history emptied on a change of goods; the hub's own read ageing out with the page open) are fixed
   where they live: industry-home.md.
 
+- **Under the four steps' what-if** (planets-flow.md, fix round 1) a kept plan is worked out at the characters' skills as they are, with every
+  character, never at V, said on its block; no newer layout is offered while the what-if is on.
+
 - **The record also holds each planet's own rates** (`planetLearned`, `recordOwnOf`, `withRecordedOwn`): by planet ID and P0 with their
   factor and when last learned, so a torn-down colony's planet keeps it. Sanitized like the type record, capped (`MAX_RECORDED_PLANETS`,
   `MAX_RECORDED_PLANET_P0S`); a kept plan's basis carries them (`KeptBasis.planetRates`).

@@ -38,6 +38,22 @@ the board draws its roles. The ranking is in planets-planner.md, a kept plan in 
     line was learned at 2,300 a head (5 heads)"), never as a promise: heads overlap and the planet depletes, and a rate is never scaled by
     heads (planets.md). A line's Basics are the ones on the P1 its P0 makes. check.mjs: beside 6 Basics and a launchpad, 11 heads fit at
     CCU IV and 14 at V on the bundle's median Barren (3,750 km) and Lava (3,360), 10 and 14 on Gas (26,370).
+  - **A fed board's columns** (the feed, the chain, a factory character; the user, 25 October 2026, on a 2000 px screen: "i feel like we are
+    wasting space here and we can better design this so the charts on the right have more space to breathe"): the feeder column takes what
+    its cards and group lines need, up to 680 px (`fit-content`), a 168 px gutter holds the wires' labels, and the factory column takes the
+    rest, 500 px at least, so its intake rows and steps sit two goods to a line. Before, the feeders took a fixed share (1,112 px at 2000,
+    the factory column 380 at both widths) and a factory character's labels sat over the factory cards. Labels are centred across the gutter,
+    a factory character's at least 44 px apart; "As well: ships Biocells 240 a day as well as its P1" is one line (it drew as a full-width
+    bar on three). The page check measures both boards at 1440 and 2000: no label over a card or a group's line, every wire from the feeders'
+    edge to the factory column, nothing sideways, the factory column 460 px or more, and wider at 2000.
+  - **Fix round 1**: **a feeder card is as wide as what it holds** (`width: fit-content`, 360 px up to the column), its badge and buttons at its
+    lines' edge, since a group's line of five or eight goods sets the column at its 680 px cap and every card took it (110 to 140 px past their
+    lines in the page case at 2000 px, about 230 on the user's board); a group's line keeps the column's width, and a feed's wire starts at its
+    own card's edge. **A feed's and a chain's labels are spaced as a team's** (at least 44 px, more for a label of several goods), and the check
+    finds no label over another. **"As well" is drawn only when a feeder ships its P2 beside some of its P1**: 5-NZNW III in the page case makes
+    Biocells from 1,920 of each P1, all its 2 Advanced take (2 × 40 an hour), so it ships the Biocells alone and draws none, which is right;
+    DT-PXH with three characters draws two ("As well: ships Biocells 120 a day as well as its P1", one line, nowrap), which the page check
+    asserts, and the old markup planted failed it (two lines of 97 px).
 - **The fine print folds under "What it makes, and the details"**: the setup's notes (cut, before the tax, no rate, Valued at Jita's,
   unvalued, doesn't fit), what it makes, valued, what it buys, the upkeep tiles, the planets not used, "How to build it", and each card's
   words (`RoleWords`: the old planet line's Extracts, Takes in, Makes, Ships, Customs and the planner's notes, whole). The page check reads

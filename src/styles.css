@@ -1037,6 +1037,23 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 /* The Planets tab (hustles/Planets.tsx, PlanetsPlan.tsx). Its section switch and Show for share a row, wrapping on a phone; a
    planet's line, its rates and each setup's row keep their name and fold the rest under it on a phone. */
 .pl-head { gap: 10px 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+/* Planets in four steps (planets-flow.md): each step's number in the section switch, and its Back and Next. */
+.pl-step-n { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border: 1px solid currentColor; border-radius: 50%; font-family: var(--f-mono); font-size: 10px; line-height: 1; opacity: .85; }
+.pl-nav { gap: 8px 12px; flex-wrap: wrap; align-items: center; }
+.pl-nav-step { color: var(--note); }
+.pl-nav-go { display: inline-flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.pl-nav-why { flex-basis: 100%; text-align: right; }
+.pl-busy { display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+.pl-bar { height: 4px; background: var(--line-3); overflow: hidden; }
+.pl-bar > span { display: block; height: 100%; background: var(--acc); transition: width .25s ease; }
+.pl-bar.indef > span { width: 30% !important; animation: pl-bar-run 1.2s ease-in-out infinite; }
+@keyframes pl-bar-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .pl-bar.indef > span { animation: none; width: 100% !important; opacity: .4; } .pl-bar > span { transition: none; } }
+.pl-choices { display: flex; flex-direction: column; gap: 6px; }
+.pl-choice[aria-disabled='true'] { opacity: .55; cursor: default; }
+.pl-choice .box { border-radius: 50%; }
+tr.pl-picked td { background: rgba(92, 211, 242, .08); box-shadow: inset 0 1px 0 rgba(92, 211, 242, .5), inset 0 -1px 0 rgba(92, 211, 242, .5); }
+tr[data-pick] { cursor: pointer; }
 .pl-planet { display: grid; grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-soft); min-width: 0; }
 .pl-planet-name { display: flex; flex-direction: column; min-width: 0; color: var(--ink); }
 .pl-planet-name b { font-weight: 500; }
@@ -1178,12 +1195,19 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-glance [data-planets="chain-all"] { display: block; }
 .pl-board-scroll { overflow-x: auto; padding-bottom: 4px; }
 .pl-board.row { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 12px; align-items: start; }
-.pl-board.flow { position: relative; display: grid; grid-template-columns: minmax(470px, 1fr) 140px minmax(320px, 380px); align-items: center; min-width: 930px; }
+/* A fed board (the feed, the chain, a factory character): the feeder column takes what its cards need, up to a cap; a gutter of its own holds the
+   wires' labels; the factory column takes the rest (the user, 25 October 2026, on a 2000 px screen: "so the charts on the right have more space to
+   breathe"). */
+.pl-board.flow, .pl-board.team { --pl-gutter: 168px; }
+.pl-board.flow { position: relative; display: grid; grid-template-columns: fit-content(680px) var(--pl-gutter) minmax(500px, 1fr); align-items: center; min-width: 960px; }
 .pl-feeders { grid-column: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* A feeder card is as wide as what it holds, from 360 px up to the column (fix round 1: at 2000 px a group's line of eight goods made the
+   column 680 px and every card with it, its badge and buttons far past its lines); a group's line keeps the column's width. */
+.pl-feeders .pl-card { width: fit-content; min-width: min(100%, 360px); max-width: 100%; }
 .pl-feeder-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .pl-group-head { font-family: var(--f-head); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); }
 .pl-factory-col { grid-column: 3; min-width: 0; }
-.pl-board.team { position: relative; display: grid; grid-template-columns: minmax(470px, 1fr) 140px minmax(320px, 380px); align-items: start; min-width: 930px; }
+.pl-board.team { position: relative; display: grid; grid-template-columns: fit-content(680px) var(--pl-gutter) minmax(500px, 1fr); align-items: start; min-width: 960px; }
 .pl-factory-col.team { display: flex; flex-direction: column; gap: 12px; }
 .pl-team-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .pl-team-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center; width: 100%; padding: 8px 10px; text-align: left; cursor: pointer;
@@ -1198,7 +1222,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-wires { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .pl-wires path { fill: none; stroke: color-mix(in oklab, var(--acc) 55%, transparent); stroke-width: 1.5; }
 .pl-wires marker path { fill: color-mix(in oklab, var(--acc) 75%, transparent); stroke: none; }
-.pl-wire-label { position: absolute; transform: translate(-50%, -50%); display: inline-flex; flex-direction: column; gap: 2px; padding: 2px 7px 2px 3px; background: #0a131d; border: 1px solid color-mix(in oklab, var(--acc) 40%, transparent); font-size: 11.5px; color: var(--sec); white-space: nowrap; }
+.pl-wire-label { position: absolute; transform: translate(-50%, -50%); display: inline-flex; flex-direction: column; gap: 2px; padding: 2px 7px 2px 3px; max-width: calc(var(--pl-gutter) - 12px); background: #0a131d; border: 1px solid color-mix(in oklab, var(--acc) 40%, transparent); font-size: 11.5px; color: var(--sec); white-space: nowrap; }
 .pl-wire-good { display: inline-flex; align-items: center; gap: 4px; }
 .pl-wire-good b { font-family: var(--f-mono); font-weight: 500; color: var(--acc); }
 .pl-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(2, 7, 12, .6); border: 1px solid var(--line-3); border-top: 2px solid color-mix(in oklab, var(--pos) 55%, transparent); min-width: 0; }
@@ -1216,7 +1240,10 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-bline.extra .pl-bflow { opacity: .72; }
 .pl-bflow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .pl-btags { display: flex; flex-wrap: wrap; gap: 4px 6px; padding-left: 28px; }
-.pl-bline.in, .pl-bline.out { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pl-bline.in, .pl-bline.out, .pl-bline.aswell { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pl-bline.aswell .pl-k { color: var(--blue); }
+/* One line, the card as wide as it needs (fix round 1: at 1440 its last words wrapped under it). */
+.pl-bline.aswell { flex-wrap: nowrap; white-space: nowrap; font-size: 12.5px; color: var(--sec); }
 .pl-aday { font-size: 11px; color: var(--note); }
 .pl-term .nm + b { margin-left: 2px; }
 .pl-bline .pl-arrow { font-size: 13px; }

@@ -3,7 +3,9 @@ import type { ColoniesDoc } from '../../lib/colonies';
 import type { PlanetType } from '../../lib/pi';
 import type { PiIndex } from '../../lib/piBundle';
 import { assumedHeads, learnedPlanetRates, learnedRates, planetKeyOf, PI_READING, rateFor, recordOf, recordOwnOf, withRecorded, withRecordedOwn, type Learned, type OwnLearned } from '../../lib/piLearn';
-import { customsLevel, planCharOf, planKept, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type Steps } from '../../lib/piPlan';
+import { customsLevel, planCharOf, planKept, planSteps, rankSetups, SETUP_KINDS, type PlanChar, type PlanInput, type Setup, type SetupKind, type Steps } from '../../lib/piPlan';
+import { DEFAULT_FLOW, flowTeam, type FlowChoice } from '../../lib/piFlow';
+import type { TeamMeter } from '../../lib/piTeam';
 import { basisOf, newerThan } from '../../lib/planKeep';
 import { sanitizePlanets, type KeptBasis, type KeptPlan, type SystemPrefs } from '../../lib/planetsDoc';
 import { cloudEnabled, useCloudPulled } from '../../lib/cloud';
@@ -83,7 +85,15 @@ export function useLearned(colonies: Record<number, ColoniesDoc | undefined>, ix
   return useMemo(() => ({ learned, own, ownHours, defaultHours, programHours, heads, programFrom }), [learned, own, ownHours, defaultHours, programHours, heads, programFrom]);
 }
 
-type Planned = { setups: Setup[] | null; working: boolean };
+/**
+ * How far a ranking has got (planets-flow.md: step 4's progress): `done` of `of` setups worked out, the one being worked out (`kind`), and
+ * for a factory character its search's meter (piTeam's `TeamMeter`: its budget, read only). `at` moves while a factory character searches,
+ * so the page draws its share again.
+ */
+export type PlannedProgress = { done: number; of: number; kind: SetupKind | null; meter: TeamMeter | null; at: number };
+type Planned = { setups: Setup[] | null; working: boolean; progress: PlannedProgress | null };
+/** How often a factory character's search says how far it has got: a draw of the page each time. */
+const METER_MS = 250;
 /**
  * The five setups for an input, worked out once the input has stayed the same `SETTLE_MS`, in slices of `SLICE_MS` (each setup's
  * steps, one after another) so the page keeps drawing between them, and ranked. Between slices the page has its turn: a message
@@ -93,19 +103,22 @@ type Planned = { setups: Setup[] | null; working: boolean };
  */
 function usePlanned(input: PlanInput | null, scope: string | number | null): Planned {
   const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: string | number | null }>({ setups: null, for: null, scope: null });
+  const [prog, setProg] = useState<{ for: PlanInput; p: PlannedProgress } | null>(null);
   useEffect(() => {
     if (!input) return;
     const of = input;
     let alive = true;
     const done: Setup[] = [];
     let steps: Steps<Setup> | null = null;
+    let meter: TeamMeter | null = null, told = 0;
+    const tell = () => { told = performance.now(); setProg({ for: of, p: { done: done.length, of: SETUP_KINDS.length, kind: SETUP_KINDS[done.length] ?? null, meter, at: told } }); };
     const channel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const slice = () => {
       if (!alive) return;
       const until = performance.now() + SLICE_MS;
       do {
-        steps ??= planSteps(of, SETUP_KINDS[done.length]);
+        if (!steps) { meter = SETUP_KINDS[done.length] === 'team' ? {} : null; steps = planSteps(of, SETUP_KINDS[done.length], meter ?? undefined); tell(); }
         const r = steps.next();
         if (r.done) {
           done.push(r.value);
@@ -113,6 +126,8 @@ function usePlanned(input: PlanInput | null, scope: string | number | null): Pla
           if (done.length === SETUP_KINDS.length) { setSt({ setups: rankSetups(done), for: of, scope }); return; }
         }
       } while (performance.now() < until);
+      // A factory character's search runs for a second or two: say how far it has got, a few times a second.
+      if (meter && performance.now() - told >= METER_MS) tell();
       if (channel) channel.port2.postMessage(null); else timer = setTimeout(slice, 0);
     };
     if (channel) channel.port1.onmessage = slice;
@@ -120,7 +135,8 @@ function usePlanned(input: PlanInput | null, scope: string | number | null): Pla
     return () => { alive = false; clearTimeout(timer); if (channel) { channel.port1.onmessage = null; channel.port1.close(); channel.port2.close(); } };
   }, [input, scope]);
   const mine = st.scope === scope ? st.setups : null;
-  return { setups: input ? mine : null, working: !!input && st.for !== input };
+  const working = !!input && st.for !== input;
+  return { setups: input ? mine : null, working, progress: working && prog?.for === input ? prog.p : null };
 }
 
 /** The goods a ranking names (what its setups sell and buy), sorted, so the same goods keep one array. */
@@ -133,6 +149,19 @@ function goodsOf(setups: Setup[] | null): string {
 
 export type Planning = {
   planChar: PlanChar; others: PlanChar[]; cce: number | null;
+  /**
+   * Step 2's choices applied (planets-flow.md): `planChar` and `others` are the factory character and the characters ticked, at the
+   * what-if's skills when it's on; `unticked`, the characters doing planetary industry left out, for the words; `everyone`, every character
+   * (Check my setup, a kept plan's colonies).
+   */
+  unticked: PlanChar[]; everyone: PlanChar[];
+  /**
+   * How far Plan it's rows have got (step 4's progress): `pass` 'morning' while the morning pass names the goods to read, 'reads' while
+   * those reads are out (`reads`, the planet market's counts), 'live' while the rows are worked out on them; null when they're in.
+   */
+  heldProgress: { pass: 'morning' | 'reads' | 'live'; setups: PlannedProgress | null; reads: PlanetMarket['reads'] } | null;
+  /** Every product's ranking, as `heldProgress` says Plan it's (its live pass is worked out again on the live books). */
+  allProgress: PlannedProgress | null;
   sys: SystemState; value: SystemPlanets | null;
   learned: Partial<Record<PlanetType, Record<string, Learned>>>; own: OwnLearned; ownHours: number[]; defaultHours: number; programHours: number; prefs: SystemPrefs;
   /** Prices on the morning's books (the first ranking's), and on the live books of the goods that ranking names. */
@@ -157,19 +186,27 @@ export type Planning = {
   keptPlan: KeptPlan | null; keptNow: Setup | null; newer: { s: Setup; more: number | null } | null; basis: KeptBasis | null;
 };
 
-export function usePlanning({ c, chars, colonies, ix, systemId, only = null, ready = false }: {
+export function usePlanning({ c, chars, colonies, ix, systemId, only = null, ready = false, flow = DEFAULT_FLOW }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null;
   /** Plan it: the good the Plan section is held to, or null for every product (the Chart passes none). */
   only?: number | null;
   /** Every character's copy is loaded, so the learned rates' record may be written (`useLearned`). */
   ready?: boolean;
+  /** Step 2's choices (planets-flow.md): who's ticked and the skills what-if; the setup type is the page's to open. */
+  flow?: FlowChoice;
 }): Planning {
   const doc = useData().planets;
   // Keyed on what the planner reads (the final review's I2), never on the character objects: those are rebuilt on every write to
   // the ledger (meta every few minutes: the last visit, the balance, each sync), which worked the planner out again for nothing.
   // A PlanChar is the ID, the name, the PI skills' levels and the clone, so equal ones are the same planner input.
-  const planChar = useStable(planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone }));
-  const others = useStable(chars.filter((x) => x.charId !== c.charId).map((x) => planCharOf({ charId: x.charId, name: x.name, skills: x.pilot.skills, clone: x.clone })));
+  // Step 2's choices (planets-flow.md): the characters ticked, at the what-if's skills when it's on; keyed on value, so changing nothing
+  // works nothing out again.
+  const shownPC = planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone });
+  const allPCs = chars.map((x) => planCharOf({ charId: x.charId, name: x.name, skills: x.pilot.skills, clone: x.clone }));
+  const team = useStable(flowTeam(shownPC, allPCs, { ...flow, kind: 'best' }));
+  // A kept plan is worked out at the characters' skills as they are, never the what-if (fix round 1's M6), with every character.
+  const real = useStable(flowTeam(shownPC, allPCs, { ...flow, kind: 'best', atV: false }));
+  const planChar = team.char, others = team.others;
   const cce = customsLevel(c.pilot.skills);
   const sys = useSystemPlanets(systemId, ix, cce);
   const value = sys.state === 'ok' ? sys.value : null;
@@ -207,7 +244,7 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   const firstO = usePlanned(inputMO, heldScope);
   const goodsKeyO = goodsOf(firstO.setups);
   const liveO = useMemo(() => (goodsKeyO ? goodsKeyO.split(',').map(Number) : []), [goodsKeyO]);
-  const marketO = usePlanetMarket(c, ix, { live: liveO });
+  const marketO = usePlanetMarket(c, ix, { live: liveO, counted: only != null });
   // Planner fix 2: the morning pass only names the goods to read live; the rows are the live pass's, worked out once every live read
   // (the Jita books and the hub region's history) has come back or failed, never batch by batch and never the morning's drawn as the
   // answer (the investigation's browser run drew 104 a day, then 23, on one visit: planner-bugs-report.md, Bug 2, cause 2). A morning
@@ -227,14 +264,25 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   // Keep this plan (planner fix 2): the plan kept for this system and good, worked out again on the live pass's input (the morning's when
   // there are no live reads), the last kept meanwhile; and a newer layout offered beside it past the margin, once both are worked out.
   const keptPlan = useStable(only != null && systemId != null ? prefs.kept[String(only)] ?? null : null);
-  const keptInput = inputLO ?? (noLive ? inputMO : null);
+  // A kept plan's colonies stay with the characters it was kept for, ticked or not (planets-flow.md): it's worked out with every character, at
+  // their skills as they are.
+  const everyOther = useMemo(() => real.everyone.filter((x) => x.charId !== real.char.charId), [real]);
+  const keptBase = inputLO ?? (noLive ? inputMO : null);
+  const keptInput = useMemo(() => (keptBase ? { ...keptBase, char: real.char, others: everyOther } : null), [keptBase, real, everyOther]);
   const keptFresh = useMemo(() => (keptPlan && keptInput ? planKept(keptInput, keptPlan) : null), [keptPlan, keptInput]);
   const lastKept = useRef<{ scope: string; s: Setup } | null>(null);
   const keptScope = `${heldScope}:${keptPlan?.at ?? ''}`;
   if (keptFresh) lastKept.current = { scope: keptScope, s: keptFresh };
   const keptNow = keptPlan ? keptFresh ?? (lastKept.current?.scope === keptScope ? lastKept.current.s : null) : null;
-  const newer = useMemo(() => (keptPlan && keptNow && held && !heldWorking ? newerThan(keptPlan, keptNow, held) : null), [keptPlan, keptNow, held, heldWorking]);
-  const basis = useMemo(() => (planets && only != null ? basisOf(ix, planets, planChar, rateOf, programHours) : null), [ix, planets, planChar, rateOf, programHours, only]);
+  // With the what-if on, today's ranking is at V and the kept plan at the skills as they are: no newer layout is offered across the two.
+  const newer = useMemo(() => (keptPlan && keptNow && held && !heldWorking && !flow.atV ? newerThan(keptPlan, keptNow, held) : null), [keptPlan, keptNow, held, heldWorking, flow.atV]);
+  const basis = useMemo(() => (planets && only != null ? basisOf(ix, planets, real.char, rateOf, programHours) : null), [ix, planets, real, rateOf, programHours, only]);
 
-  return { planChar, others, cce, sys, value, learned, own, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis };
+  // Step 4's progress: the morning pass (it names the goods to read), the live reads, then the live pass.
+  const heldProgress: Planning['heldProgress'] = only == null || !heldWorking ? null
+    : firstO.working ? { pass: 'morning', setups: firstO.progress, reads: marketO.reads }
+      : !inputLO && !noLive ? { pass: 'reads', setups: null, reads: marketO.reads }
+        : { pass: 'live', setups: noLive ? firstO.progress : secondO.progress, reads: marketO.reads };
+  const allProgress = first.working ? first.progress : second.working ? second.progress : null;
+  return { planChar, others, unticked: team.unticked, everyone: team.everyone, heldProgress, allProgress, cce, sys, value, learned, own, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis };
 }

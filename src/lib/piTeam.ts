@@ -368,6 +368,15 @@ export function solveAt(lp: Lp, nd: Node): { x: number[]; value: number } | null
   const x = res.x.map((v, i) => v + nd.lo[i]);
   return { x, value: lp.c.reduce((s, ci, i) => s + ci * x[i], 0) };
 }
+/**
+ * The linear programme's bound on the good a day, its factory planets free: `searchTeam`'s first step alone (its `boundR`), or null when
+ * nothing can be made (the search then finds nothing either).
+ */
+export function rootBound(p: TeamProblem): number | null {
+  const lp = lpOf(p);
+  const first = solveAt(lp, rootOf(lp));
+  return first && first.x[lp.iR] > MIN_RATE ? first.x[lp.iR] : null;
+}
 const solFrom = (p: TeamProblem, lp: Lp, x: number[], round: (v: number) => number): TeamSol => ({
   cnt: p.groups.map((g, w) => Int32Array.from(g.opts, (_, q) => round(x[lp.iX[w][q]]))),
   on: lp.fixed ? lp.fixed.slice() : Uint8Array.from(p.sites, (_, s) => round(x[lp.iY[s]])),
@@ -1145,7 +1154,34 @@ const FILL_CHARS = 12;
  * factory character's other planets too, each at its own Command Center Upgrades level and planets. Plan it only (held to a P2 or P3 good),
  * with two such characters or more. Searched as `searchTeam` searches; a step at a time.
  */
-export function* planTeamSteps(given: PlanInput): Steps<Setup> {
+export function* planTeamSteps(given: PlanInput, meter?: TeamMeter): Steps<Setup> {
+  const prep = yield* teamPrepSteps(given);
+  if ('kind' in prep) return prep;
+  const { input, tree, rec, team, groups, members, sites, memo, shown } = prep;
+  const { ix } = input;
+  const optsAt = (cc: number) => memo.get(cc)!;
+  const budget: TeamBudget = { left: input.budget ?? TEAM_BUDGET, cut: false };
+  if (meter) { meter.budget = budget; meter.of = budget.left; }
+  const found = yield* searchTeam({ rec, groups, sites, planets: input.planets.length }, budget);
+  if (!found) return blocked(input, 'team', budget.cut ? RAN_OUT : `No arrangement of your characters’ colonies here can feed a factory planet making ${goodName(ix, tree.x)}`, []);
+  // The fill count, at the level most of the feeding characters are at (the factory character's with none).
+  const levels = team.slice(1).map((m) => m.cc);
+  const cc = levels.length ? [...new Set(levels)].sort((a, b) => levels.filter((x) => x === b).length - levels.filter((x) => x === a).length || b - a)[0] : team[0].cc;
+  if (!memo.has(cc)) memo.set(cc, yield* optionsAt(input, tree, rec, cc, shown));
+  const fill = yield* fillOf(input, rec, sites, optsAt(cc));
+  const { colonies, factories } = realised(input, groups, members, sites, found.sol);
+  return teamSetup(input, tree, rec, team, colonies, factories, found.key.R, { found, fill, cut: found.cut });
+}
+
+/**
+ * How far a factory character's search has got, for the page's progress (planets-flow.md): the budget it spends from, and what it began
+ * with. Read only: the search runs as it would without it. The search can end before its budget does (every arrangement ruled out).
+ */
+export type TeamMeter = { budget?: TeamBudget; of?: number };
+
+/** A factory character's problem, built as `planTeamSteps` builds it, or the setup saying why there's none (`blocked`). */
+type TeamPrep = { input: PlanInput; tree: Tree; rec: TeamRecipe; team: Member[]; groups: Grp[]; members: Member[][]; sites: TeamSite[]; memo: Map<number, Opt[]>; shown: Seller };
+function* teamPrepSteps(given: PlanInput): Generator<void, TeamPrep | Setup, void> {
   const input = heldInput(given);
   const { char, ix } = input;
   const cw = charWhy(char);
@@ -1168,20 +1204,24 @@ export function* planTeamSteps(given: PlanInput): Steps<Setup> {
   // Each level's plans, a planet a step.
   const memo = new Map<number, Opt[]>();
   for (const cc of [...new Set(team.map((m) => m.cc))]) memo.set(cc, yield* optionsAt(input, tree, rec, cc, shown));
-  const optsAt = (cc: number) => memo.get(cc)!;
-  const { groups, members } = groupsOf(team, optsAt);
+  const { groups, members } = groupsOf(team, (cc: number) => memo.get(cc)!);
   const sites = sitesOf(input, tree, team[0]);
   if (!sites.length) return blocked(input, 'team', `No planet here holds a factory of ${goodName(ix, tree.x)}’s at ${char.name}’s level`, []);
-  const budget: TeamBudget = { left: input.budget ?? TEAM_BUDGET, cut: false };
-  const found = yield* searchTeam({ rec, groups, sites, planets: input.planets.length }, budget);
-  if (!found) return blocked(input, 'team', budget.cut ? RAN_OUT : `No arrangement of your characters’ colonies here can feed a factory planet making ${goodName(ix, tree.x)}`, []);
-  // The fill count, at the level most of the feeding characters are at (the factory character's with none).
-  const levels = team.slice(1).map((m) => m.cc);
-  const cc = levels.length ? [...new Set(levels)].sort((a, b) => levels.filter((x) => x === b).length - levels.filter((x) => x === a).length || b - a)[0] : team[0].cc;
-  if (!memo.has(cc)) memo.set(cc, yield* optionsAt(input, tree, rec, cc, shown));
-  const fill = yield* fillOf(input, rec, sites, optsAt(cc));
-  const { colonies, factories } = realised(input, groups, members, sites, found.sol);
-  return teamSetup(input, tree, rec, team, colonies, factories, found.key.R, { found, fill, cut: found.cut });
+  return { input, tree, rec, team, groups, members, sites, memo, shown };
+}
+
+/**
+ * What no factory character arrangement here can beat (planets-flow.md, Find's screen): the linear programme `searchTeam` solves first, its
+ * factory planets free (`TeamFound.boundR`), on the same problem `planTeamSteps` builds; null with why when the team can't be planned here
+ * at all (`blocked`'s reason) or nothing can feed a factory planet. One programme, after the plans each level runs on each planet.
+ */
+export function* teamBoundSteps(given: PlanInput): Generator<void, { bound: number } | { why: string }, void> {
+  const prep = yield* teamPrepSteps(given);
+  if ('kind' in prep) return { why: prep.why ?? 'No factory character can be planned here' };
+  const { input, tree, rec, groups, sites } = prep;
+  const bound = rootBound({ rec, groups, sites, planets: input.planets.length });
+  yield;
+  return bound == null ? { why: `No arrangement of your characters’ colonies here can feed a factory planet making ${goodName(input.ix, tree.x)}` } : { bound };
 }
 
 /**

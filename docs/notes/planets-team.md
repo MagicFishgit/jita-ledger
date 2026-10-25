@@ -122,8 +122,8 @@ State these rather than letting them be discovered.
 - **Hauling between characters isn't costed**: the user hands goods over by contract in one system (a Squall); its m³ is said.
 - **Within a group of characters alike in level and planets**, which character runs which colony is roster order: any deal of them is
   as good.
-- **Find stays one character's** (planets-finder.md): a system is ranked for the character shown, never a team; a team mode for Find can
-  follow.
+- **Find runs a factory character since the four steps** (planets-flow.md): screened by `searchTeam`'s first programme (`rootBound`), worked out
+  in full only for the systems that could make the top ten.
 - **The feed's search keeps one layout per pair of P0s** (`fedCtx`, planets-searches.md), which the research found costs 114.4 against
   121.4 at 6 planets: known and left alone. The team's feeders take every layout F9 gives.
 - **A kept team plan rides the `planets` doc**, which an older build's save drops (planets-kept.md).

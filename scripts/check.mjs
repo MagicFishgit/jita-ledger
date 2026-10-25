@@ -7657,6 +7657,138 @@ console.log('\n--- Planets: the system finder (piFinder.ts; the bundle’s plane
   eq('  Tenerifis: six systems planned as a fed factory, each with a figure, in steps', [tRows.length, tRows.every((r) => r.made > 0 && r.best?.kind === 'feed'), steps > tRows.length], [6, true, true]);
 }
 
+console.log('\n--- Planets in four steps (piFlow.ts: who and how, the steps; Find’s two phases in piFinder.ts) ---');
+{
+  const fsP = await import('node:fs');
+  const B = await import('../src/lib/piBundle.ts');
+  const F = await import('../src/lib/piFinder.ts');
+  const FL = await import('../src/lib/piFlow.ts');
+  const PP = await import('../src/lib/piPlan.ts');
+  const PT = await import('../src/lib/piTeam.ts');
+  const { DEFAULT_PLANETS } = await import('../src/lib/planetsDoc.ts');
+  const ix = B.indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const byName = (n) => ix.commodities.find((c) => c.name === n).id;
+  const GEL = byName('Gel-Matrix Biopaste'), COOLANT = byName('Coolant'), PLASMOIDS = byName('Plasmoids'), NODE = byName('Broadcast Node');
+  // Step 2's characters: the main (5 planets at IV), an alt (4 at III), an Alpha and one whose skills aren't read.
+  const owner = { charId: 1, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, alt = { charId: 2, name: 'Alt', planets: 4, ccLevel: 3, alpha: null };
+  const alpha = { charId: 3, name: 'Alpha', planets: 5, ccLevel: 4, alpha: true }, unread = { charId: 4, name: 'Unread', planets: null, ccLevel: null, alpha: null };
+  const all = [owner, alt, alpha, unread];
+  const listed = FL.flowChars(all, FL.DEFAULT_FLOW);
+  eq('  step 2: every character listed; those doing planetary industry ticked, an Alpha and one not read untickable, with why', listed.map((f) => [f.c.name, f.can, f.ticked, f.why]),
+    [['Owner', true, true, null], ['Alt', true, true, null], ['Alpha', false, false, 'Alphas can’t do planetary industry'], ['Unread', false, false, 'Its skills aren’t read yet, so it can’t be planned']]);
+  eq('  step 2: an Alpha kept as ticked is still not ticked', FL.flowChars([alpha], { ...FL.DEFAULT_FLOW, unticked: [] })[0].ticked, false);
+  eq('  sanitize: junk is the default; unticked whole IDs, sorted, once', [FL.sanitizeFlow(null), FL.sanitizeFlow({ unticked: [5, 'x', 2, 5, -1, 1.5], kind: 'bought', atV: 'yes' })],
+    [FL.DEFAULT_FLOW, { unticked: [2, 5], kind: 'best', atV: false }]);
+  // The steps' completeness.
+  eq('  step 1: no good, a P0, a P1', [FL.goodWhy(ix, null), FL.goodWhy(ix, byName('Suspended Plasma')), FL.goodWhy(ix, PLASMOIDS)],
+    ['Pick a good on the chart first', 'Suspended Plasma comes straight out of the ground: pick a good made from it', null]);
+  eq('  step 2: complete with the factory character ticked', FL.setupWhy(listed, 1), null);
+  eq('  step 2: nobody ticked', FL.setupWhy(FL.flowChars(all, { ...FL.DEFAULT_FLOW, unticked: [1, 2] }), 1), 'Tick at least one character doing planetary industry');
+  eq('  step 2: the factory character not ticked', FL.setupWhy(FL.flowChars(all, { ...FL.DEFAULT_FLOW, unticked: [1] }), 1), 'Owner, shown, isn’t ticked: tick Owner, or pick the factory character among those ticked');
+  eq('  step 2: an Alpha shown', FL.setupWhy(listed, 3), 'Alpha can’t be the factory character (alphas can’t do planetary industry): pick one among those ticked');
+  // Fix round 1's M3: the factory character (Show for) is always ticked when it can do planetary industry, however step 3 or 4 is reached.
+  eq('  step 2: the factory character stays ticked, unticked or not; nobody else ticked is still complete', [FL.flowChars(all, { ...FL.DEFAULT_FLOW, unticked: [1, 2] }, 1).map((f) => [f.ticked, f.factory]).slice(0, 2), FL.setupWhy(FL.flowChars(all, { ...FL.DEFAULT_FLOW, unticked: [1, 2] }, 1), 1)],
+    [[[true, true], [false, false]], null]);
+  eq('  step 2: an Alpha as the factory character is never ticked', FL.flowChars(all, FL.DEFAULT_FLOW, 3).find((f) => f.c.charId === 3).ticked, false);
+  eq('  step 3: no system, a system', [FL.systemWhy(null), FL.systemWhy(30004865)], ['Pick a system: a row of the list, or one by name', null]);
+  // The setup types for a good, before any system is chosen.
+  const opt = (g, n) => F.kindOptions(ix, g, n).map((o) => [o.kind, o.can, o.why]);
+  eq('  types: Gel-Matrix Biopaste (a P3) with two ticked', opt(GEL, 2), [['best', true, null], ['p1', false, 'it sells P1 only'], ['p2', false, 'it sells P2 only'], ['feed', true, null], ['team', true, null], ['chain', true, null]]);
+  eq('  types: with one ticked, no factory character', opt(GEL, 1)[4], ['team', false, 'it needs two characters ticked: one is']);
+  eq('  types: a chain for a P3 says when', F.kindOptions(ix, GEL, 2).find((o) => o.kind === 'chain').when, PP.CHAIN_P3_WHEN);
+  eq('  types: a P1, a P4', [FL.kindsFor('best', F.kindOptions(ix, PLASMOIDS, 3)), FL.kindsFor('best', F.kindOptions(ix, NODE, 3)), FL.kindsFor('best', F.kindOptions(ix, COOLANT, 3))], [['p1'], ['chain'], ['p2', 'feed', 'team']]);
+  eq('  types: a kept type that can’t make the good is the best for this team; one that can stays', [FL.kindFor('p1', F.kindOptions(ix, GEL, 2)), FL.kindFor('team', F.kindOptions(ix, GEL, 1)), FL.kindFor('feed', F.kindOptions(ix, GEL, 1))], ['best', 'best', 'feed']);
+  // The skills what-if: each ticked character at six planets and Command Center Upgrades V, the rest as they are; nothing else moves.
+  const v = FL.flowTeam(owner, all, { ...FL.DEFAULT_FLOW, atV: true });
+  eq('  what-if: the factory character and each ticked one at 6 planets and CCU V, an Alpha and one not read as they are',
+    [v.char, v.others], [{ ...owner, planets: 6, ccLevel: 5 }, [{ ...alt, planets: 6, ccLevel: 5 }, alpha, unread]]);
+  const plain = FL.flowTeam(owner, all, FL.DEFAULT_FLOW);
+  eq('  as they are: the characters unchanged', [plain.char, plain.others], [owner, [alt, alpha, unread]]);
+  const off = FL.flowTeam(owner, all, { ...FL.DEFAULT_FLOW, unticked: [2] });
+  eq('  unticked: out of the others, said apart; everyone still holds it', [off.others.map((c) => c.name), off.unticked.map((c) => c.name), off.everyone.map((c) => c.name)], [['Alpha', 'Unread'], ['Alt'], ['Owner', 'Alt', 'Alpha', 'Unread']]);
+  // A synthetic region for Gel-Matrix Biopaste (Oxides, Biocells, Superconductors: Reactive Gas and Noble Gas on Gas planets, Noble Metals
+  // and Carbon Compounds on Barren, Suspended Plasma and Aqueous Liquids on Storm), on round rates.
+  const SP = byName('Suspended Plasma');
+  const pl = (id, t, km = 6000) => ({ planetId: id, radiusKm: km, typeId: ix.planetTypes[t].typeId, type: t });
+  const sys = (id, name, ps) => ({ id, name, security: -0.3, onMap: true, planets: ps.map((t, i) => pl(id * 100 + i, t)) });
+  const R = (perHour) => ({ perHour, higher: null, which: 'formula', programHours: 72, heads: 8, extractors: 2, systems: [], checked: true });
+  const learned = {};
+  for (const t of ['Gas', 'Barren', 'Storm', 'Lava', 'Temperate']) { learned[t] = {}; for (const p of ix.planetTypes[t].p0) learned[t][p] = R(p === SP ? 6000 : 16000); }
+  const price = new Map(ix.commodities.map((c) => [c.id, c.tier === 'P3' ? 40000 : c.tier === 'P2' ? 9000 : c.tier === 'P1' ? 500 : 3]));
+  const sell = (id, perDay) => ({ isk: price.get(id) * perDay, units: perDay, where: ['jita'], why: null });
+  const buy = () => ({ isk: null, where: null, why: 'none listed' });
+  const two = [owner, { ...alt, planets: 5, ccLevel: 4 }];
+  const teamOf = (choice) => FL.flowTeam(two[0], two, choice);
+  const inputOf = (t, only = GEL) => (x) => F.systemInput({ ix, char: t.char, others: t.others, heads: 8, sell, buy, programHours: 72, programFrom: 'median', only }, x, F.finderTaxOf(DEFAULT_PLANETS, 0), F.finderRateOf(learned, {}, DEFAULT_PLANETS));
+  const one = sys(1, 'One', ['Gas', 'Barren', 'Storm', 'Temperate', 'Lava']);
+  const both = teamOf(FL.DEFAULT_FLOW), solo = teamOf({ ...FL.DEFAULT_FLOW, unticked: [2] });
+  const drain = PP.drain;
+  // An unticked character is out of the repeat line, the chain and the factory character's team.
+  const feedBoth = drain(PP.planSteps(inputOf(both)(one), 'feed')), feedSolo = drain(PP.planSteps(inputOf(solo)(one), 'feed'));
+  eq('  unticked: out of the repeat line', [feedBoth.repeat?.chars.map((c) => c.charId), feedSolo.repeat], [[1, 2], undefined]);
+  const teamBoth = drain(PP.planSteps(inputOf(both)(one), 'team')), teamSolo = drain(PP.planSteps(inputOf(solo)(one), 'team'));
+  eq('  unticked: out of the factory character’s team', [teamBoth.why, teamBoth.perChar.map((p) => p.charId), teamSolo.why], [null, [1, 2], PT.teamTooFew(1)]);
+  const chainIn = (t) => drain(PP.planSteps({ ...inputOf(t, NODE)(sys(9, 'Nine', ['Barren', 'Gas', 'Storm', 'Temperate', 'Lava', 'Ice', 'Oceanic', 'Plasma', 'Barren', 'Temperate'])), budget: 3000 }, 'chain'));
+  const cBoth = chainIn(both), cSolo = chainIn(solo);
+  eq('  unticked: out of the chain', [cBoth.perChar.some((p) => p.charId === 2), cSolo.perChar.some((p) => p.charId === 2)], [true, false]);
+  // The what-if moves only the characters: every extractor's rate the same at V, never scaled by its heads.
+  const p1As = drain(PP.planSteps(inputOf(both, PLASMOIDS)(one), 'p1')), p1V = drain(PP.planSteps(inputOf(teamOf({ ...FL.DEFAULT_FLOW, atV: true }), PLASMOIDS)(one), 'p1'));
+  const ratesOf = (s) => s.roles.flatMap((r) => r.extracts.map((e) => [r.planetId, e.p0, e.rate?.perHour ?? null]));
+  eq('  what-if: the rates its lines run on are the rates as they are', ratesOf(p1V).filter((x) => ratesOf(p1As).some((y) => y[0] === x[0] && y[1] === x[1])).map((x) => x[2]),
+    ratesOf(p1As).filter((x) => ratesOf(p1V).some((y) => y[0] === x[0] && y[1] === x[1])).map((x) => x[2]));
+  // The figure across the characters ticked: a one-character setup repeated on each it suits, a team's its total.
+  eq('  teamFigure: the feed repeated on both, the team in all', [F.teamFigure(feedBoth)?.made, F.teamFigure(feedBoth)?.chars, F.teamFigure(teamBoth)?.made],
+    [feedBoth.made.perDay * feedBoth.repeat.n, feedBoth.repeat.n, teamBoth.made.perDay]);
+  // Find's two phases against every system worked out in full: the same top rows wherever no search was cut, and no system's bound under
+  // its factory character's figure. Systems differ in how many Suspended Plasma planets they have (the scarce P0 here).
+  const region = [
+    sys(11, 'One SP', ['Gas', 'Barren', 'Temperate', 'Barren', 'Storm']), sys(12, 'Two SP', ['Gas', 'Barren', 'Storm', 'Temperate', 'Storm']),
+    sys(13, 'Three SP', ['Gas', 'Barren', 'Storm', 'Lava', 'Storm']), sys(14, 'Lavas', ['Gas', 'Barren', 'Storm', 'Lava', 'Lava']),
+    sys(15, 'Lavas, no Storm', ['Gas', 'Barren', 'Lava', 'Lava', 'Temperate']), sys(16, 'Plasma', ['Gas', 'Barren', 'Plasma', 'Storm', 'Temperate']),
+  ];
+  const kinds = FL.kindsFor('best', F.kindOptions(ix, GEL, 2));
+  const jumps = new Map(region.map((x, i) => [x.id, 9 - i]));
+  const t0 = performance.now();
+  const fullSetups = region.map((x) => { const input = inputOf(both)(x); return kinds.map((k) => drain(PP.planSteps(input, k))); });
+  const full = region.map((x, i) => F.rowOf(x, fullSetups[i], new Set(B.p0Of(ix, GEL)), true));
+  const tFull = performance.now() - t0;
+  const bounds = region.map((x) => { const b = drain(PT.teamBoundSteps(inputOf(both)(x))); return 'bound' in b ? b.bound : null; });
+  const teamMade = fullSetups.map((ss) => ss.find((s) => s.kind === 'team').made?.perDay ?? null);
+  eq('  bounds: a factory character can beat the fed factory repeated on both, and sometimes not', [region.filter((x, i) => teamMade[i] > F.teamFigure(fullSetups[i].find((s) => s.kind === 'feed'))?.made + 1).length > 1, bounds.some((b, i) => Math.abs(b - teamMade[i]) < 1e-6)], [true, true]);
+  eq('  bounds: no system’s bound under its factory character’s figure', region.filter((x, i) => teamMade[i] != null && !(bounds[i] >= teamMade[i] - 1e-9)).map((x) => x.name), []);
+  let uncut = 0;
+  for (const top of [1, 2, 4]) {
+    let progressed = 0, landed = 0;
+    const t1 = performance.now();
+    const two = drain(F.flowSteps(region, inputOf(both), kinds, { top, jumps, progress: () => progressed++, land: () => landed++ }));
+    const tTwo = performance.now() - t1;
+    const a = F.rankRows(full, jumps).slice(0, top), b = F.rankRows(two.rows, jumps).slice(0, top);
+    const cut = [...a, ...b].some((r) => r.cut);
+    if (!cut) { uncut++; eq(`  two phases: the top ${top} as every system worked out in full`, b.map((r) => [r.system.name, r.made]), a.map((r) => [r.system.name, r.made])); }
+    eq(`  two phases (top ${top}): every system ranked or not worked out, each once; rows landed as found`, [two.rows.length + two.unworked.length, new Set([...two.rows, ...two.unworked].map((r) => r.system.id)).size, landed === two.rows.length, progressed > region.length], [region.length, region.length, true, true]);
+    eq(`  two phases (top ${top}): a system not worked out could make no more than the last of the top ${top}`, two.unworked.filter((u) => Math.round(u.bound * 100) >= Math.round(b[top - 1].made * 100)).map((u) => u.system.name), []);
+    if (cut) console.log(`  (top ${top}: a search was cut, so the rows weren’t compared; full ${Math.round(tFull)} ms, two phases ${Math.round(tTwo)} ms)`);
+  }
+  // Pinned to a factory character (no cheap kind): every system screened by its bound alone, then worked out, against its team row in full.
+  const fullTeam = region.map((x, i) => F.rowOf(x, [fullSetups[i].find((s) => s.kind === 'team')], new Set(B.p0Of(ix, GEL)), true));
+  for (const top of [1, 2]) {
+    const two = drain(F.flowSteps(region, inputOf(both), ['team'], { top, jumps }));
+    const a = F.rankRows(fullTeam, jumps).slice(0, top), b = F.rankRows(two.rows, jumps).slice(0, top);
+    if (![...a, ...b].some((r) => r.cut)) { uncut++; eq(`  two phases, pinned to a factory character: the top ${top} as every system worked out in full`, b.map((r) => [r.system.name, r.made, r.best?.kind]), a.map((r) => [r.system.name, r.made, r.best?.kind])); }
+    eq(`  two phases, pinned to a factory character (top ${top}): every system ranked or not worked out, each once`, [two.rows.length + two.unworked.length, new Set([...two.rows, ...two.unworked].map((r) => r.system.id)).size], [region.length, region.length]);
+  }
+  // Fix round 1's M1: the comparisons above ran with nothing cut, at least once, or they'd have said nothing.
+  eq('  two phases: compared with every system worked out in full, uncut, at least once', uncut > 0, true);
+  // The default top ten: ten systems exact at once (their bound no more than the fed factory repeated) and two whose bound is under the tenth
+  // best, which are left unworked without a factory character's search.
+  const twelve = [...Array.from({ length: 10 }, (_, i) => sys(40 + i, `Twin ${i}`, ['Gas', 'Barren', 'Storm', 'Temperate', 'Storm'])), sys(50, 'Lavas A', ['Gas', 'Barren', 'Lava', 'Lava', 'Temperate']), sys(51, 'Lavas B', ['Gas', 'Barren', 'Lava', 'Lava', 'Temperate'])];
+  const ten = drain(F.flowSteps(twelve, inputOf(both), kinds, { jumps }));
+  eq('  two phases, the default top ten: ten exact at once, two left unworked, no factory character searched', [F.FLOW_TOP, ten.rows.length, ten.worked, ten.unworked.map((u) => u.system.name), ten.unworked.every((u) => u.bound < Math.min(...ten.rows.map((r) => r.made)))],
+    [10, 10, 0, ['Lavas A', 'Lavas B'], true]);
+  const ranked = F.rankRows(full, jumps);
+  eq('  for a team, a system with two Suspended Plasma planets over one with one', ranked.findIndex((r) => r.system.name === 'Two SP') < ranked.findIndex((r) => r.system.name === 'One SP'), true);
+}
+
 console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down to P0, what a system can supply, which setups make a good) ---');
 {
   const fsP = await import('node:fs');

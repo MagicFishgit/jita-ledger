@@ -202,6 +202,8 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `planets-finder.md`: Find, a region's systems planned for one good (the bundle's planet types and regions).
 - `planets-chart.md`: the Chart, every good by tier, a picked good's recipe drawn and which setups can make it.
 - `planets-team.md`: a factory character, one character's factory planets fed by every PI character (the team kind).
+- `planets-flow.md`: the Planets tab in four steps (product, who and how, system, plan): the characters ticked, the setup type, the what-if,
+  Find's two phases.
 
 Always loaded, imported below, because they apply to any change:
 

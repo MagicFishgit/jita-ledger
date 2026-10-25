@@ -29,7 +29,9 @@ import { Check, cssVars, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { LIVE_READ_BOUND_MS, useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { SystemPlanet } from './planetsMarket';
-import { NO_SYS, usePlanning } from './planetsPlanning';
+import { NO_SYS, usePlanning, type Planning } from './planetsPlanning';
+import { DEFAULT_FLOW, kindFor, KIND_SAID, WHAT_IF_SAID, type FlowChoice } from '../../lib/piFlow';
+import { bestForTeam, kindOptions } from '../../lib/piFinder';
 import { PlanetBoard, type CheckCtx } from './PlanetBoard';
 import { TeamLines } from './PlanetsTeam';
 import { useMainSystem } from './rightNow';
@@ -78,7 +80,7 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false, reads = {}, readAlt = null, onFind = null }: {
+export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false, reads = {}, readAlt = null, onFind = null, flow = DEFAULT_FLOW }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
   /** Where each character's colonies stand (Planets.tsx, colonyTotals' words): Check my setup says why one can't be read fresh. */
   reads?: Record<number, ColoniesRead>;
@@ -94,10 +96,17 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
   ready?: boolean;
   /** Find the best system: the system finder for the good held, in the region of the system chosen (planets-finder.md). */
   onFind?: ((good: number) => void) | null;
+  /** Step 2's choices (planets-flow.md): who's ticked, the setup type (the row opened), the skills what-if. */
+  flow?: FlowChoice;
 }) {
   const doc = useData().planets;
   // One ranking from one input, shared with the Chart (planetsPlanning.ts); held to the good chosen beside it.
-  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis } = usePlanning({ c, chars, colonies, ix, systemId, only: good, ready });
+  const planning = usePlanning({ c, chars, colonies, ix, systemId, only: good, ready, flow });
+  const { planChar, others, unticked, everyone, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working, livePass, held, heldWorking, heldLive, heldLate, keptPlan, keptNow, newer, basis } = planning;
+  // Step 2's setup type (planets-flow.md): the pinned kind's row opens, or the best for the characters ticked; every product opens the first.
+  const crewN = [planChar, ...others].filter((x) => !charWhy(x)).length;
+  const kind = good != null ? kindFor(flow.kind, kindOptions(ix, good, crewN)) : 'best';
+  const openKind = good == null ? null : kind !== 'best' ? kind : bestForTeam(held ?? [])?.kind ?? null;
   // The rows: held to the good when one is chosen, else every product's ranking, as before.
   const rows = good != null ? held : setups;
   const rowsWorking = good != null ? heldWorking : working;
@@ -115,8 +124,9 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
   const blockedWhy = charWhy(planChar);
   // Check my setup (planets-board.md): every character, those doing planetary industry, their kept colonies, how each was read.
   const sellFor = market.ready ? market.sell : morning.sell;
-  const check: CheckCtx = useMemo(() => ({ chars, pi: [planChar, ...others].filter((x) => !charWhy(x)).map((x) => x.charId), colonies, reads, readAlt, sell: sellFor }),
-    [chars, planChar, others, colonies, reads, readAlt, sellFor]);
+  // Every character doing planetary industry, ticked or not: what's built on a planet is checked whoever built it.
+  const check: CheckCtx = useMemo(() => ({ chars, pi: everyone.filter((x) => !charWhy(x)).map((x) => x.charId), colonies, reads, readAlt, sell: sellFor }),
+    [chars, everyone, colonies, reads, readAlt, sellFor]);
 
   return (
     <section className="col" style={{ gap: 16 }} data-planets="plan">
@@ -129,6 +139,13 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
         ]} />
       </div>
       <Who c={c} pc={planChar} />
+      {(flow.atV || unticked.length > 0 || (good != null && kind !== 'best')) && (
+        <p className="note small pl-up" style={{ margin: 0 }} data-planets="plan-flow">
+          {[flow.atV ? `${WHAT_IF_SAID}.` : null,
+            good != null && kind !== 'best' ? `Step 2 pins ${KIND_SAID[kind].label.charAt(0).toLowerCase()}${KIND_SAID[kind].label.slice(1)}: its row is open.` : null,
+            unticked.length ? `Unticked on step 2, so not counted: ${listSaid(unticked.map((x) => x.name))}.` : null].filter(Boolean).join(' ')}
+        </p>
+      )}
       {good != null && <PlanningGood ix={ix} good={good} name={name} who={c.name} system={value?.system.name ?? null} all={!working && !heldWorking && !blockedWhy && morning.ready ? setups : null} held={held} onEvery={onEveryProduct} />}
       <SystemChooser c={c} graph={graph} colonies={colonies[c.charId]} systemId={systemId} onSystem={onSystem} mainName={mainName} chosen={value ? value.system.name : null}
         extra={<>
@@ -146,8 +163,10 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             {/* Plan it's rows waited for every live read; past the bound, they're worked out on what came in (fix round 1 of planner fix 2). */}
             {!blockedWhy && morning.ready && heldLate > 0 && rows && <p className="note small" style={{ margin: 0 }} data-planets="late">{heldLate} of the live reads hadn’t come back after {LIVE_READ_BOUND_MS / 1000} seconds, so these are worked out on what had: those goods are on this morning’s books, and it’s all worked out again when they land.</p>}
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
-              <Setups setups={rows} working={!rowsWorking ? null : good != null || !rowsLive ? 'Working them out again…' : `Working them out again ${market.liveSaid}…`} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} programHours={programHours} good={good}
-                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} check={check} board={{ systemId: value.system.systemId, good }} />
+              <Setups setups={rows} working={!rowsWorking ? null : good != null || !rowsLive ? 'Working them out again…' : `Working them out again ${market.liveSaid}…`} ix={ix} planets={value.planets} chars={everyone} shown={planChar} name={name} programHours={programHours} good={good}
+                accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} check={check} board={{ systemId: value.system.systemId, good }}
+                progress={progressSaid(planning, good != null)} openKind={openKind} whatIf={flow.atV} unticked={unticked}
+                openSaid={openKind == null ? null : kind !== 'best' ? 'Pinned on step 2' : crewN > 1 ? `Best for the ${crewN} characters ticked` : null} />
             )}
             <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
               learned={learned} programHours={programHours} />
@@ -157,6 +176,39 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
       <Points compact items={PI_LINKS.map((l) => ({ kind: 'tip' as const, icon: ExternalLink, lead: <a href={l.href} target="_blank" rel="noopener noreferrer">{l.title}</a>, text: l.what }))} />
     </section>
   );
+}
+
+/**
+ * Step 4's progress, in words with its share (planets-flow.md): "Reading Jita's books: 9 of 14…", "Working out the setups: 3 of 6 (a factory
+ * character, 40% of its search)…". Plan it's rows wait on three passes (the morning's names the goods to read, the reads, then the live
+ * pass), so its bar runs over all three; every product's is its ranking's alone. Null when there's no count to give.
+ */
+function progressSaid(p: Planning, held: boolean): { said: string; frac: number | null } | null {
+  const setupsSaid = (x: NonNullable<Planning['allProgress']>) => {
+    const team = x.kind === 'team' && x.meter?.budget && x.meter.of ? Math.min(0.95, 1 - x.meter.budget.left / x.meter.of) : null;
+    // Its share only once its search has begun to spend (the plans each level runs come first).
+    const what = x.kind ? (x.kind === 'team' ? `a factory character${team != null && team >= 0.01 ? `, ${Math.round(team * 100)}% of its search` : ''}` : KIND[x.kind].label.toLowerCase()) : null;
+    return { said: `${x.done} of ${x.of}${what ? ` (${what})` : ''}…`, frac: (x.done + (team ?? 0)) / Math.max(1, x.of) };
+  };
+  if (!held) {
+    if (!p.allProgress) return null;
+    const x = setupsSaid(p.allProgress);
+    return { said: `Working out each setup: ${x.said}`, frac: x.frac };
+  }
+  const h = p.heldProgress;
+  if (!h) return null;
+  if (h.pass === 'morning') {
+    const x = h.setups ? setupsSaid(h.setups) : null;
+    return { said: `Working out which goods to price live, on this morning’s books${x ? `: ${x.said}` : '…'}`, frac: 0.25 * (x?.frac ?? 0) };
+  }
+  if (h.pass === 'reads') {
+    const { books, history, hub } = h.reads;
+    const hist = history.of > 0 ? ` and ${hub ?? 'the hub'}’s region’s trading history: ${history.done} of ${history.of}` : '';
+    const all = books.of + history.of;
+    return { said: `Reading Jita’s books: ${books.done} of ${books.of}${hist}…`, frac: 0.25 + 0.25 * (all ? (books.done + history.done) / all : 1) };
+  }
+  const x = h.setups ? setupsSaid(h.setups) : null;
+  return { said: `Working out the setups${x ? `: ${x.said}` : '…'}`, frac: 0.5 + 0.5 * (x?.frac ?? 0) };
 }
 
 /** Whose plan: planets allowed and the level the fits assume, or why nothing can be planned for this character. */
@@ -221,6 +273,21 @@ function PlanningGood({ ix, good, name, who, system, all, held, onEvery }: {
   );
 }
 
+/**
+ * Busy, with how far it has got (planets-flow.md: the user, "I also don't mind waiting while it is scanning and calculating as long as when
+ * you click next to go to the next step you UI telling you it's busy working with progress"): what's being done, in words with its count,
+ * and a bar (`frac` null: no count yet, so it runs without one). `tag` is its `data-planets`.
+ */
+export function Busy({ said, frac, tag = 'working' }: { said: ReactNode; frac: number | null; tag?: string }) {
+  const pct = frac == null ? null : Math.max(0, Math.min(100, Math.round(frac * 100)));
+  return (
+    <div className="pl-busy" data-planets={tag} role="status" aria-live="polite">
+      <span className="note small" data-planets={`${tag}-said`}>{said}</span>
+      <div className={'pl-bar' + (pct == null ? ' indef' : '')} data-progress={pct ?? undefined} aria-hidden="true"><span style={{ width: `${pct ?? 0}%` }} /></div>
+    </div>
+  );
+}
+
 /** Find the best system (planets-finder.md): the system finder for a good, beside the system chooser on Plan and Plan it on the Chart. */
 export function FindButton({ name, onFind }: { name: string; onFind: () => void }) {
   return (
@@ -241,9 +308,15 @@ function ProgramLength({ programHours, defaultHours, ownHours, typedHours }: { p
   );
 }
 
-/** Choosing the system: by name (the stargate map's names, else ESI's), where the main is, or a system the shown character's colonies are in. `extra` sits at the row's end (the program length). */
-function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chosen, extra }: {
-  c: IndustryChar; graph: Graph; colonies: ColoniesDoc | undefined; systemId: number | null; onSystem: (id: number | null) => void; mainName: string; chosen: string | null; extra?: ReactNode;
+/**
+ * Choosing the system: by name (the stargate map's names, else ESI's), where the main is, or a system the shown character's colonies are in.
+ * `extra` sits at the row's end (the program length). Find (step 3) picks with it too (`go`, its button's words; `onSystem`'s name, when known).
+ */
+export function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chosen, extra, go = 'Plan it', hint = true }: {
+  c: IndustryChar; graph: Graph; colonies: ColoniesDoc | undefined; systemId: number | null; onSystem: (id: number | null, name?: string | null) => void; mainName: string; chosen: string | null; extra?: ReactNode;
+  go?: string;
+  /** The line saying how to choose one, while none is chosen (Find says its own). */
+  hint?: boolean;
 }) {
   const where = useMainSystem();
   const [typed, setTyped] = useState('');
@@ -267,12 +340,12 @@ function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chose
     if (!q) return;
     setSaid(null);
     const known = byName.get(q.toLowerCase());
-    if (known) { onSystem(known); return; }
+    if (known) { onSystem(known, graph[String(known)]?.[1] ?? q); return; }
     // Not on the stargate map (a wormhole has no gates): ESI's names.
     try {
       const r = await resolveIds([q]);
       const hit = r.systems?.[0];
-      if (hit) onSystem(hit.id); else setSaid(`No system is called “${q}”.`);
+      if (hit) onSystem(hit.id, hit.name ?? q); else setSaid(`No system is called “${q}”.`);
     } catch (e) { setSaid(`Couldn’t look “${q}” up: ${e instanceof Error ? e.message : String(e)}.`); }
   };
   // The shown character's colonies' systems, named from the map, else read from ESI (a wormhole).
@@ -294,15 +367,15 @@ function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chose
         <input className="num" style={{ width: 180 }} placeholder="A system’s name" aria-label="System" list="pl-system-names" value={typed}
           onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void find(); }} />
         <datalist id="pl-system-names">{hints.map((h) => <option key={h} value={h} />)}</datalist>
-        <button type="button" className="btn" onClick={() => void find()}>Plan it</button>
+        <button type="button" className="btn" onClick={() => void find()} data-planets="system-go">{go}</button>
         {where !== 'noScope' && (
-          <button type="button" className="btn" disabled={!where || where === 'failed'} onClick={() => { if (where && where !== 'failed') onSystem(where.systemId); }}
+          <button type="button" className="btn" disabled={!where || where === 'failed'} onClick={() => { if (where && where !== 'failed') onSystem(where.systemId, where.name); }}
             data-tip={where === 'failed' ? `ESI didn’t say where ${mainName} is just now` : where ? `${mainName} is in ${where.name} (${secText(where.security)})` : `Reading where ${mainName} is…`}>
             <MapPin aria-hidden="true" />Where {mainName} is
           </button>
         )}
         {colonySystems.map((id) => (
-          <button key={id} type="button" className={'chip-btn' + (id === systemId ? ' on' : '')} onClick={() => onSystem(id)} data-tip={`${c.isMain ? 'Your' : `${c.name}’s`} colonies are here`}>
+          <button key={id} type="button" className={'chip-btn' + (id === systemId ? ' on' : '')} onClick={() => onSystem(id, sysName(id))} data-tip={`${c.isMain ? 'Your' : `${c.name}’s`} colonies are here`}>
             {sysName(id) ?? 'Reading…'}
           </button>
         ))}
@@ -310,7 +383,7 @@ function SystemChooser({ c, graph, colonies, systemId, onSystem, mainName, chose
       </div>
       {where === 'noScope' && <p className="note small" style={{ margin: 0 }}>Where {mainName} is needs EVE’s permission to read your location, which this login wasn’t given. Log in again and EVE asks for it.</p>}
       {said && <p className="note small" style={{ margin: 0 }}>{said}</p>}
-      {systemId == null && <p className="note small" style={{ margin: 0 }}>Choose a system to plan: type its name{where !== 'noScope' ? `, take where ${mainName} is` : ''}{colonySystems.length ? ', or one your colonies are in' : ''}.</p>}
+      {systemId == null && hint && <p className="note small" style={{ margin: 0 }}>Choose a system to plan: type its name{where !== 'noScope' ? `, take where ${mainName} is` : ''}{colonySystems.length ? ', or one your colonies are in' : ''}.</p>}
     </div>
   );
 }
@@ -552,7 +625,7 @@ function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => v
 /** A kept plan as Setups draws it (planner fix 2): the plan, it worked out on today's inputs, the layout offered beside it and what changed. */
 type KeptView = { plan: KeptPlan; now: Setup | null; newer: { s: Setup; more: number | null } | null; changed: string[]; forget: () => void };
 
-function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf, kept = null, onKeep = null, check = null, board = null }: {
+function Setups({ setups, working, ix, planets, chars, shown, name, programHours, good, accountOf, kept = null, onKeep = null, check = null, board = null, progress = null, openKind = null, openSaid = null, whatIf = false, unticked = [] }: {
   setups: Setup[] | null; working: string | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
   programHours: number; good: number | null;
   /** Each character's account, as the Characters page sets it: the repeat line counts months of Omega by account, a chain names them. */
@@ -563,6 +636,16 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   onKeep?: ((s: Setup) => void) | null;
   /** Check my setup on each planet card (planets-board.md); null offers none. `board`: the system and good, in each card's key. */
   check?: CheckCtx | null; board?: BoardKey | null;
+  /** How far the rows have got (planets-flow.md: step 4's progress), in words with its share; null when there's no count to give. */
+  progress?: { said: string; frac: number | null } | null;
+  /** Step 2's setup type (planets-flow.md): the row that opens by itself, the pinned kind's or the best for the characters ticked. */
+  openKind?: SetupKind | null;
+  /** Why that row is open, its tag ("Best for the 3 characters ticked", "Pinned on step 2"); null says nothing. */
+  openSaid?: string | null;
+  /** Step 2's skills what-if is on: said on every opened row's glance. */
+  whatIf?: boolean;
+  /** Characters doing planetary industry left out on step 2: the repeat line says it doesn't count them. */
+  unticked?: PlanChar[];
 }) {
   // One PLEX reading for every row (the same one Omega's page keeps in meta.plex), and one clock for its age.
   const plex = usePlexPrice();
@@ -571,8 +654,9 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   const [others, setOthers] = useState(false);
   const omega = { price: plex.price, perMonth: settings.plexPerMonth, typed: settings.plexPrice > 0, at: plex.read?.at, now: plexNow };
   // Plan it's rows are the live pass's alone (planner fix 2): until it lands, nothing is drawn as the answer.
-  const waiting = <p className="note small" style={{ margin: 0 }} data-planets="working">{good != null ? 'Working it out…' : 'Working out each setup…'}</p>;
-  const keptBlock = kept && <KeptPlanBlock kept={kept} good={good!} name={name} onKeep={onKeep}
+  const waiting = progress ? <Busy said={progress.said} frac={progress.frac} />
+    : <p className="note small" style={{ margin: 0 }} data-planets="working">{good != null ? 'Working it out…' : 'Working out each setup…'}</p>;
+  const keptBlock = kept && <KeptPlanBlock kept={kept} good={good!} name={name} onKeep={onKeep} whatIf={whatIf}
     row={(s, tag, opens) => <SetupRow key={tag} s={s} rank={null} best={null} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf} tag={tag} opens={opens} check={check} board={board} />} />;
   if (!setups) return kept ? <div className="col" style={{ gap: 10 }}>{keptBlock}{waiting}</div> : waiting;
   // Plan it: the setups that make the good from the system's planets, the most a day first; bought apart, below them (planner fix 1):
@@ -582,12 +666,13 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   const best = ranked.find((s) => s.iskDay != null) ?? null;
   const feedRow = setups.find((x) => x.kind === 'feed') ?? null;
   const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf}
-    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} check={check} board={board} feed={s.kind === 'team' ? feedRow : null} />;
+    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} check={check} board={board} feed={s.kind === 'team' ? feedRow : null}
+    opens={openKind != null && rank != null ? s.kind === openKind : undefined} openSaid={openKind != null && rank != null && s.kind === openKind ? openSaid : null} whatIf={whatIf} unticked={unticked} />;
   const ranking = (
     <>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
         <span className="panel-title">{good != null ? `The setups that make ${name(good)}, the most first` : 'The setups, best first'}</span>
-        {working && <span className="note small" data-planets="working">{working}</span>}
+        {working && <span className="note small" data-planets="working">{progress ? `${working.replace(/…$/, '')}: ${progress.said.charAt(0).toLowerCase()}${progress.said.slice(1)}` : working}</span>}
       </div>
       <span className="note small">Worked out at the program length above and the customs tax and extraction rates below; change any and they are worked out again.</span>
       {good != null && <span className="note small" data-planets="units-first">Each makes as much {name(good)} as its planets can at your skills; what else it makes is said, with what it fetches. Its ISK is every {name(good)} at today’s price: how fast they sell is yours to judge.</span>}
@@ -620,8 +705,10 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
  * Forget this plan, and beside it the layout offered when today's best makes `KEEP_MARGIN` more of the good, with what changed and Use
  * the new one. Never put in the kept plan's place by itself.
  */
-function KeptPlanBlock({ kept, good, name, onKeep, row }: {
+function KeptPlanBlock({ kept, good, name, onKeep, row, whatIf = false }: {
   kept: KeptView; good: number; name: (id: number) => string; onKeep: ((s: Setup) => void) | null;
+  /** Step 2's what-if is on (planets-flow.md): a kept plan is worked out at the skills as they are, said. */
+  whatIf?: boolean;
   row: (s: Setup, tag: string, opens: boolean) => ReactNode;
 }) {
   const { plan, now, newer, changed } = kept;
@@ -636,6 +723,7 @@ function KeptPlanBlock({ kept, good, name, onKeep, row }: {
       </div>
       <span className="note small" data-planets="kept-said">Kept {fmtShort(plan.at)}, when it made {aDay(plan.made)} {g} a day{plan.kind === 'chain' || plan.kind === 'team' ? ' in all' : ''}. Its planets and what each runs stay as kept; what it makes and fetches is worked out on today’s rates and prices.
         <Tip title="Your kept plan" text={'The plan you kept for this system and good, so it stays put while you build it.\n\n• Its planets, each extractor’s P0, heads and Basics, and the factories stay as kept, whatever today’s rates would rank first.\n• What it makes and fetches follows today’s rates, prices, taxes and the character shown, within those factories.\n• A newer layout is offered beside it only when it makes at least 5% more; Forget this plan lets it go.'} /></span>
+      {whatIf && <span className="note small pl-up" data-planets="kept-whatif">Kept plans are worked out at your skills as they are, not the what-if.</span>}
       {now ? row(now, `kept-setup:${now.kind}`, true) : <p className="note small" style={{ margin: 0 }} data-planets="working">Working it out…</p>}
       {newer && (
         <div className="col inset-box" style={{ gap: 8 }} data-planets="newer">
@@ -654,7 +742,7 @@ function KeptPlanBlock({ kept, good, name, onKeep, row }: {
 type BoardKey = { systemId: number; good: number | null };
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan', check = null, board = null, feed = null }: {
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan', check = null, board = null, feed = null, whatIf = false, unticked = [], openSaid = null }: {
   /** Its place in the ranking; null for one shown apart (Plan it's bought, a kept plan, the layout offered beside it). */
   s: Setup; rank: number | null; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
   accountOf: (charId: number) => AccountRef | null;
@@ -665,6 +753,12 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   check?: CheckCtx | null; board?: BoardKey | null;
   /** A factory character's row: the fed factory beside it, whose repeat line it's set against ("+34 a day, 10% more than each of you repeating your own"). */
   feed?: Setup | null;
+  /** Step 2's what-if is on (planets-flow.md): said on the glance. */
+  whatIf?: boolean;
+  /** Characters left out on step 2: the repeat line says so. */
+  unticked?: PlanChar[];
+  /** Why step 2 opens this row (planets-flow.md), as a tag on it; null says nothing. */
+  openSaid?: string | null;
 }) {
   // The plan board (planets-board.md): every setup is a compact row (its kind, its figure, the planets it uses and its tags) until it's
   // opened, when it shows the plan at a glance and a card for each planet; the fine print folds under Details. The best opens by itself.
@@ -738,6 +832,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   const teamPlanets = isTeam ? s.perChar.reduce((n, p) => n + (who(p.charId)?.planets ?? 0), 0) : 0;
   const usedSaid = s.why != null ? null : isTeam ? `${used.length} of ${teamPlanets} planets across ${inChain.length} characters` : perChar ? `${used.length} planets across ${inChain.length} characters` : `${used.length} of ${shown.planets ?? '–'} planets`;
   const tags: { k: string; l: string; tip: string; c?: string }[] = [
+    ...(openSaid ? [{ k: 'open', l: openSaid, tip: openSaid.startsWith('Pinned') ? 'Step 2 pins this setup type, so its row opens; the others stay folded.' : 'The most of the good a day across the characters ticked on step 2: a one-character setup counted on each character it suits, a team in all. The rank beside each row is per character, as ever.', c: 'blue' }] : []),
     ...(s.cut && s.why == null ? [{ k: 'cut', l: 'May be short', tip: 'The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.' }] : []),
     ...(unfitSaid ? [{ k: 'unfit', l: 'Doesn’t fit', tip: `${unfitSaid}${lacks ? `\n\n${lacks}.` : ''}`, c: 'red' }] : []),
     ...(noRate ? [{ k: 'norate', l: 'No rate yet', tip: noRate }] : []),
@@ -788,12 +883,14 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
       {open && priced && (
         <>
+          {whatIf && <span className="note small pl-up" data-planets="glance-whatif">{WHAT_IF_SAID}.</span>}
           <Glance s={s} per={per} chainAll={chainAll} share={share} cost={cost} omega={omega} perChar={perChar && !isTeam} name={name} usedSaid={usedSaid}
             resets={resetsTile(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} accts={accts} />
           {isTeam && s.team && <TeamLines s={s} feed={feed} name={name} pname={pname} who={(id: number) => who(id)?.name ?? `Character ${id}`} accountOf={accountOf} used={used} />}
           {/* A kept plan's own words (planner fix 2): planets it takes past what the character shown has. */}
           {(s.kept?.notes ?? []).map((k) => <span key={k} className="note small pl-up" data-planets="kept-note">{`${k}.`}</span>)}
-          {s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} />}
+          {s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} unticked={unticked} />}
+          {!s.repeat && s.kind !== 'chain' && s.kind !== 'team' && unticked.length > 0 && <span className="note small" data-planets="repeat-unticked">Not repeated on {listSaid(unticked.map((x) => x.name))}: unticked on step 2.</span>}
           {(s.kind === 'chain' || (lacks && !isTeam)) && (
             <div className="col pl-lines">
               {s.kind === 'chain' && s.perChar.map((p) => {
@@ -981,8 +1078,10 @@ function RoleWords({ r, s, pname, name, untaxed }: {
  * character to make things simple to manage and scale"), valued together on what they make (`Repeat`), with whom it doesn't suit and
  * why, what holds the figure under so many times one's, and a clone not read said.
  */
-function RepeatLine({ r, chars, shown, name, omega, accountOf }: {
+function RepeatLine({ r, chars, shown, name, omega, accountOf, unticked = [] }: {
   r: Repeat; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; accountOf: (charId: number) => AccountRef | null;
+  /** Characters doing planetary industry left out on step 2 (planets-flow.md): not counted, and said. */
+  unticked?: PlanChar[];
 }) {
   const who = (id: number) => chars.find((x) => x.charId === id)?.name ?? `Character ${id}`;
   const all = r.chars.length;
@@ -1015,6 +1114,7 @@ function RepeatLine({ r, chars, shown, name, omega, accountOf }: {
       {caps.length > 0 && <> {cap(caps.map(capSaid).join('; '))}.</>}
       {out.map((c) => <span key={c.charId} data-planets={`repeat-out:${c.charId}`}> {who(c.charId)}: {c.why}.</span>)}
       {unread.length > 0 && <> {unread.length === 1 ? `${who(unread[0].charId)}’s clone state isn’t read` : `The clone states of ${listSaid(unread.map((c) => who(c.charId)))} aren’t read`}: counted as Omega.</>}
+      {unticked.length > 0 && <span data-planets="repeat-unticked"> Not counted: {listSaid(unticked.map((c) => c.name))}, unticked on step 2.</span>}
       <Tip title="Repeated on each character" text={'Each character runs this same layout on the same planets: a character holds one colony a planet, so each has its own colony on every planet this uses.\n\n• Valued on what they make together: each good summed and sold once, so a market that can’t take that many times as much sells less, and what doesn’t sell builds up, untaxed.\n• Customs on what each colony exports; a bought setup’s inputs summed and bought once, every colony sized together to its last paying unit.\n• A character with fewer planets, or at a lower Command Center Upgrades level this layout doesn’t fit at, isn’t counted, and says why.'} />
     </span>
   );
