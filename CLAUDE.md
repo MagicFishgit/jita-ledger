@@ -200,6 +200,7 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `planets-kept.md`: Keep this plan, the learned rates' record that outlasts a colony, and Plan it's rows drawn from the live pass once.
 - `planets-board.md`: Plan's setups as a board of planet cards, each planet's Build it, and Check my setup against a colony.
 - `planets-finder.md`: Find, a region's systems planned for one good (the bundle's planet types and regions).
+- `planets-chart.md`: the Chart, every good by tier, a picked good's recipe drawn and which setups can make it.
 
 Always loaded, imported below, because they apply to any change:
 
