@@ -28,7 +28,8 @@ first, 7M4C-F about 18th), where a team's best is the systems with two or more p
   of the choice and of Find, and Plan still shows it under "Or buy the inputs instead". A kept type that can't make the good gives way to the best
   for this team, said, and comes back with a good it can (`kindFor`). **Skills**: as they are, or everyone at Interplanetary Consolidation V and
   Command Center Upgrades V (`atV`: six planets and V for each character ticked; rates never touched), said on step 2, step 3's head (`find-whatif`),
-  step 4's head (`plan-flow`) and every opened row's glance (`glance-whatif`).
+  step 4's head (`plan-flow`) and every opened row's glance (`glance-whatif`). Its switch reads "Everyone at V", the skills in its tip and the line
+  under it: the full words stuck out 339 px past a phone's edge and failed the deploy's check-phone (25 October 2026).
 - **The choices are Plan's too, and the Chart's** (`usePlanning`'s `flow`, `flowTeam`): the planner plans for the factory character with the others
   ticked (`others`), at V with the what-if; Alphas and characters not read stay among the others as they are, so the chain and the team still say
   an Alpha could make one up once Omega. So the repeat line, the chain and the factory character count only those ticked, and one left out is said

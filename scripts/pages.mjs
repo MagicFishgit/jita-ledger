@@ -5040,7 +5040,7 @@ try {
       const kinds = await page.locator('[data-planets^="kind:"]').evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-planets'), x.getAttribute('aria-checked'), x.getAttribute('aria-disabled')]));
       if (JSON.stringify(kinds) !== JSON.stringify([['kind:best', 'true', 'false'], ['kind:p1', 'false', 'true'], ['kind:p2', 'false', 'true'], ['kind:feed', 'false', 'false'], ['kind:team', 'false', 'false'], ['kind:chain', 'false', 'false']])) problems.push(`steps: the setup types (checked, disabled): ${JSON.stringify(kinds)}`);
       if (!/Can’t make Gel-Matrix Biopaste: it sells P1 only\./.test(await text('[data-planets="kind:p1"]'))) problems.push(`steps: P0 → P1 doesn't say why it can't: “${await text('[data-planets="kind:p1"]')}”`);
-      await page.locator('[data-planets="setup-skills"] button', { hasText: 'Everyone at Interplanetary Consolidation V' }).click().catch((e) => problems.push(`steps: no what-if: ${e.message.split('\n')[0]}`));
+      await page.locator('[data-planets="setup-skills"] button', { hasText: 'Everyone at V' }).click().catch((e) => problems.push(`steps: no what-if: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(300);
       if (!/^Planned as if everyone had Interplanetary Consolidation V and Command Center Upgrades V/.test((await text('[data-planets="setup-whatif"]')).trim())) problems.push(`steps: step 2 doesn't say the what-if: “${await text('[data-planets="setup-whatif"]')}”`);
       if (SHOTS) { await page.screenshot({ path: `${SHOTS}-planets-flow-2-who.png` }); }

@@ -100,7 +100,7 @@ export function PlanetsSetup({ chars, shown, onShow, flow, onFlow, ix, good }: {
         <Seg label="Skills to plan at" value={flow.atV ? 'v' : 'now'} onChange={(v) => onFlow({ ...flow, atV: v === 'v' })}
           options={[
             { v: 'now', label: 'As they are now', tip: 'Each character’s own Interplanetary Consolidation and Command Center Upgrades, as last read' },
-            { v: 'v', label: 'Everyone at Interplanetary Consolidation V and Command Center Upgrades V', tip: 'A what-if: each character ticked plans with six planets and Command Center Upgrades V. Your learned rates stay as they are: never scaled by heads' },
+            { v: 'v', label: 'Everyone at V', tip: 'A what-if: each character ticked plans at Interplanetary Consolidation V (six planets) and Command Center Upgrades V. Your learned rates stay as they are: never scaled by heads' },
           ]} />
         {flow.atV && <span className="note small" data-planets="setup-whatif">{WHAT_IF_SAID}: six planets each, every layout fitted at V. The extraction rates are your learned ones, unchanged.</span>}
       </div>
