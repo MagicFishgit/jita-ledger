@@ -27,6 +27,17 @@ the board draws its roles. The ranking is in planets-planner.md, a kept plan in 
     where the planet's own rate is well under its type's (`poorShare`, planet rates); on the card, "Doesn't fit at your level" (red) with
     what to train. Each line's ⓘ and heads chip carry its rate in words (`rateSaid`: "learned on this planet: about 67% a head of your
     other Gas planets").
+  - **A factory character's board** (`layout: 'team'`, planets-team.md): its factory planets stacked on the right, its feeders a group a
+    character, each folded to one line (who, its account, its planets and what it sends a day) until opened, a line from each group to
+    the factory column with its m³ and the good a day it's worth; a feeder's P2 is "As well" on its card and routed "as well as its P1".
+  - **Heads to reach the Basics' need** (`headsNeeded`, `headsNeedSaid`; the user, 25 October 2026: "the extra level will help me install
+    more heads so i can be sure to hit the 18k average extraction needed to run the 3 basic factories"), on every board: where a line's
+    rate is short of what its Basics take, its ⓘ and its Build it step say the heads that fit for it at the card's own character's level
+    beside the planet's factories (`maxHeads`, the planet's own radius, the other lines at their heads, at most ten) and the yield a head
+    needed there against the yield a head the rate was learned at ("3 Basics take 18,000 an hour: at 7 heads that’s 2,572 a head; this
+    line was learned at 2,300 a head (5 heads)"), never as a promise: heads overlap and the planet depletes, and a rate is never scaled by
+    heads (planets.md). A line's Basics are the ones on the P1 its P0 makes. check.mjs: beside 6 Basics and a launchpad, 11 heads fit at
+    CCU IV and 14 at V on the bundle's median Barren (3,750 km) and Lava (3,360), 10 and 14 on Gas (26,370).
 - **The fine print folds under "What it makes, and the details"**: the setup's notes (cut, before the tax, no rate, Valued at Jita's,
   unvalued, doesn't fit), what it makes, valued, what it buys, the upkeep tiles, the planets not used, "How to build it", and each card's
   words (`RoleWords`: the old planet line's Extracts, Takes in, Makes, Ships, Customs and the planner's notes, whole). The page check reads

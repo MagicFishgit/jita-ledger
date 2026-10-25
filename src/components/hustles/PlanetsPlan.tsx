@@ -31,6 +31,7 @@ import { LIVE_READ_BOUND_MS, useHomeHubs, useIndustryDoc } from './industryMarke
 import type { SystemPlanet } from './planetsMarket';
 import { NO_SYS, usePlanning } from './planetsPlanning';
 import { PlanetBoard, type CheckCtx } from './PlanetBoard';
+import { TeamLines } from './PlanetsTeam';
 import { useMainSystem } from './rightNow';
 
 /** An amount a day as a pace is said (N2): whole from 10, one decimal under it, "under 0.1" below that; never a known 0.4 read as 0. */
@@ -50,6 +51,7 @@ export const KIND: Record<SetupKind, { label: string; tip: string }> = {
   feed: { label: 'Planets feeding a factory planet', tip: 'Some planets make P1 (or a P2 alone) and ship it to one factory planet in the system that makes a P2 or P3 from it.\n\n• Includes the P2s no single planet can make.\n• Each feeder pays export tax, the factory half that to import, and the factory is sized to what it is fed.' },
   bought: { label: 'A factory planet on bought inputs', tip: 'Factory planets with no extractors: they buy P1, P2 or P3 at the market and make P2, P3 or P4.\n\n• P4 only on Barren and Temperate planets, in High-Tech Production Plants.\n• Each pays import tax on what it buys and export tax on what it sells, and its launchpad is restocked as it empties.' },
   chain: { label: 'A chain across characters', tip: 'A P4 (or a P3) whose planets are more than one character has: each character in it extracts or builds a part.\n\n• Ranked by ISK a day per character in it, so it compares with one character’s setups like for like.\n• Uses characters whose skills are read, in roster order from the one shown.' },
+  team: { label: 'A factory character', tip: 'The character shown makes the good on factory planets of its own, as many as the run needs, and every character doing planetary industry feeds them, its own other planets too.\n\n• Each character’s colonies run the planner’s own one-planet layouts at its own Command Center Upgrades level, and a feeder may make a P2 beside its P1.\n• The others hand what they make to the factory character (a contract, docked), who imports it at half the export tax.\n• Ranked by the good a day per character in it, so it compares with one character’s setups like for like.' },
 };
 const FAC: Record<Facility, [string, string]> = {
   basic: ['Basic Industry Facility', 'Basic Industry Facilities'],
@@ -178,7 +180,7 @@ function Who({ c, pc }: { c: IndustryChar; pc: PlanChar }) {
 }
 
 /** A setup's kind in a few words, for the head line's "(bought, Broadcast Node)". */
-const SHORT: Record<SetupKind, string> = { p1: 'P0 → P1', p2: 'P0 → P2', feed: 'a fed factory', bought: 'bought', chain: 'a chain' };
+const SHORT: Record<SetupKind, string> = { p1: 'P0 → P1', p2: 'P0 → P2', feed: 'a fed factory', bought: 'bought', chain: 'a chain', team: 'a factory character' };
 /** What a setup makes, for the head line: its shipped outputs of the highest tier, the most ISK first, two named and the rest counted. */
 function makesSaid(s: Setup, ix: PiIndex): string {
   const tier = (id: number) => ['P0', 'P1', 'P2', 'P3', 'P4'].indexOf(ix.byId.get(id)?.tier ?? 'P0');
@@ -201,12 +203,14 @@ function PlanningGood({ ix, good, name, who, system, all, held, onEvery }: {
   const best = all?.find((s) => s.iskDay != null) ?? null;
   const mine = held?.find((s) => s.iskDay != null && s.kind !== 'bought') ?? null;
   const g = name(good);
-  const perChar = (s: Setup) => (s.kind === 'chain' ? ' per character' : '');
+  const perChar = (s: Setup) => (s.kind === 'chain' || s.kind === 'team' ? ' per character' : '');
+  // A factory character's ISK in all: its feeders earn nothing alone, so a figure per character would only be a share (its rank is per character).
+  const iskSaid = (s: Setup) => (s.kind === 'team' && s.perChar.length && s.iskDay != null ? `${iskBig(s.iskDay * s.perChar.length)} a day in all` : `${iskBig(s.iskDay)} a day${perChar(s)}`);
   let cost: string | null = null;
   if (best && held) {
     const head = `Every product’s best here: ${iskBig(best.iskDay)} a day${perChar(best)} (${SHORT[best.kind]}, ${makesSaid(best, ix)}), at what the markets take at your share`;
     cost = !mine ? `${head}. Nothing here makes ${g} from the system’s planets with a figure.`
-      : `${head}. ${g}’s best${mine.made ? ` makes ${aDay(mine.made.perDay)} a day${mine.kind === 'chain' ? ' in all' : ''}` : ''} (${SHORT[mine.kind]}), ${iskBig(mine.iskDay)} a day${perChar(mine)} if every one sells at today’s price.`;
+      : `${head}. ${g}’s best${mine.made ? ` makes ${aDay(mine.made.perDay)} a day${mine.kind === 'chain' || mine.kind === 'team' ? ' in all' : ''}` : ''} (${SHORT[mine.kind]}), ${iskSaid(mine)} if every one sells at today’s price.`;
   }
   return (
     <div className="col" style={{ gap: 4 }} data-planets="planning">
@@ -576,8 +580,9 @@ function Setups({ setups, working, ix, planets, chars, shown, name, programHours
   const ranked = good != null ? setups.filter((s) => s.kind !== 'bought') : setups;
   const buyInstead = good != null ? setups.find((s) => s.kind === 'bought') ?? null : null;
   const best = ranked.find((s) => s.iskDay != null) ?? null;
+  const feedRow = setups.find((x) => x.kind === 'feed') ?? null;
   const row = (s: Setup, rank: number | null) => <SetupRow key={s.kind} s={s} rank={rank} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} omega={omega} programHours={programHours} accountOf={accountOf}
-    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} check={check} board={board} />;
+    onKeep={onKeep && keepable(s) ? () => onKeep(s) : null} keepSaid={kept ? 'Keep this plan instead' : 'Keep this plan'} check={check} board={board} feed={s.kind === 'team' ? feedRow : null} />;
   const ranking = (
     <>
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
@@ -622,14 +627,14 @@ function KeptPlanBlock({ kept, good, name, onKeep, row }: {
   const { plan, now, newer, changed } = kept;
   const g = name(good);
   const per = (s: Setup) => (s.made ? s.made.perDay : 0);
-  const chainSaid = (s: Setup) => (s.kind === 'chain' ? ' in all' : '');
+  const chainSaid = (s: Setup) => (s.kind === 'chain' || s.kind === 'team' ? ' in all' : '');
   return (
     <div className="col" style={{ gap: 10 }} data-planets="kept">
       <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
         <span className="panel-title">Your kept plan</span>
         <button type="button" className="link-btn" onClick={kept.forget} data-planets="forget">Forget this plan</button>
       </div>
-      <span className="note small" data-planets="kept-said">Kept {fmtShort(plan.at)}, when it made {aDay(plan.made)} {g} a day{plan.kind === 'chain' ? ' in all' : ''}. Its planets and what each runs stay as kept; what it makes and fetches is worked out on today’s rates and prices.
+      <span className="note small" data-planets="kept-said">Kept {fmtShort(plan.at)}, when it made {aDay(plan.made)} {g} a day{plan.kind === 'chain' || plan.kind === 'team' ? ' in all' : ''}. Its planets and what each runs stay as kept; what it makes and fetches is worked out on today’s rates and prices.
         <Tip title="Your kept plan" text={'The plan you kept for this system and good, so it stays put while you build it.\n\n• Its planets, each extractor’s P0, heads and Basics, and the factories stay as kept, whatever today’s rates would rank first.\n• What it makes and fetches follows today’s rates, prices, taxes and the character shown, within those factories.\n• A newer layout is offered beside it only when it makes at least 5% more; Forget this plan lets it go.'} /></span>
       {now ? row(now, `kept-setup:${now.kind}`, true) : <p className="note small" style={{ margin: 0 }} data-planets="working">Working it out…</p>}
       {newer && (
@@ -649,7 +654,7 @@ function KeptPlanBlock({ kept, good, name, onKeep, row }: {
 type BoardKey = { systemId: number; good: number | null };
 type OmegaCost = { price: number | null; perMonth: number; typed: boolean; at: string | undefined; now: number };
 
-function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan', check = null, board = null }: {
+function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, programHours, accountOf, tag, opens, onKeep = null, keepSaid = 'Keep this plan', check = null, board = null, feed = null }: {
   /** Its place in the ranking; null for one shown apart (Plan it's bought, a kept plan, the layout offered beside it). */
   s: Setup; rank: number | null; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string; omega: OmegaCost; programHours: number;
   accountOf: (charId: number) => AccountRef | null;
@@ -658,6 +663,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   /** Plan it: keeps this setup as the plan for its system and good (planner fix 2); null when it can't be kept. */
   onKeep?: (() => void) | null; keepSaid?: string;
   check?: CheckCtx | null; board?: BoardKey | null;
+  /** A factory character's row: the fed factory beside it, whose repeat line it's set against ("+34 a day, 10% more than each of you repeating your own"). */
+  feed?: Setup | null;
 }) {
   // The plan board (planets-board.md): every setup is a compact row (its kind, its figure, the planets it uses and its tags) until it's
   // opened, when it shows the plan at a glance and a card for each planet; the fine print folds under Details. The best opens by itself.
@@ -675,15 +682,20 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   const who = (id: number) => chars.find((x) => x.charId === id);
   const used = s.roles.filter((r) => r.does !== 'unused');
   const unused = s.roles.filter((r) => r.does === 'unused');
-  const inChain = s.kind === 'chain' && s.why == null ? s.perChar.map((p) => who(p.charId)?.name ?? `Character ${p.charId}`) : [];
+  const isTeam = s.kind === 'team';
+  const inChain = (s.kind === 'chain' || isTeam) && s.why == null ? s.perChar.map((p) => who(p.charId)?.name ?? `Character ${p.charId}`) : [];
   const label = s.kind === 'chain' && inChain.length === 1 ? `A P4 chain on ${inChain[0]}’s planets` : KIND[s.kind].label;
-  const perChar = s.kind === 'chain' && inChain.length > 1;
+  const perChar = (s.kind === 'chain' || isTeam) && inChain.length > 1;
   const priced = s.why == null && s.iskDay != null;
   const high = s.iskDayHigh != null && s.iskDay != null && Math.abs(s.iskDayHigh - s.iskDay) >= 1;
+  // A factory character's ISK is the team's in all (ranked per character, as a chain): its glance is in all, against the months of Omega of
+  // the accounts it uses (as Colonies' All).
+  const teamIsk = isTeam && priced && s.perChar.every((p) => p.iskDay != null) ? s.perChar.reduce((t, p) => t + p.iskDay!, 0) : null;
+  const accts = isTeam ? accountCount(s.perChar.map((p) => accountOf(p.charId)?.id ?? null)) : null;
   // Ruling F10: the day as a week and a month, and the month against a month of Omega (one account's). Not known is "–", never 0.
-  const per = priced ? periods(s.iskDay) : null;
-  const chainAll = per && perChar && s.perChar.every((p) => p.iskDay != null) ? periods(s.perChar.reduce((t, p) => t + p.iskDay!, 0)) : null;
-  const share = per ? omegaShare(per.month, omega.perMonth, omega.price) : null;
+  const per = priced ? periods(isTeam ? teamIsk : s.iskDay) : null;
+  const chainAll = per && perChar && !isTeam && s.perChar.every((p) => p.iskDay != null) ? periods(s.perChar.reduce((t, p) => t + p.iskDay!, 0)) : null;
+  const share = per ? omegaShare(per.month / (accts?.k ?? 1), omega.perMonth, omega.price) : null;
   const cost = monthOfOmega(omega.perMonth, omega.price);
   const taxedPlanets = new Set(s.taxes.filter((t) => t.perDay == null).map((t) => t.planetId));
   // Said where the row is, folded or open: why it has no figure.
@@ -714,8 +726,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
   // Plan it ranks by the good's units (planner fix 1), so the gap is said in them.
   const gapSaid = s.kind !== 'p2' ? null : !priced ? 'No figure to set against the best here.'
     : best === s || !best || best.iskDay == null ? 'The best here.'
-      : s.made && best.made ? `${aDay(Math.max(0, best.made.perDay - s.made.perDay))} ${name(s.made.id)} a day under the best here${best.kind === 'chain' ? ' (a chain’s in all)' : ''}.`
-        : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
+      : s.made && best.made ? `${aDay(Math.max(0, best.made.perDay - s.made.perDay))} ${name(s.made.id)} a day under the best here${best.kind === 'chain' ? ' (a chain’s in all)' : best.kind === 'team' ? ' (a factory character’s in all)' : ''}.`
+        : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' || best.kind === 'team' ? ` (a ${best.kind === 'chain' ? 'chain' : 'factory character'}’s figure is per character)` : ''}.`;
   const steps = how ? setupSteps(s.kind, {
     p0s: [...new Set(used.flatMap((r) => r.extracts.map((e) => name(e.p0))))],
     makes: [...new Set(used.filter((r) => r.does === 'factory' || s.kind === 'p2').flatMap((r) => r.makes.filter((m) => m.facility !== 'basic').map((m) => name(m.id))))],
@@ -723,7 +735,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
     topFrom: factoryRoutes(ix, s),
   }) : [];
   // The planets it uses, against the planets the character shown may have (a chain's across its characters).
-  const usedSaid = s.why != null ? null : perChar ? `${used.length} planets across ${inChain.length} characters` : `${used.length} of ${shown.planets ?? '–'} planets`;
+  const teamPlanets = isTeam ? s.perChar.reduce((n, p) => n + (who(p.charId)?.planets ?? 0), 0) : 0;
+  const usedSaid = s.why != null ? null : isTeam ? `${used.length} of ${teamPlanets} planets across ${inChain.length} characters` : perChar ? `${used.length} planets across ${inChain.length} characters` : `${used.length} of ${shown.planets ?? '–'} planets`;
   const tags: { k: string; l: string; tip: string; c?: string }[] = [
     ...(s.cut && s.why == null ? [{ k: 'cut', l: 'May be short', tip: 'The best of the arrangements tried: the search ran out of its budget first, so it may be well under what this system can do.' }] : []),
     ...(unfitSaid ? [{ k: 'unfit', l: 'Doesn’t fit', tip: `${unfitSaid}${lacks ? `\n\n${lacks}.` : ''}`, c: 'red' }] : []),
@@ -755,7 +768,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
           {priced && s.made ? (
             <>
               <b data-planets="made">{aDay(s.made.perDay)}</b><span className="sub">{name(s.made.id)} a day{perChar ? ' in all' : ''}</span>
-              <span className="sub" data-planets="made-isk">{iskBig(s.iskDay)} a day{perChar ? ' per character' : ''} at today’s price
+              <span className="sub" data-planets="made-isk">{iskBig(isTeam ? teamIsk : s.iskDay)} a day{isTeam ? ' in all' : perChar ? ' per character' : ''} at today’s price
                 <Tip title="At today’s price" text={`Every ${name(s.made.id)} made, at what its first unit fetches today, with no market cap: how fast they sell is yours to judge.\n\n• What else it makes is valued at your share of its own market.\n• Customs on what each planet exports, the factory’s import and export too.`} /></span>
             </>
           ) : priced ? <><b>{iskBig(s.iskDay)}</b><span className="sub">a day{perChar ? ' per character' : ''}</span></> : <b>–</b>}
@@ -775,12 +788,13 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
       {open && priced && (
         <>
-          <Glance s={s} per={per} chainAll={chainAll} share={share} cost={cost} omega={omega} perChar={perChar} name={name} usedSaid={usedSaid}
-            resets={resetsTile(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} />
+          <Glance s={s} per={per} chainAll={chainAll} share={share} cost={cost} omega={omega} perChar={perChar && !isTeam} name={name} usedSaid={usedSaid}
+            resets={resetsTile(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} accts={accts} />
+          {isTeam && s.team && <TeamLines s={s} feed={feed} name={name} pname={pname} who={(id: number) => who(id)?.name ?? `Character ${id}`} accountOf={accountOf} used={used} />}
           {/* A kept plan's own words (planner fix 2): planets it takes past what the character shown has. */}
           {(s.kept?.notes ?? []).map((k) => <span key={k} className="note small pl-up" data-planets="kept-note">{`${k}.`}</span>)}
           {s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} />}
-          {(s.kind === 'chain' || lacks) && (
+          {(s.kind === 'chain' || (lacks && !isTeam)) && (
             <div className="col pl-lines">
               {s.kind === 'chain' && s.perChar.map((p) => {
                 const ch = who(p.charId);
@@ -793,7 +807,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
               {s.kind !== 'chain' && lacks && <span className="pl-line" data-planets="train">{lacks}.</span>}
             </div>
           )}
-          <PlanetBoard s={s} ix={ix} planets={planets} chars={chars} name={name} details={details} programHours={programHours} systemId={board?.systemId ?? 0} good={board?.good ?? null} ctx={check}
+          <PlanetBoard s={s} ix={ix} planets={planets} chars={chars} name={name} details={details} programHours={programHours} systemId={board?.systemId ?? 0} good={board?.good ?? null} ctx={check} accountOf={accountOf}
             words={(r) => <RoleWords r={r} s={s} pname={pname} name={name} untaxed={taxedPlanets.has(r.planetId)} />} />
           <div><Toggle open={details} onToggle={() => setDetails(!details)}>What it makes, and the details</Toggle></div>
           {details && (
@@ -845,24 +859,30 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
  * and a month; the month against a month of Omega; the planets it uses; how often it's reset. Each figure's words and qualifiers are
  * its tile's note or tip, as they were beside the figure.
  */
-function Glance({ s, per, chainAll, share, cost, omega, perChar, name, usedSaid, resets }: {
+function Glance({ s, per, chainAll, share, cost, omega, perChar, name, usedSaid, resets, accts = null }: {
   s: Setup; per: Periods | null; chainAll: Periods | null; share: number | null; cost: number | null; omega: OmegaCost; perChar: boolean; name: (id: number) => string;
   usedSaid: string | null; resets: { l: string; v: string; n: string };
+  /** A factory character's: the accounts its characters are on (`accountCount`), whose months of Omega its month is set against. */
+  accts?: ReturnType<typeof accountCount> | null;
 }) {
   if (!per) return null;
-  const pc = perChar ? ' per character' : '';
+  const team = s.kind === 'team';
+  const pc = perChar ? ' per character' : team ? ' in all' : '';
   const tiles: { key: string; l: string; v: ReactNode; n?: ReactNode; tip?: string; c?: string }[] = [
-    ...(s.made ? [{ key: 'units', l: `${name(s.made.id)} a day`, v: aDay(s.made.perDay), n: perChar ? 'in all, across its characters' : 'as much as its planets make at your skills', c: 'var(--acc)' }] : []),
+    ...(s.made ? [{ key: 'units', l: `${name(s.made.id)} a day`, v: aDay(s.made.perDay), n: perChar || team ? 'in all, across its characters' : 'as much as its planets make at your skills', c: 'var(--acc)' }] : []),
     { key: 'day', l: 'ISK a day', v: iskBig(per.day), c: 'var(--pos)',
       n: <>{s.made ? `at today’s price${pc}` : pc.trim() || (s.before.includes('tax') ? 'before the customs tax' : 'after customs')}{chainAll && <span data-planets="chain-all">in all {iskBig(chainAll.day)} a day · {iskBig(chainAll.week)} a week · {iskBig(chainAll.month)} a month</span>}</>,
       tip: s.made ? `Every ${name(s.made.id)} made, at what its first unit fetches today, with no market cap: how fast they sell is yours to judge.\n\n• What else it makes is valued at your share of its own market.\n• Customs on what each planet exports, the factory’s import and export too.` : undefined },
     { key: 'week', l: 'A week', v: iskBig(per.week), n: `seven days of it${pc}` },
     { key: 'month', l: 'A month', v: iskBig(per.month), n: `thirty days of it${pc}` },
-    { key: 'omega', l: 'Of a month of Omega', v: share != null ? shareSaid(share) : '–', n: share != null ? `of one account’s month${pc}` : 'PLEX price not read yet',
+    { key: 'omega', l: team ? 'Of their months of Omega' : 'Of a month of Omega', v: share != null ? shareSaid(share) : '–',
+      n: share != null ? (team && accts ? `of ${accts.k === 1 ? 'one account’s month' : `${accts.k} accounts’ months`}${accts.unset ? `, ${accts.unset === 1 ? 'a character’s account' : `${accts.unset} characters’ accounts`} not set` : ''}` : `of one account’s month${pc}`) : 'PLEX price not read yet',
       tip: cost != null
-        ? `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}) over what one account's month of Omega costs: ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.${perChar ? '\n\nA chain’s figure is per character, so this is per character too.' : ''}`
+        ? team && accts
+          ? `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}, every character's colonies) over ${accts.k === 1 ? 'one account’s month of Omega' : `${accts.k} accounts’ months of Omega`}: ${accts.k} × ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost * accts.k)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.\n\n• Omega is an account's: set which account each character is on on the Characters page.${accts.unset ? `\n• ${accts.unset === 1 ? 'A character whose account isn’t set counts' : 'Characters whose accounts aren’t set count'} as an account of ${accts.unset === 1 ? 'its' : 'their'} own.` : ''}`
+          : `${shareSaid(share ?? 0)} = a month of this setup (${iskBig(per.month)}, thirty days of ${iskBig(per.day)}) over what one account's month of Omega costs: ${units(omega.perMonth)} PLEX × ${iskBig(omega.price)} = ${iskBig(cost)}.\n\nThe price is ${omega.typed ? 'the one typed on Omega' : `the Global PLEX Market’s lowest sell, read ${ago(omega.at, omega.now)}`}.${perChar ? '\n\nA chain’s figure is per character, so this is per character too.' : ''}`
         : 'The PLEX price hasn’t been read yet, so a month of Omega can’t be priced. It is read when this page opens; type one on Omega to use your own.' },
-    ...(usedSaid ? [{ key: 'planets', l: 'Planets used', v: usedSaid.split(' planets')[0], n: usedSaid.includes('across') ? usedSaid.slice(usedSaid.indexOf('across')) : 'of the planets you may have' }] : []),
+    ...(usedSaid ? [{ key: 'planets', l: 'Planets used', v: usedSaid.split(' planets')[0], n: usedSaid.includes('across') ? `${team ? 'of their planets, ' : ''}${usedSaid.slice(usedSaid.indexOf('across'))}` : 'of the planets you may have' }] : []),
     { key: 'resets', l: resets.l, v: resets.v, n: resets.n },
   ];
   return (
@@ -1062,12 +1082,12 @@ function resetsTile(s: Setup, programHours: number, charName: (id: number) => st
     return `${rs.length} planet${rs.length === 1 ? '' : 's'}${e !== rs.length ? ` (${e} extractor${e === 1 ? '' : 's'})` : ''}`;
   };
   const byChar = [...new Set(ext.map((r) => r.charId))];
-  const each = s.kind === 'chain' && byChar.length > 1
+  const each = (s.kind === 'chain' || s.kind === 'team') && byChar.length > 1
     ? `${byChar.map((id) => `${charName(id)} ${planetsSaid(ext.filter((r) => r.charId === id))}`).join(', ')} each time`
     : `${planetsSaid(ext)} each time`;
   // A program over a week: a sitting every so many weeks, each resetting every planet, never "one every 1.2 weeks sittings".
   const week = sittings < 1 - 1e-9 ? `one sitting every ${weeksSaid(1 / sittings)}`
-    : `about ${perWeekSaid(sittings)} sitting${Math.abs(sittings - 1) < 0.05 ? '' : 's'}${s.kind === 'chain' && byChar.length > 1 ? ' a character' : ''} and ${perWeekSaid(ext.length * sittings)} planet resets a week`;
+    : `about ${perWeekSaid(sittings)} sitting${Math.abs(sittings - 1) < 0.05 ? '' : 's'}${(s.kind === 'chain' || s.kind === 'team') && byChar.length > 1 ? ' a character' : ''} and ${perWeekSaid(ext.length * sittings)} planet resets a week`;
   return { l: 'Resets', v: every, n: `${each}: ${week}` };
 }
 

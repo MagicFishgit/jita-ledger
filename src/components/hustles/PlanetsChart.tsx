@@ -365,6 +365,7 @@ function Makes({ id, ix, p, sysName, onPlan, onPlanGood }: { id: number; ix: PiI
     if (x.kind === 'p1' || x.kind === 'p2') return `can make it alone on ${typesOn(x)}.`;
     if (x.kind === 'bought') return `can, on inputs bought at the market, with its factory on ${typesOn(x)}.`;
     if (x.kind === 'chain') return `can${x.when ? `, ${x.when}` : ''}: every P0 it needs is on these planets, extracted across your characters’ colonies, with its factory on ${typesOn(x)}.`;
+    if (x.kind === 'team') return `can${x.when ? `, ${x.when}` : ''}: every P0 it needs is on these planets, extracted across your characters’ colonies and fed to the shown character’s factory planets on ${typesOn(x)}.`;
     return `can: every P0 it needs is on these planets, fed to a factory on ${typesOn(x)}.`;
   };
   const rankSaid = (kind: SetupKind): string => {

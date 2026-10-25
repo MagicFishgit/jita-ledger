@@ -88,7 +88,10 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   load as chunks of their own** (Ruling F2, `section` in Planets.tsx, App.tsx's `page` rule: a renamed chunk reloads once, then
   "Reload to try again"), so the other Side hustles tabs don't carry the planner: SideHustles' chunk went from 637 KB (198 KB
   gzipped) to 481 KB (143 KB) on 24 October 2026; Plan's chunk is 133 KB (48 KB), Colonies' 46 KB (18 KB, and it loads Plan's for
-  its outputs' lines), the Chart's 17 KB (7 KB).
+  its outputs' lines), the Chart's 17 KB (7 KB). **Find put the planner back in Side hustles**: Planets.tsx took `regionOf` from piFinder,
+  which imports piPlan (main, 25 October 2026: 586 KB, 182 KB gzipped; 616 KB, 194 KB, with the team kind). `regionOf` is piBundle's
+  since (piFinder re-exports it): Side hustles 498 KB (150 KB), Plan's chunk 251 KB (89 KB) with the planner and the team kind, Find's
+  21 KB (8 KB), the Chart's and Colonies' 23 KB (9 KB) each. Import nothing from piPlan, piFinder or piTeam in Planets.tsx but types.
   - **Show for** (`jita-ledger:planets-show`, falling back to the main without forgetting the kept one, as Industry's): planets
     allowed (1 + Interplanetary Consolidation, never typed: a skill that sets a figure exactly fills it), the CCU level the fits
     assume, the clone state, and fees from `useIndustryChars`.
@@ -173,6 +176,7 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     (10 extractors) each time: about 2.3 sittings and 11.7 planet resets a week"; a chain's each character's planets.
   - **Chart**: the goods by tier, a picked good's recipe drawn, which setups can make it: planets-chart.md.
   - **Find**, the best systems in a region for one good: planets-finder.md.
+  - **A factory character**, the team kind, one character's factory planets fed by every PI character: planets-team.md.
   - **Phone**: the Chart's tiers wrap two goods a row; a setup's planet lines stack; Colonies in planets-colonies.md.
 - **The page case** (`scripts/pages.mjs`, the `planets` ledger; `scripts/fixtures/planets-5nznw.json`, committed so the deploy
   can read it: 5-NZNW's and UALX-3's planets as ESI answered, the goods' books and Goonmetrics rows from the research's prices)

@@ -60,7 +60,7 @@ export type KeptBasis = {
   planetRates?: Record<string, { from: KeptRateFrom; perHour: number | null }>;
 };
 export type KeptPlan = {
-  kind: 'p1' | 'p2' | 'feed' | 'chain';
+  kind: 'p1' | 'p2' | 'feed' | 'chain' | 'team';
   /** When it was kept, and the good's units a day then. */
   at: string; made: number;
   planets: KeptPlanet[];
@@ -79,6 +79,8 @@ export const MAX_RECORDED_P0S = 40;
 /** At most this many planets in the record of planets' own rates, and this many P0s each (a planet extracts few): past them is junk. */
 export const MAX_RECORDED_PLANETS = 300;
 export const MAX_RECORDED_PLANET_P0S = 10;
+/** At most this many planets in a kept plan (a factory character's holds every character's colonies). */
+export const MAX_KEPT_PLANETS = 120;
 /** At most this many planet-and-P0 rates in a kept plan's basis (a plan has a few planets of a few P0s each). */
 export const MAX_KEPT_PLANET_RATES = 200;
 
@@ -92,14 +94,15 @@ const isType = (k: string): k is PlanetType => (PLANET_TYPES as readonly string[
 const isId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 const count = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max;
 const isDate = (v: unknown): v is string => typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v));
-const KEPT_KINDS = new Set(['p1', 'p2', 'feed', 'chain']);
+const KEPT_KINDS = new Set(['p1', 'p2', 'feed', 'chain', 'team']);
 const RATE_FROM = new Set(['learned', 'before', 'typed', 'otherType', 'otherP0', 'none']);
 
 /** A kept plan as stored, or null when any part of it doesn't read: a plan is kept whole or not at all, never half a layout. */
 function cleanKept(v: unknown): KeptPlan | null {
   if (!isObj(v) || typeof v.kind !== 'string' || !KEPT_KINDS.has(v.kind) || !isDate(v.at)) return null;
   const made = typeof v.made === 'number' && Number.isFinite(v.made) && v.made >= 0 ? v.made : null;
-  if (made == null || !Array.isArray(v.planets) || !v.planets.length || v.planets.length > 40) return null;
+  // A factory character's plan holds every character's colonies: up to ten characters of six planets and their factory planets.
+  if (made == null || !Array.isArray(v.planets) || !v.planets.length || v.planets.length > MAX_KEPT_PLANETS) return null;
   const planets: KeptPlanet[] = [];
   for (const p of v.planets) {
     if (!isObj(p) || !isId(p.planetId) || !isId(p.charId) || (p.does !== 'extract' && p.does !== 'factory') || !Array.isArray(p.lines) || !Array.isArray(p.makes)) return null;

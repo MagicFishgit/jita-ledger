@@ -50,9 +50,8 @@ export function regionSystems(ix: PiIndex, region: Region, radii: Record<string,
   });
 }
 
-/** The region a system is in, or null. */
-export const regionOf = (regions: readonly Region[], systemId: number | null | undefined): Region | null =>
-  (systemId == null ? null : regions.find((r) => r.systems.includes(systemId)) ?? null);
+/** The region a system is in: piBundle.ts' (see there), kept here for the finder's callers. */
+export { regionOf } from './piBundle';
 
 /** The PI planet types a system has, each once, in the bundle's order of types. */
 export const typesOf = (s: FinderSystem): PlanetType[] => [...new Set(s.planets.map((p) => p.type).filter((t): t is PlanetType => !!t))];

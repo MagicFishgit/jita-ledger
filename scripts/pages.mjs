@@ -4249,6 +4249,8 @@ try {
       if (!(await page.locator('[data-planets="buy-instead"] [data-planets="setup:bought"]').count()) || !/^Or buy the inputs instead/i.test((await text('[data-planets="buy-instead"]')).trim())) problems.push('bought isn’t apart, under “Or buy the inputs instead”');
       const order = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-planets')));
       if (order[order.length - 1] !== 'setup:bought') problems.push(`bought isn't below the setups that use the system's planets: ${JSON.stringify(order)}`);
+      // The folds as Plan it leaves them, before any is opened here (the team's checks below read them).
+      const foldsAtFirst = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-planets'), x.querySelector('[data-planets="open"]')?.getAttribute('aria-expanded'), x.querySelector('.pl-rank')?.textContent]));
       // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
       await openRow('feed');
       await openRow('bought', false);
@@ -4271,6 +4273,52 @@ try {
       if (!/^On each of your 2 characters doing planetary industry: it suits only Owner\. Planet Alt: Command Center Upgrades III\./.test(repB)) problems.push(`bought's repeat line: “${repB}”`);
       await openRow('chain', false);
       if (await page.locator('[data-planets="setup:chain"] [data-planets="repeat"]').count()) problems.push('a chain has a repeat line');
+      // A factory character (team-dispatch.md): Owner's factory planets fed by Owner and Planet Alt. Its row is there, folded unless it's
+      // the best; opened, its groups are folded to one line each, one opens to its cards, the factory column holds its factory planets, and
+      // its lines say what it makes against each repeating its own, each factory planet's load and when to convert the next planet.
+      {
+        const team = page.locator('[data-planets="setup:team"]').first();
+        if (!(await team.count())) problems.push('Plan it has no factory character row');
+        else {
+          const ranks = foldsAtFirst;
+          const mine = ranks.find((x) => x[0] === 'setup:team');
+          const opened = ranks.filter((x) => x[1] === 'true').map((x) => x[0]);
+          const openRank = ranks.filter((x) => x[1] === 'true').map((x) => (x[2] ?? '').trim());
+          if (opened.length !== 1 || openRank[0] !== '1' || (mine[2] === '1') !== (mine[1] === 'true')) problems.push(`the setups' folds with the team row among them (only the best, rank 1, opens by itself): ${JSON.stringify(ranks)}`);
+          if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.locator('[data-planets="setup:team"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(400); await page.screenshot({ path: `${SHOTS}-planets-team-folded.png` }); }
+          const undoTeam = await openRow('team', false);
+          const head = await text('[data-planets="setup:team"] .pl-isk');
+          if (!/[\d.,]+ Gel-Matrix Biopaste a day in all/.test(head) || !/ISK a day in all at today’s price/.test(head)) problems.push(`the team's head figure: “${head}”`);
+          const groups = await team.locator('[data-planets^="group:"]').evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-planets'), x.querySelector('[data-board="group"]')?.getAttribute('aria-expanded'), x.querySelectorAll('[data-planets^="role:"]').length]));
+          if (groups.length !== 2 || groups.some((g) => g[1] !== 'false' || g[2] !== 0)) problems.push(`the team's groups aren't each folded to one line: ${JSON.stringify(groups)}`);
+          const sends = await text('[data-planets="setup:team"] [data-planets^="group:"] [data-planets="sends"]');
+          if (!/[A-Z][\w -]+ [\d.,]+/.test(sends) || !/a day/.test(sends)) problems.push(`a group's line doesn't say what it sends a day: “${sends}”`);
+          const factories = await team.locator('[data-planets="factories"] [data-planets^="role:"]').count();
+          if (factories < 1 || !/factory planet/.test(await text('[data-planets="setup:team"] [data-planets="factories"]'))) problems.push(`the team's factory column: ${factories} cards`);
+          if (!(await team.locator('[data-planets^="group-edge:"]').count())) problems.push('no line from a group to the factory column carries what it sends');
+          if (SHOTS) { await team.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-open.png` }); }
+          // One group opened: its planet cards.
+          await team.locator('[data-planets^="group:"] [data-board="group"]').first().click().catch((e) => problems.push(`couldn't open a group: ${e.message.split('\n')[0]}`));
+          await page.waitForTimeout(400);
+          const cards = await team.locator('[data-planets^="group:"]').first().locator('[data-planets^="role:"]').count();
+          if (!cards) problems.push('an opened group shows no planet cards');
+          if (SHOTS) { await team.locator('[data-planets^="group:"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-group.png` }); }
+          // Planet Alt is at Command Center Upgrades III, which the feed's layout doesn't suit: the comparison says what it sets against.
+          const vs = await text('[data-planets="setup:team"] [data-planets="team-vs"]');
+          if (!/^\+[\d.,]+ a day against the fed factory repeated on the one of your 2 characters it suits \([\d.,]+ a day\); this counts both, each at its own level and planets\./.test(vs.trim())) problems.push(`the team's comparison: “${vs}”`);
+          const load = await team.locator('[data-planets^="team-load:"]').allInnerTexts();
+          if (!load.length || load.some((l) => !/runs at \d+% of what fits: \d+ of the \d+ Advanced it holds/.test(l))) problems.push(`the factory planets' loads: ${JSON.stringify(load)}`);
+          const fill = await text('[data-planets="setup:team"] [data-planets="team-fill"]');
+          if (!/^One factory planet here \(\d+ Advanced\) is full at [\d.,]+ Gel-Matrix Biopaste a day, fed by \d+ P0 → P1 feeder planets/.test(fill.trim())) problems.push(`the fill count: “${fill}”`);
+          if (!/^(Convert another planet when these run full: at about \d+ more feeder planets?\.|These run full: convert another planet when the next feeders come\.|Convert another planet when these run full: how many more feeder planets that takes isn’t worked out, since how many fill one factory planet here isn’t\.)$/.test((await text('[data-planets="setup:team"] [data-planets="team-convert"]')).trim())) problems.push(`the convert line: “${await text('[data-planets="setup:team"] [data-planets="team-convert"]')}”`);
+          if (!(await team.locator('[data-planets^="team-part:"]').count())) problems.push('the team says no character’s part');
+          const all = await text('[data-planets="setup:team"]');
+          if (/\bNaN\b|undefined/.test(all)) problems.push('the team row shows NaN or undefined');
+          const wide = await page.evaluate(() => { const c = document.querySelector('.content'); const b = document.querySelector('[data-planets="setup:team"] .pl-board-scroll'); return [c ? c.scrollWidth - c.clientWidth : 0, b ? b.scrollWidth - b.clientWidth : 0]; });
+          if (!PHONE && (wide[0] > 1 || wide[1] > 1)) problems.push(`the team row scrolls sideways at 1440: page ${wide[0]} px, board ${wide[1]} px`);
+          await undoTeam();
+        }
+      }
       // Resets at the typed 72 hours: every 3 days, the feed's planets each time, and the week's sittings and planet resets.
       const feedUp = await text('[data-planets="setup:feed"] [data-planets="resets"]');
       if (!/Resets Every 3 days \d+ planets \(\d+ extractors\) each time: about 2\.3 sittings and [\d.]+ planet resets a week/i.test(feedUp)) problems.push(`the feed's resets at 72 hours: “${feedUp.slice(0, 300)}”`);
@@ -4286,6 +4334,16 @@ try {
       if (!/The setups, best first/i.test(await text('[data-planets="plan"]'))) problems.push('Every product didn’t go back to every product’s ranking');
       if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test((await text('[data-planets="setup:p2"] .pl-isk b')).trim())) problems.push(`after Every product P0 → P2 has no figure: “${await text('[data-planets="setup:p2"] .pl-isk b')}”`);
       if (await page.evaluate(() => localStorage.getItem('jita-ledger:planets-plan-good'))) problems.push('Every product left the good kept');
+      // Every product: a factory character plans one good, and says so; held to a P4, it says a P4 is the chain's.
+      if (!/^A factory character plans one good: hold Plan to a P2 or a P3 \(Plan it, on the Chart\)\.$/.test((await text('[data-planets="setup:team"] .pl-notes')).trim())) problems.push(`every product's team row: “${await text('[data-planets="setup:team"] .pl-notes')}”`);
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/plan?good=2867`);
+      await page.evaluate(() => location.reload());
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 30_000 }).catch(() => problems.push('Plan it on Broadcast Node never drew'));
+      await settled();
+      const p4 = (await text('[data-planets="setup:team"] .pl-notes')).trim();
+      if (p4 !== 'Can’t make Broadcast Node, a P4: its factory planets make P2 and P3 only (a P4 is the chain’s).') problems.push(`held to a P4, the team row says: “${p4}”`);
+      await page.locator('[data-planets="every-product"]').click().catch(() => undefined);
+      await page.waitForTimeout(500);
     }
 
     // --- Planner fix 2: a plan that stays put while you build it. The user (24 October 2026): "it would say one planet setup and
@@ -4336,6 +4394,9 @@ try {
         if (layouts.size !== 1) problems.push(`the held feed drew ${layouts.size} layouts from its first draw: ${JSON.stringify([...layouts])}`);
         if (!firstDraw.asked || !firstDraw.answered) problems.push(`the held feed first drew before Gel-Matrix Biopaste's history from UALX-3's region was in (asked ${firstDraw.asked}, answered ${firstDraw.answered}, ${firstDraw.n} histories answered): the morning pass drawn as the answer`);
       }
+      // One character doing planetary industry here (Alpha Alt is Alpha, Unread Alt's skills aren't read): a factory character says why.
+      const one = await text('[data-planets="setup:team"] .pl-notes');
+      if (one.trim() !== 'A factory character needs two characters doing planetary industry: one here does.') problems.push(`with one character doing planetary industry the team row says: “${one}”`);
       // Nothing recorded while the first pull is held; recorded once it lands.
       await page.waitForTimeout(1000);
       const before = (await docPlanets())?.learned ?? {};

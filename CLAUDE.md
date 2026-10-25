@@ -201,6 +201,7 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `planets-board.md`: Plan's setups as a board of planet cards, each planet's Build it, and Check my setup against a colony.
 - `planets-finder.md`: Find, a region's systems planned for one good (the bundle's planet types and regions).
 - `planets-chart.md`: the Chart, every good by tier, a picked good's recipe drawn and which setups can make it.
+- `planets-team.md`: a factory character, one character's factory planets fed by every PI character (the team kind).
 
 Always loaded, imported below, because they apply to any change:
 

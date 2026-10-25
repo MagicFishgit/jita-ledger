@@ -37,7 +37,7 @@ const SETTLE_MS = 350;
 /** How often the growing list is drawn again while the region is worked out. */
 const DRAW_MS = 150;
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
-const KIND_SAID: Record<SetupKind, string> = { p1: 'P0 → P1', p2: 'P0 → P2', feed: 'a fed factory', bought: 'bought', chain: 'a chain' };
+const KIND_SAID: Record<SetupKind, string> = { p1: 'P0 → P1', p2: 'P0 → P2', feed: 'a fed factory', bought: 'bought', chain: 'a chain', team: 'a factory character' };
 const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const WORMHOLE_FROM = 31_000_000;
 

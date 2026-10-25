@@ -20,7 +20,7 @@ import type { KeptBasis, KeptPlan, KeptPlanet, KeptRateFrom } from './planetsDoc
  * offering it would bring back the moving plan the kept one exists to stop.
  */
 export const KEEP_MARGIN = 0.05;
-const KINDS = new Set(['p1', 'p2', 'feed', 'chain']);
+const KINDS = new Set(['p1', 'p2', 'feed', 'chain', 'team']);
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
 /** A setup's planets and what each runs, as a kept plan stores them: each extractor's P0, heads and Basics, and the factories beyond. */
@@ -79,12 +79,12 @@ export function keptOf(s: Setup, basis: KeptBasis, at: string): KeptPlan | null 
  * setups with one key are the same plan to build.
  */
 export function layoutKey(kind: string, planets: readonly KeptPlanet[]): string {
-  const of = (p: KeptPlanet) => `${p.planetId}${kind === 'chain' ? `/${p.charId}` : ''}:${p.does}:${p.lines.map((l) => `${l.p0}h${l.heads ?? '?'}b${l.basics}`).sort().join('+')}:${p.makes.map((m) => `${m.id}x${m.count}`).sort().join(',')}`;
+  const of = (p: KeptPlanet) => `${p.planetId}${kind === 'chain' || kind === 'team' ? `/${p.charId}` : ''}:${p.does}:${p.lines.map((l) => `${l.p0}h${l.heads ?? '?'}b${l.basics}`).sort().join('+')}:${p.makes.map((m) => `${m.id}x${m.count}`).sort().join(',')}`;
   return `${kind}|${planets.map(of).sort().join(' ')}`;
 }
 
-/** Units a day per character in it, as `rankSetups` compares them (a chain's in all over its characters). */
-const perChar = (s: Setup) => (s.made ? s.made.perDay / (s.kind === 'chain' && s.perChar.length ? s.perChar.length : 1) : 0);
+/** Units a day per character in it, as `rankSetups` compares them (a chain's and a factory character's in all over its characters). */
+const perChar = (s: Setup) => (s.made ? s.made.perDay / ((s.kind === 'chain' || s.kind === 'team') && s.perChar.length ? s.perChar.length : 1) : 0);
 
 /**
  * The layout to offer beside a kept plan, or null: the best of today's ranking held to the good (bought aside), when it isn't the kept

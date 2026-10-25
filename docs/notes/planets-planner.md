@@ -44,6 +44,7 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
   exercised this search until Task 15b's fix round set it against a brute force on F9's candidate sets (`single-brute.mjs`: Task 8's
   12-planet shape at 15,000–20,000 an hour and 5 heads, CCU IV, random prices and caps, P0 at a loss or unpriced; every set of 2 and
   3 of the 12 planets and of 4 of the first 6, P0 → P1 and P0 → P2, seeds 1–8 × 5): 240 of 240 equal.
+- **A factory character** (the sixth kind, `team`, Plan it only): one character's factory planets fed by every PI character, in planets-team.md.
 - **A plan kept** (planner fix 2) is shown worked out on today's inputs, its planets never moving, with today's ranking folded under it and a
   newer layout offered only past 5% more of the good; Plan it's rows are the live pass's alone: planets-kept.md.
 - **The ranking** (`rankSetups`): ISK a day rounded to the cent, then less upkeep (a chain's per character), then the order run,

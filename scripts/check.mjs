@@ -7710,19 +7710,22 @@ console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down 
   const can = (n, types) => canMake(ix, id(n), types).map((c) => [c.kind, c.can, c.can ? c.on : c.why]);
   eq('  Nanites at 5-NZNW: P0 → P2 makes it alone on Barren planets; a fed factory and a bought one can; P0 → P1 and a chain can’t', can('Nanites', NZNW), [
     ['p1', false, 'it sells P1 only'], ['p2', true, ['Barren']], ['feed', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']],
-    ['bought', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']], ['chain', false, 'it makes P3 and P4 only']]);
+    ['bought', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']], ['chain', false, 'it makes P3 and P4 only'],
+    ['team', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']]]);
   eq('  Broadcast Node at UALX-3: only on bought inputs, at its Barren and Temperate planets; a chain lacks three P0s', can('Broadcast Node', UALX), [
     ['p1', false, 'it sells P1 only'], ['p2', false, 'it sells P2 only'], ['feed', false, 'its factory makes P2 and P3 only'],
-    ['bought', true, ['Barren', 'Temperate']], ['chain', false, 'Planktic Colonies, Non-CS Crystals and Felsic Magma aren’t on any planet here']]);
+    ['bought', true, ['Barren', 'Temperate']], ['chain', false, 'Planktic Colonies, Non-CS Crystals and Felsic Magma aren’t on any planet here'],
+    ['team', false, 'its factory planets make P2 and P3 only (a P4 is the chain’s)']]);
   // A chain is planned for a P3 only when one character's planets can't make it (planChain): its "can" says so, a P4's doesn't.
-  eq('  a chain\'s P3 "can" carries the planner\'s condition; a P4\'s, a fed factory\'s and a bought one\'s none',
+  eq('  a chain\'s P3 "can" carries the planner\'s condition; a P4\'s, a fed factory\'s and a bought one\'s none; a factory character\'s its own',
     [canMake(ix, id('Robotics'), NZNW).find((c) => c.kind === 'chain'), canMake(ix, id('Broadcast Node'), NZNW).find((c) => c.kind === 'chain').when,
       canMake(ix, id('Robotics'), NZNW).filter((c) => c.kind !== 'chain').map((c) => c.when)],
-    [{ kind: 'chain', can: true, on: ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'], why: null, when: 'only when it needs more planets than one character has (a fed factory plans the rest)' }, null, [null, null, null, null]]);
+    [{ kind: 'chain', can: true, on: ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'], why: null, when: 'only when it needs more planets than one character has (a fed factory plans the rest)' }, null,
+      [null, null, null, null, 'with two or more characters doing planetary industry, under Plan it']]);
   eq('  a P4 where no planet takes a High-Tech Production Plant; a P2 no planet makes alone; a P1 whose P0 isn’t here; a P0',
     [can('Broadcast Node', ['Gas'])[3], can('Microfiber Shielding', NZNW)[1], can('Silicon', UALX)[0], can('Microorganisms', NZNW).map((c) => c[1])],
     [['bought', false, 'only Barren and Temperate planets take its High-Tech Production Plant, and none is here'], ['p2', false, 'no planet here gives Autotrophs and Felsic Magma together'],
-      ['p1', false, 'Felsic Magma isn’t on any planet here'], [false, false, false, false, false]]);
+      ['p1', false, 'Felsic Magma isn’t on any planet here'], [false, false, false, false, false, false]]);
   // Where a ranking makes a good: its used planets' factories that make some, or extractors pulling it (a P0); a blocked setup, an
   // unused planet and a factory line that makes none don't count; sold when it's among the setup's outputs.
   const role = (planetId, does, makes = [], extracts = []) => ({ planetId, charId: 1, does, makes, extracts, ships: [], fit: null, why: null });
@@ -8442,7 +8445,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  a P4 one character makes alone is a one-character chain', [alone.why, alone.perChar.length, alone.iskDay === alone.perChar[0]?.iskDay, alone.outputs.some((o) => o.id === OMA)], [null, 1, true, true]);
   }
   const all = planSystem(big);
-  eq('  every kind, P0 → P2 always there', all.map((s) => s.kind).sort(), ['bought', 'chain', 'feed', 'p1', 'p2']);
+  eq('  every kind, P0 → P2 always there', all.map((s) => s.kind).sort(), ['bought', 'chain', 'feed', 'p1', 'p2', 'team']);
   eq('  ranked by ISK a day', all.filter((s) => s.iskDay != null).every((s, i, a) => i === 0 || a[i - 1].iskDay >= s.iskDay), true);
   eq('  nulls last', all.findIndex((s) => s.iskDay == null) < 0 || all.slice(all.findIndex((s) => s.iskDay == null)).every((s) => s.iskDay == null), true);
 
@@ -8879,16 +8882,18 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
   for (const [name, ss] of Object.entries(sys)) {
     eq(`  ${name}: every planet of P0 → P1, P0 → P2 and the feed fits`, ss.filter((x) => ['p1', 'p2', 'feed'].includes(x.kind)).flatMap((x) => x.roles.filter((r) => r.does !== 'unused' && !(r.fit?.fits && !r.lacks)).map((r) => [x.kind, r.planetId])), []);
   }
+  // The fixture records the five kinds there were (a factory character came after it, with tests of its own): it's held on those.
+  const recorded = (ss) => ss.filter((x) => x.kind !== 'team');
   if (process.env.RECORD_STEPS) {
     // A setup a line, so the file reads (and diffs) by setup.
     const about = 'Every setup of check.mjs\'s "planner in steps" cases as piPlan.ts gave them before the searches were sliced (Ruling T11-13): the slicing must not move one.';
-    const body = Object.entries(now).map(([n, ss]) => `  ${JSON.stringify(n)}: [\n${ss.map((x) => `   ${JSON.stringify(x)}`).join(',\n')}\n  ]`).join(',\n');
+    const body = Object.entries(now).map(([n, ss]) => `  ${JSON.stringify(n)}: [\n${recorded(ss).map((x) => `   ${JSON.stringify(x)}`).join(',\n')}\n  ]`).join(',\n');
     fsP.writeFileSync(FILE, `{\n "about": ${JSON.stringify(about)},\n "cases": {\n${body}\n }\n}\n`);
     console.log('  recorded scripts/fixtures/planets-steps.json');
   } else {
     const was = JSON.parse(fsP.readFileSync(FILE, 'utf8')).cases;
     for (const name of Object.keys(CASES)) {
-      const got = now[name], want = was[name];
+      const got = recorded(now[name]), want = was[name];
       eq(`  ${name}: each setup drained as before the slicing (ISK a day, cut)`, got.map((s) => [s.kind, s.iskDay, s.cut]), want.map((s) => [s.kind, s.iskDay, s.cut]));
       eq(`  ${name}: and every role, output and input the same`, JSON.stringify(got), JSON.stringify(want));
     }
@@ -8900,7 +8905,7 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
       for (const r of runs) { if (r.out) continue; const x = r.it.next(); if (x.done) r.out = x.value; else { r.steps++; going++; } }
     }
     for (const name of Object.keys(CASES)) {
-      eq(`  ${name}: driven a step at a time, interleaved with the other cases' setups, the same`, JSON.stringify(PP.rankSetups(runs.filter((r) => r.name === name).map((r) => r.out)).map(digest)), JSON.stringify(was[name]));
+      eq(`  ${name}: driven a step at a time, interleaved with the other cases' setups, the same`, JSON.stringify(recorded(PP.rankSetups(runs.filter((r) => r.name === name).map((r) => r.out))).map(digest)), JSON.stringify(was[name]));
     }
     const chainSteps = runs.find((r) => r.name === 'two characters (the chain cut)' && r.k === 'chain').steps;
     eq('  sliced at all: the chain of two characters takes hundreds of steps, P0 → P2 none (one call)', [chainSteps > 200, runs.find((r) => r.k === 'p2').steps], [true, 0]);
@@ -8944,7 +8949,7 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
   eq('  held to it: the feed’s factory and every bought factory make Gel-Matrix Biopaste, and their figures',
     [feed.roles.filter((r) => r.does === 'factory').map((r) => r.makes.map((m) => nm(m.id))), feed.roles.filter((r) => r.does === 'extract').length,
       [...new Set(bought.roles.filter((r) => r.does === 'factory').flatMap((r) => r.makes.map((m) => nm(m.id))))], Math.round(feed.iskDay), Math.round(bought.iskDay), held.map((s) => s.kind)],
-    [[['Oxides', 'Biocells', 'Superconductors', 'Gel-Matrix Biopaste']], 4, ['Gel-Matrix Biopaste'], 11_532_535, 80_814_306, ['bought', 'feed', 'p1', 'p2', 'chain']]);
+    [[['Oxides', 'Biocells', 'Superconductors', 'Gel-Matrix Biopaste']], 4, ['Gel-Matrix Biopaste'], 11_532_535, 80_814_306, ['bought', 'feed', 'p1', 'p2', 'chain', 'team']]);
   // A P2 held: P0 → P2 makes only it, on every planet that makes it alone (5-NZNW's four Barren), and the planet that can't says so.
   const nan = of(PP.planSystem({ ...base, only: NANITES }), 'p2');
   eq('  Nanites: every planet P0 → P2 uses makes it, the one left can’t make it alone', [makes(nan).filter((x) => ix.byId.get(x).tier === 'P2').map(nm), nan.roles.filter((r) => r.does === 'unused' && r.why === 'It can’t make Nanites alone').length > 0],
@@ -9185,6 +9190,218 @@ console.log('\n--- Planets: Plan it, the planner held to one good and repeated o
           [keyOf(k) === keyOf(s0), Math.round(k.made.perDay), Math.round(k.iskDay), keyOf(kd) === keyOf(s0), kd.made.perDay < k.made.perDay], [true, Math.round(s0.made.perDay), Math.round(s0.iskDay), true, true]);
       }
     }
+  }
+}
+
+console.log('\n--- Planets: a factory character (piTeam.ts: its search against an exhaustive one, its reasons, customs, the fill count) ---');
+{
+  // team-dispatch.md: the character shown makes the good on factory planets of its own, fed by every character doing planetary
+  // industry. The search (searchTeam) is set against an exhaustive one on small random problems (2 or 3 characters, 3 or 4 planets,
+  // random plans, factory planets of 4 to 22 Advanced so the factories bind), equal wherever the search finishes; then the setup through
+  // the planner on 5-NZNW's fixture: its reasons, its customs at each step, a colony a planet a character.
+  const fsP = await import('node:fs');
+  const PP = await import('../src/lib/piPlan.ts');
+  const T = await import('../src/lib/piTeam.ts');
+  const { indexPlanets, decodeRadii, planetTypeOf } = await import('../src/lib/piBundle.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const GEL = 2348, BROADCAST = 2867;
+  const rec = T.recipeOf(PP.treeOf(ix, GEL));
+  let seed = 20261025;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
+  const G = rec.goods.length;
+  // The good a day by bisection on the rule itself: P1 for what's made and what's taken straight, whole factories within A.
+  const bisect = (S, A) => {
+    const ok = (R) => {
+      const made = rec.p2.map((t) => Math.max(0, t.beta * R - S[t.g]));
+      for (let k = 0; k < rec.p1; k++) if (rec.alpha[k] * R + rec.p2.reduce((n, t, j) => n + t.per[k] * made[j], 0) > S[k] + 1e-7) return false;
+      return Math.ceil(R / rec.xDay - 1e-9) + made.reduce((n, m, j) => n + Math.ceil(m / rec.p2[j].day - 1e-9), 0) <= A;
+    };
+    let lo = 0, hi = 1e5;
+    for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; }
+    return lo;
+  };
+  let rateBad = 0;
+  for (let i = 0; i < 400; i++) {
+    const S = new Float64Array(G);
+    for (let g = 0; g < G; g++) S[g] = g < rec.p1 ? rnd() * 12000 : rnd() < 0.5 ? 0 : rnd() * 600;
+    const A = Math.floor(rnd() * 50);
+    if (Math.abs(T.teamRate(rec, A, S) - bisect(S, A)) > 1e-6 * Math.max(1, bisect(S, A))) rateBad++;
+  }
+  eq('  teamRate: the good a day whole factories make, against a bisection on the rule, 400 random shipments and factory planets', rateBad, 0);
+
+  // A random plan on a planet: two of the six P1s, or a P2 the good takes (with what's left of its P1s), and an ISK proxy.
+  const optOn = (planet) => {
+    const v = new Float64Array(G);
+    if (rnd() < 0.3) { const j = Math.floor(rnd() * rec.p2.length); v[rec.p2[j].g] = pick([120, 240]); rec.p2[j].per.forEach((x, k) => { if (x > 0 && rnd() < 0.5) v[k] = Math.round(rnd() * 900); }); }
+    // Mostly the planet's own pair of P1s (each planet a kind of its own, so every P1 is somewhere), now and then another.
+    else { const a = rnd() < 0.75 ? (2 * planet) % rec.p1 : Math.floor(rnd() * rec.p1); const b = rnd() < 0.75 ? (a % 2 ? a - 1 : a + 1) : (a + 1 + Math.floor(rnd() * (rec.p1 - 1))) % rec.p1; v[a] = Math.round(800 + rnd() * 2800); v[b] = Math.round(800 + rnd() * 2800); }
+    return { planet, v, worth: Math.round(rnd() * 500_000) };
+  };
+  const optsOn = (n, per) => Array.from({ length: n }, (_, at) => Array.from({ length: 1 + Math.floor(rnd() * per) }, () => optOn(at))).flat();
+  // Every way each character could run, as loadouts (shipments, colonies, ISK, and the factory character's factory planets); every
+  // combination of one loadout a character; the best by the order the search claims (the good a day, less a thousandth a factory planet
+  // and a hundred-thousandth a colony, plus a trillionth an ISK, written out here: for these small teams, a dozen colonies of at most
+  // 500,000 ISK a day, the same order as piTeam's per-problem `weightsOf`; the case after the gate checks a colony against the ISK).
+  const order = (k) => k.R - 1e-3 * k.F - 1e-5 * k.colonies + 1e-12 * k.worth;
+  const loadouts = (opts, n, cap, sites = null) => {
+    const out = [];
+    const masks = sites ? Array.from({ length: (1 << sites.length) - 1 }, (_, m) => m + 1).filter((m) => { let c = 0; for (let i = 0; i < sites.length; i++) if (m & (1 << i)) c++; return c <= cap; }) : [0];
+    for (const m of masks) {
+      const on = sites ? sites.map((_, i) => (m >> i) & 1) : [];
+      const F = on.reduce((a, b) => a + b, 0), A = sites ? sites.reduce((t, s, i) => t + (on[i] ? s.cap : 0), 0) : 0;
+      const blocked = new Set(sites ? sites.filter((_, i) => on[i]).map((s) => s.planet) : []);
+      const walk = (at, S, col, worth, picks) => {
+        if (at === n) { out.push({ S, col, worth, F, A, picks, on }); return; }
+        walk(at + 1, S, col, worth, picks);
+        if (blocked.has(at) || col + F >= cap) return;
+        opts.forEach((o, q) => { if (o.planet !== at) return; const S2 = S.slice(); for (let g = 0; g < G; g++) S2[g] += o.v[g]; walk(at + 1, S2, col + 1, worth + o.worth, [...picks, q]); });
+      };
+      walk(0, new Float64Array(G), 0, 0, []);
+    }
+    return out;
+  };
+  const brute = (p) => {
+    const lists = [loadouts(p.groups[0].opts, p.planets, p.groups[0].cap, p.sites)];
+    p.groups.slice(1).forEach((g) => { for (let c = 0; c < g.chars; c++) lists.push(loadouts(g.opts, p.planets, g.cap)); });
+    let best = null;
+    const S = new Float64Array(G);
+    const go = (i, col, worth, F, A) => {
+      if (i === lists.length) {
+        const R = T.teamRate(rec, A, S);
+        if (!(R > 1e-9)) return;
+        const key = { R, F, colonies: col, worth };
+        if (!best || order(key) > order(best) + 1e-12) best = key;
+        return;
+      }
+      for (const l of lists[i]) {
+        for (let g = 0; g < G; g++) S[g] += l.S[g];
+        go(i + 1, col + l.col, worth + l.worth, i === 0 ? l.F : F, i === 0 ? l.A : A);
+        for (let g = 0; g < G; g++) S[g] -= l.S[g];
+      }
+    };
+    go(0, 0, 0, 0, 0);
+    return best;
+  };
+  const drainT = (it) => { for (;;) { const r = it.next(); if (r.done) return r.value; } };
+  const keyStr = (k) => (k ? `${k.R.toFixed(6)}/${k.F}/${k.colonies}/${Math.round(k.worth)}` : 'none');
+  let finished = 0, differ = [], unfinishedOver = 0;
+  const bnbOnly = [];
+  const shapes = [[3, 2, 2, [2]], [3, 2, 3, [1, 1]], [4, 3, 3, [1]], [3, 2, 2, [2]], [4, 2, 2, [1]], [3, 3, 3, [1]]];
+  for (let c = 0; c < 24; c++) {
+    const [n, per, cap, alts] = shapes[c % shapes.length];
+    const main = optsOn(n, per);
+    const groups = [{ chars: 1, cap, opts: main }, ...alts.map((chars, w) => ({ chars, cap: w ? cap - 1 : cap, opts: w ? main.map((o) => ({ ...o, v: o.v.map((x) => x * 1.2) })) : optsOn(n, per) }))];
+    const sites = Array.from({ length: n }, (_, at) => ({ planet: at, cap: pick([4, 8, 12, 22]) }));
+    const p = { rec, groups, sites, planets: n };
+    const want = brute(p);
+    const got = drainT(T.searchTeam(p, { left: 1e10, cut: false }, 100_000));
+    const alone = drainT(T.searchTeam(p, { left: 1e10, cut: false }, 100_000, { anneal: false }));
+    if (keyStr(alone ? T.keyOfSol(p, alone.sol) : null) !== keyStr(want) || (alone && !alone.done)) bnbOnly.push(`case ${c}: ${keyStr(alone ? T.keyOfSol(p, alone.sol) : null)}${alone && !alone.done ? ' (not finished)' : ''} against ${keyStr(want)}`);
+    const gotKey = got ? T.keyOfSol(p, got.sol) : null;
+    if (!got && !want) finished++;
+    else if (got?.done) {
+      finished++;
+      if (keyStr(gotKey) !== keyStr(want) || Math.abs(order(gotKey) - order(want)) > 1e-9) differ.push(`case ${c}: ${keyStr(gotKey)} against ${keyStr(want)}`);
+    } else if (gotKey && want && order(gotKey) > order(want) + 1e-9) unfinishedOver++;
+  }
+  eq('  the search against an exhaustive one on 24 small random teams: every one finished, and equal (the good a day, factory planets, colonies, ISK)', [finished, differ, unfinishedOver], [24, [], 0]);
+  eq('  and its branch and bound alone (no annealing), the same: what it proves is its own', bnbOnly, []);
+
+  // Units first, then the fewest factory planets: two planets' factories make no more than one's here, so one; where two make more, two.
+  {
+    const v = (a) => Float64Array.from({ length: G }, (_, g) => a[g] ?? 0);
+    const flat = (x) => Object.fromEntries(rec.goods.slice(0, rec.p1).map((_, k) => [k, x]));
+    const one = { rec, groups: [{ chars: 1, cap: 3, opts: [{ planet: 2, v: v(flat(600)), worth: 0 }] }], sites: [{ planet: 0, cap: 22 }, { planet: 1, cap: 22 }], planets: 3 };
+    const two = { ...one, groups: [{ chars: 1, cap: 3, opts: [{ planet: 2, v: v(flat(9000)), worth: 0 }] }] };
+    const a = drainT(T.searchTeam(one, { left: 1e9, cut: false })), b = drainT(T.searchTeam(two, { left: 1e9, cut: false }));
+    eq('  units first, then the fewest factory planets: one where two make no more, two where they make more', [a.key.F, b.key.F, b.key.R > a.key.R], [1, 2, true]);
+  }
+  // ISK never outweighs a colony (the review of 25 October 2026): two arrangements equal in the good a day and the factory planets, the
+  // second with a colony more that ships nothing the good takes but makes 30 M ISK a day. At a fixed trillionth an ISK that colony weighed
+  // 3e-5 against a colony's 1e-5, and the search took it.
+  {
+    const v = (a) => Float64Array.from({ length: G }, (_, g) => a[g] ?? 0);
+    const flat = (x) => Object.fromEntries(rec.goods.slice(0, rec.p1).map((_, k) => [k, x]));
+    const p = { rec, groups: [{ chars: 1, cap: 2, opts: [{ planet: 1, v: v(flat(600)), worth: 0 }] }, { chars: 1, cap: 1, opts: [{ planet: 2, v: v({}), worth: 30_000_000 }] }],
+      sites: [{ planet: 0, cap: 22 }], planets: 3 };
+    const f = drainT(T.searchTeam(p, { left: 1e9, cut: false }));
+    const rich = T.keyOfSol(p, { cnt: [Int32Array.from([1]), Int32Array.from([1])], on: Uint8Array.from([1]) });
+    eq('  the fewest colonies before the ISK: of two arrangements equal in the good a day and factory planets, the one without the rich colony',
+      [rich.R === f.key.R, rich.F === f.key.F, rich.worth > f.key.worth, f.key.colonies, rich.colonies], [true, true, true, 1, 2]);
+  }
+
+  // The fill count (TeamFigures.fill): the fewest P0 → P1 colonies (any number a planet) that let one factory planet make what it can
+  // from P1, against every count of each plan up to 6.
+  {
+    const v = (pairs) => { const x = new Float64Array(G); for (const [k, n] of pairs) x[k] = n; return x; };
+    const p1 = [{ planet: 0, v: v([[0, 3000], [1, 2600]]), worth: 0 }, { planet: 0, v: v([[0, 1500], [1, 3400]]), worth: 0 }, { planet: 1, v: v([[2, 3100], [3, 2900]]), worth: 0 }, { planet: 2, v: v([[4, 3300], [5, 2500]]), worth: 0 }, { planet: 2, v: v([[4, 1200], [5, 3600]]), worth: 0 }];
+    const q = T.fillProblem(rec, { planet: 3, cap: 22 }, p1, 4);
+    let fewest = Infinity;
+    const counts = new Array(p1.length).fill(0);
+    const walk = (i) => {
+      if (i === p1.length) {
+        const S = new Float64Array(G);
+        counts.forEach((n, j) => { for (let g = 0; g < G; g++) S[g] += n * p1[j].v[g]; });
+        if (T.teamRate(rec, 22, S, q.top) >= q.top - 1e-6) fewest = Math.min(fewest, counts.reduce((a, b) => a + b, 0));
+        return;
+      }
+      for (let n = 0; n <= 6; n++) { counts[i] = n; walk(i + 1); }
+      counts[i] = 0;
+    };
+    walk(0);
+    const f = drainT(T.searchTeam(q.p, { left: 1e9, cut: false }, 400));
+    eq('  the fill count: what one factory planet of 22 Advanced makes from P1 (216 a day), and the fewest feeders that fill it, against every count', [Math.round(q.top), f.key.R >= q.top - 1e-6, f.key.colonies], [216, true, fewest]);
+  }
+
+  // Through the planner, on 5-NZNW's fixture (its learned Barren rate, the rest assumed).
+  const FX = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
+  const radii = new Map(decodeRadii(JSON.parse(fsP.readFileSync(new URL('../src/data/planetRadii.json', import.meta.url)))[String(FX.system.system_id)]));
+  const planets = FX.planets.map((p) => { const t = planetTypeOf(ix, p.type_id); return { planetId: p.planet_id, name: p.name, type: t, radiusKm: radii.get(p.planet_id) ?? null,
+    tax: { rate: t === 'Barren' || t === 'Temperate' ? 0.02 : 0.05, from: 'brave', npc: 0, interbus: false } }; });
+  const TAX = 0.03375, BROKER = 0.0155, SHARE = 10;
+  const goods = new Map(FX.goods.filter((g) => g.bid != null && g.ask != null && g.perDay > 0).map((g) => [g.id, g]));
+  const sell = (id, perDay) => { const g = goods.get(id); return PP.soldOf(perDay, { jita: g ? { place: 'jita', list: g.ask, listNet: g.ask * (1 - TAX - BROKER), bid: g.bid, bidNet: g.bid * (1 - TAX), pace: g.perDay, listPace: g.perDay / 2, bidPace: g.perDay / 2 } : null, home: null }, 'jita', SHARE); };
+  const buy = () => ({ isk: null, where: null, why: 'none listed' });
+  const rate = { perHour: 16000, higher: null, from: 'learned', programHours: 72, heads: 10, otherP0: false, checked: true };
+  const owner = { charId: 1, name: 'Owner', planets: 5, ccLevel: 4, alpha: false }, alt = { charId: 2, name: 'Alt', planets: 5, ccLevel: 4, alpha: false };
+  const base = { ix, planets, char: owner, others: [alt], rateOf: (t, p0) => (t === 'Barren' && (p0 === 2267 || p0 === 2073) ? rate : null), heads: 10, sell, buy, programHours: 72, only: GEL };
+  const team = (input) => PP.drain(PP.planSteps(input, 'team'));
+  eq('  its reasons: every product, one character, a P4, an Alpha besides the one',
+    [team({ ...base, only: undefined }).why, team({ ...base, others: [] }).why, team({ ...base, only: BROADCAST }).why, team({ ...base, others: [{ ...alt, alpha: true }] }).why],
+    [T.NO_ONLY, T.teamTooFew(1), 'Can’t make Broadcast Node, a P4: its factory planets make P2 and P3 only (a P4 is the chain’s)', T.teamTooFew(1)]);
+  const s = team(base);
+  const used = s.roles.filter((r) => r.does !== 'unused');
+  const perPlanetChar = new Set(used.map((r) => `${r.planetId}/${r.charId}`));
+  const valued = new Set(s.outputs.filter((o) => o.sold.isk != null).map((o) => o.id));
+  const base1 = (id) => ix.byId.get(id).taxBase;
+  const rateAt = (id) => planets.find((p) => p.planetId === id).tax.rate;
+  let customs = 0;
+  for (const r of used) {
+    if (r.does === 'extract') for (const x of r.ships) { if (x.to !== 'market' || valued.has(x.id)) customs += x.perDay * base1(x.id) * rateAt(r.planetId); }
+    else {
+      for (const x of r.imports ?? []) customs += x.perDay * base1(x.id) * rateAt(r.planetId) * 0.5;
+      for (const x of r.ships) customs += x.perDay * base1(x.id) * rateAt(r.planetId);
+    }
+  }
+  const taxDay = s.taxes.reduce((t, x) => t + x.perDay, 0);
+  eq('  its setup: made, both characters in it, a colony a planet a character, each within its planets, the factory planets the shown character’s and within what they hold',
+    [s.why, s.made.perDay > 0, s.perChar.map((p) => p.charId), perPlanetChar.size === used.length, [1, 2].every((c) => used.filter((r) => r.charId === c).length <= 5),
+      used.filter((r) => r.does === 'factory').every((r) => r.charId === 1), s.team.factories.every((f) => f.runs <= f.holds && f.runs > 0)],
+    [null, true, [1, 2], true, true, true, true]);
+  eq('  its customs: export at each feeder on all it ships, import at half on each factory planet, the good and P2 sent on exported there', Math.abs(taxDay - customs) < 1e-6 * Math.max(1, customs) && Math.abs(s.taxDay - taxDay) < 1e-6, true);
+  eq('  its parts: what each character hands the factory planets comes to the good a day', Math.abs(s.team.parts.reduce((t, p) => t + p.perDay, 0) - s.made.perDay) < 1e-6 * s.made.perDay, true);
+  // On P0 → P1 feeders alone (counting P2 feeders runs 11 Advanced, not 21), on the planet holding the most (the smallest makes 180).
+  eq('  its fill count: a factory planet of 22 Advanced, 216 a day from P1 on 21 of them, full at 11 P0 → P1 feeders on these rates',
+    s.team.fill && [Math.round(s.team.fill.perDay), s.team.fill.holds, s.team.fill.runs, s.team.fill.feeders], [216, 22, 21, 11]);
+  // Kept (planner fix 2): the plan worked out again on the inputs it was kept on is the search's own, to the unit and the ISK.
+  {
+    const K = await import('../src/lib/planKeep.ts');
+    const basis = K.basisOf(ix, planets, owner, base.rateOf, 72);
+    const kept = K.keptOf(s, basis, '2026-10-25T12:00:00Z');
+    const again = PP.planKept(base, kept);
+    eq('  kept, and worked out again on the same inputs: the same good a day, ISK and colonies, each with its character', [kept.kind, again.why, Math.abs(again.made.perDay - s.made.perDay) < 1e-6, Math.abs(again.iskDay - s.iskDay) < 1e-3,
+      K.layoutKey('team', K.keptPlanetsOf(again)) === K.layoutKey('team', kept.planets)], ['team', null, true, true, true]);
   }
 }
 
@@ -11684,8 +11901,8 @@ console.log('\n--- Planets: Check my setup (setupCheck.ts) and the planet board 
   const { indexPlanets } = await import('../src/lib/piBundle.ts');
   const { colonyChain } = await import('../src/lib/colonyChain.ts');
   const { setupCheck, checkSaid, needsOf, altPulledWhy, mainReadWhy, SHORT_UNDER, MORE_OVER } = await import('../src/lib/setupCheck.ts');
-  const { boardOf, buildSteps, levelNeeded, layoutOfRole, roleSig, cardKey, ticked, ticksDone, dropStale, TICKS_KEPT } = await import('../src/lib/planetBoard.ts');
-  const { fitOf } = await import('../src/lib/piFit.ts');
+  const { boardOf, buildSteps, levelNeeded, layoutOfRole, roleSig, cardKey, ticked, ticksDone, dropStale, TICKS_KEPT, headsNeeded, headsNeedSaid } = await import('../src/lib/planetBoard.ts');
+  const { fitOf, maxHeads } = await import('../src/lib/piFit.ts');
   const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
   const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
   const schOf = (name) => ix.schematics.find((s) => s.name === name).id;
@@ -11854,6 +12071,32 @@ console.log('\n--- Planets: Check my setup (setupCheck.ts) and the planet board 
     ['flow', 3, [[null, [1, 2]]], [[{ id: BACT, perDay: 960 }], [{ id: REACT, perDay: 960 }]]]);
   eq('board: a chain groups its feeders by character', boardOf({ kind: 'chain', roles: [fF, fA, fB] }).groups.map((g) => [g.charId, g.roles.map((r) => r.planetId)]), [[7, [1]], [8, [2]]]);
   eq('board: one-planet setups are a row with no lines', [boardOf({ kind: 'p2', roles: [fA, unused] }).layout, boardOf({ kind: 'p2', roles: [fA, unused] }).groups[0].roles.length], ['row', 1]);
+  // A factory character's board (piTeam.ts): its factory planets stacked apart, the feeders grouped by character in the order its parts
+  // name them (the factory character first), each group with what its planets send the factory planets a day, the most first.
+  const tA = role({ planetId: 1, charId: 7, ships: [{ id: BACT, perDay: 600, to: 3 }, { id: BACT, perDay: 360, to: 5 }, { id: REACT, perDay: 10, to: 'market' }] });
+  const tB = role({ planetId: 2, charId: 8, ships: [{ id: REACT, perDay: 960, to: 5 }, { id: FUEL, perDay: 1200, to: 3 }] });
+  const tF1 = role({ planetId: 3, charId: 7, does: 'factory' }), tF2 = role({ planetId: 5, charId: 7, does: 'factory' });
+  const teamBoard = boardOf({ kind: 'team', roles: [tB, tF1, tA, tF2, unused], team: { parts: [{ charId: 7 }, { charId: 8 }] } });
+  eq('board: a factory character\u2019s factory planets apart, its feeders grouped by character, each group\u2019s sends a day',
+    [teamBoard.layout, teamBoard.factories.map((r) => r.planetId), teamBoard.groups.map((g) => [g.charId, g.roles.map((r) => r.planetId), g.sends.map((x) => [x.id, x.perDay])]), teamBoard.edges.get(tA)],
+    ['team', [3, 5], [[7, [1], [[BACT, 960]]], [8, [2], [[FUEL, 1200], [REACT, 960]]]], [{ id: BACT, perDay: 600 }, { id: BACT, perDay: 360 }]]);
+
+  // Heads to reach the Basics' need (team-dispatch.md item 4): 3 Basics take 18,000 Microorganisms an hour, the line learned at 16,000 on 5
+  // heads; on a median Barren (3,750 km) at CCU IV the most heads that fit beside the 3 Basics and a launchpad, never past ten.
+  const shortLine = role({ extracts: [{ p0: MICRO, perHour: 16000, heads: 5, rate: { perHour: 16000, heads: 5, programHours: 72 } }], makes: [{ id: BACT, perDay: 2880, facility: 'basic', count: 3 }] });
+  const fitHeads = Math.min(10, maxHeads(ix, 'Barren', 4, { ecus: 1, basic: 3, advanced: 0, hightech: 0, storage: 0, launchpads: 1 }, 3750));
+  const hn = headsNeeded(shortLine, 0, ix, 'Barren', 4, 3750);
+  eq('heads to reach the Basics: what they take, the heads that fit beside them, the yield a head needed there and the yield learned',
+    hn && [hn.basics, hn.take, hn.heads, Math.round(hn.perHead), hn.learnedPerHead, hn.learnedHeads], [3, 18000, fitHeads, Math.round(18000 / fitHeads), 3200, 5]);
+  eq('heads to reach the Basics: said, never as a promise of what they give', headsNeedSaid(hn), `3 Basics take 18,000 an hour: at ${fitHeads} heads that’s ${Math.round(18000 / fitHeads).toLocaleString('en-US')} a head; this line was learned at 3,200 a head (5 heads)`);
+  eq('heads to reach the Basics: nothing for a line its rate covers, one with no rate, or a planet whose size isn\u2019t known',
+    [headsNeeded({ ...shortLine, extracts: [{ ...shortLine.extracts[0], perHour: 18000 }] }, 0, ix, 'Barren', 4, 3750), headsNeeded({ ...shortLine, extracts: [{ ...shortLine.extracts[0], rate: null }] }, 0, ix, 'Barren', 4, 3750), headsNeeded(shortLine, 0, ix, 'Barren', 4, null)],
+    [null, null, null]);
+  // The brief's own check: beside 6 Basics and a launchpad, 10 to 11 heads fit at CCU IV and 14 at V on median Barren, Gas and Lava planets
+  // (3,750, 26,370 and 3,360 km, the bundle's medians).
+  const six = { ecus: 2, basic: 6, advanced: 0, hightech: 0, storage: 0, launchpads: 1 };
+  eq('heads beside 6 Basics and a launchpad on median Barren, Gas and Lava planets, at CCU IV and V', [['Barren', 3750], ['Gas', 26370], ['Lava', 3360]].map(([t, km]) => [maxHeads(ix, t, 4, six, km), maxHeads(ix, t, 5, six, km)]),
+    [[11, 14], [10, 14], [11, 14]]);
 
   // Build it: the command centre, extractors, factories, the launchpad, then the routes from the ground up.
   const p2Steps = buildSteps(p2, ix, { level: 4, checked: true }, 72);

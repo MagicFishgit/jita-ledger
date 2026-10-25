@@ -7,12 +7,13 @@ import { slotDay, type Freight, type Sale } from './industryRank';
 import { fmtShort, isk, units as unitsSaid, plainNum } from './format';
 import { dayCount, perDaySaid } from './split';
 import { maximise } from './lp';
+import { keptTeam, planTeamSteps, type TeamFigures } from './piTeam';
 
 /**
  * Units a day, said as split.ts says a pace (N2): whole from 10, one decimal under it, "under 0.1" for less, so a known 0.3 never
  * reads 0 nor 0.7 reads 1. `qtyAday` puts the good's name in: "about 577 High-Tech Transmitters a day", "under 0.1 Neocoms a day".
  */
-const amountSaid = (n: number) => dayCount(n);
+export const amountSaid = (n: number) => dayCount(n);
 const qtyAday = (n: number, what: string) => (n > 0 && n < 0.1 ? `under 0.1 ${what} a day` : `about ${dayCount(n)} ${what} a day`);
 
 /**
@@ -295,7 +296,7 @@ export type PlanInput = {
 export type Reserve = { storage: number; launchpads: number };
 /** The factories a planet already runs (`PlanInput.hold`): by product ID (a P1 on Basics, a P2 on Advanced), how many make it. */
 export type Hold = Record<number, number>;
-export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
+export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain' | 'team';
 /**
  * One planet's part. `extracts` is one line an extractor: its P0, the P0 an hour it's worked out at (its rate's lower
  * reading, or the factories' capacity with no rate), its heads (null when neither the rate nor the fit can say).
@@ -359,8 +360,10 @@ export type Setup = {
   roles: Role[];
   upkeep: Upkeep;
   /**
-   * Each character's ISK a day and what it still needs for its roles. A chain's share is the whole's by colonies; when it's
-   * short of characters, the ones it has and any Alpha that could make it up (lacking Omega), with no figure.
+   * Each character's ISK a day and what it still needs for its roles. A chain's and a factory character's is the whole's shared out by
+   * colonies, an allocation, never what that character earns on its own (a factory character's feeders earn nothing alone): the page sums
+   * a team's, and says a chain's per character as a share. When it's short of characters, the ones it has and any Alpha that could make it
+   * up (lacking Omega), with no figure.
    */
   perChar: { charId: number; iskDay: number | null; lacks: string[] }[];
   /** Outputs whose price isn't read: counted out of the ISK, never as 0. */
@@ -377,6 +380,8 @@ export type Setup = {
    * the character shown has, say). Absent for a setup the planner worked out.
    */
   kept?: { at: string; notes: string[] };
+  /** A factory character's own figures (piTeam.ts): each character's part, each factory planet's load, the fill count and the hand-over. */
+  team?: TeamFigures;
 };
 /**
  * Plan it: a one-character setup repeated on each character doing planetary industry (the user, 19 October 2026: "i will rarely go
@@ -401,10 +406,10 @@ type Colony = { t: PlanetType; r: number | null; layout: Layout };
 /** A setup's worth with `n` characters running it: the ISK, and what sells of each good and is bought of each input (bought), together. */
 type AtN = { value: number | null; sold: Map<number, number>; bought?: Map<number, { perDay: number; b: Bought }>; paysOnly?: Set<number> };
 
-const EPS = 1e-9;
+export const EPS = 1e-9;
 const HOURS_A_WEEK = 168;
-const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
-const TIERS_DOWN: Tier[] = ['P4', 'P3', 'P2', 'P1', 'P0'];
+export const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
+export const TIERS_DOWN: Tier[] = ['P4', 'P3', 'P2', 'P1', 'P0'];
 export const NO_PI = 'No planetary industry on this kind of planet';
 export const NO_SKILLS = 'Skills not read';
 export const ALPHA_NO_PI = 'Alphas can’t do planetary industry';
@@ -412,13 +417,13 @@ export const NO_PI_HERE = 'No planet here has planetary industry';
 
 /** Units an hour a schematic takes or makes per factory, from its cycle (colonyChain.ts reads a real colony's factories by it). */
 export const anHour = (s: Schematic, qty: number) => (qty * 3600) / s.cycleSeconds;
-const atCcu = (level: number) => (level > 0 ? `at Command Center Upgrades ${ROMAN[level]}` : 'without Command Center Upgrades');
+export const atCcu = (level: number) => (level > 0 ? `at Command Center Upgrades ${ROMAN[level]}` : 'without Command Center Upgrades');
 export const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 /** "1-day", or "47.5-hour" for a program that isn't whole days. */
 const programSaid = (h: number) => (h % 24 === 0 ? `${h / 24}-day` : `${plainNum(h)}-hour`);
 const chosenSaid = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${plainNum(h)} hours`);
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /**
  * Ruling T15-5, one rule for every setup and a real colony's chain (colonyChain.ts): a planet ships a good only while a unit nets above
@@ -487,7 +492,7 @@ function p2Alone(ix: PiIndex, t: PlanetType): number[] {
  * One extractor feeding its Basic factories. `basics` is how many there are: the rate's worth (ceil(P0 an hour ÷ 6,000)), or fewer
  * when that many don't fit (Ruling F9), when `p0Left` is the P0 an hour they can't take, shipped as P0 where it pays, else building up.
  */
-type Line = {
+export type Line = {
   p0: number; p1: number; rate: Rate | null; perHour: number; basics: number; p1PerHour: number; p0Left: number;
   /** Null when not known and nothing learned (the most that fit, T8-1). `headsAssumed`: the median of your learned rates' heads (`headsMedian`), capped where its planet's layout must fit (`capHeads`). */
   heads: number | null; headsAssumed: boolean; headsMedian: number | null;
@@ -561,7 +566,7 @@ function capHeads(ix: PiIndex, p: Plan, at: FitAt): Plan {
 const keepHeads = (q: Plan, p: Plan): Plan => ({ ...q, lines: q.lines.map((l, i) => (p.lines[i] && p.lines[i].p0 === l.p0 ? { ...l, heads: p.lines[i].heads, headsAssumed: p.lines[i].headsAssumed, headsMedian: p.lines[i].headsMedian } : l)) });
 
 /** Where a planet's layout must fit (Ruling F9): a Command Center Upgrades level and the planet's radius, beside the storage and launchpads already standing (`PlanInput.reserve`; one launchpad when not said). */
-type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: number };
+export type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: number };
 /**
  * One planet's arrangement before it's fitted: its extractors, its factories and what it ships. `sized`: 'rate', every extractor's
  * P0 refined (it fits where `fitAt` says, or nothing says where it must); 'fit', fewer factories than the rates feed, the most that fit
@@ -569,7 +574,7 @@ type FitAt = { cc: number; radiusKm: number; storage?: number; launchpads?: numb
  * 'held', the factories a colony already runs (`PlanInput.hold`; Ruling T15b-4), as many as its rates feed, fitting or not; 'kept', a
  * plan you kept (planner fix 2, `planKept`): its extractors' heads and its factories as kept, whatever today's rates feed.
  */
-type Plan = {
+export type Plan = {
   planet: PlanPlanet; at: number; t: PlanetType; product: number;
   lines: Line[];
   advanced: { id: number; count: number; perHour: number } | null;
@@ -690,7 +695,7 @@ function fittedPlans(input: PlanInput, base: Plan, at: FitAt | null, high: boole
  * isn't checked.
  */
 const plansMemo = new WeakMap<PlanInput, Map<string, Plan[]>>();
-function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' | 'p2', high: boolean, fits: readonly FitAt[]): Plan[] {
+export function plansFor(input: PlanInput, planet: PlanPlanet, at: number, kind: 'p1' | 'p2', high: boolean, fits: readonly FitAt[]): Plan[] {
   const t = planet.type;
   if (!t) return [];
   let memo = plansMemo.get(input);
@@ -747,7 +752,7 @@ function held(input: PlanInput, plans: Plan[], hold: Hold | undefined): Plan[] {
  * Where a planet's single-character layout must fit: the character's level on the planet's own radius, beside what `reserve` says
  * already stands there (a launchpad at least); none when its size isn't known (what fits isn't checked).
  */
-const fitFor = (planet: PlanPlanet, cc: number, reserve?: Reserve): FitAt[] => (planet.radiusKm != null && planet.radiusKm > 0
+export const fitFor = (planet: PlanPlanet, cc: number, reserve?: Reserve): FitAt[] => (planet.radiusKm != null && planet.radiusKm > 0
   ? [{ cc, radiusKm: planet.radiusKm, ...(reserve ? { storage: reserve.storage, launchpads: Math.max(1, reserve.launchpads) } : {}) }] : []);
 
 /**
@@ -769,7 +774,7 @@ function replan(input: PlanInput, p: Plan, kind: 'p1' | 'p2', high: boolean): Pl
   if (p.sized === 'over' || !p.fitAt || (p.sized === 'rate' && fitsAt(input.ix, kept, p.fitAt))) return { ...kept, fitAt: p.fitAt, sized: p.sized };
   return { ...(withCounts(input, p, high, countsOf(p)) ?? kept), fitAt: p.fitAt, sized: 'fit' };
 }
-type Ship = { id: number; perDay: number };
+export type Ship = { id: number; perDay: number };
 
 /** Export tax per tier on what a planet exports: units × the tier's base × the planet's rate (null when its rate isn't known). */
 function exportTax(input: PlanInput, p: Plan, exported: Ship[]): TaxRow[] {
@@ -792,7 +797,7 @@ export function taxRows(ix: PiIndex, ships: Ship[], rate: number | null, factor:
 }
 
 /** One `sell` per good and amount: the search asks again for amounts it has already asked about. */
-function seller(sell: Sell) {
+export function seller(sell: Sell) {
   const cache = new Map<number, Map<number, Sold>>();
   return (id: number, perDay: number): Sold => {
     let byAmount = cache.get(id);
@@ -802,7 +807,7 @@ function seller(sell: Sell) {
     return s;
   };
 }
-type Seller = (id: number, q: number) => Sold;
+export type Seller = (id: number, q: number) => Sold;
 
 /**
  * A set of planets' plans, worked out: each good summed and sold once, what each planet exports, what of that is taxed (the goods
@@ -997,7 +1002,7 @@ function improve(input: PlanInput, options: Plan[][], start: Plan[], sold: Selle
 }
 
 /** Fit the plan at the character's CCU level and the planet's own radius; the heads a rate didn't give are the most that fit. */
-function fitted(input: PlanInput, p: Plan, cc: number): { heads: (number | null)[]; fit: Fit | null; notes: string[]; lacks: string | null } {
+export function fitted(input: PlanInput, p: Plan, cc: number): { heads: (number | null)[]; fit: Fit | null; notes: string[]; lacks: string | null } {
   const { ix } = input;
   const notes: string[] = [];
   // Beside what already stands there (`PlanInput.reserve`, carried by the plan's `fitAt`), else one launchpad.
@@ -1041,7 +1046,7 @@ function lacksFor(input: PlanInput, p: Plan, cc: number, base: Omit<Layout, 'hea
 }
 
 /** The lowest Command Center Upgrades level above `cc` at which the layout fits, said as the skill; null when none does. */
-function levelFor(ix: PiIndex, t: PlanetType, cc: number, l: Layout, r: number): string | null {
+export function levelFor(ix: PiIndex, t: PlanetType, cc: number, l: Layout, r: number): string | null {
   for (let lv = cc + 1; lv < ix.planetTypes[t].cc.length; lv++) {
     if (fitOf(ix, t, lv, l, r).fits) return `Command Center Upgrades ${ROMAN[lv]}`;
   }
@@ -1058,7 +1063,7 @@ const headsSaid = (l: Line) => {
   return n >= m ? `at ${hs(n)}, the median of your extractors’ learned rates` : `at ${hs(n)}: your extractors’ median is ${m}, and no more fit beside its factories`;
 };
 /** What a role says about its rates: from another program length, another P0, or none (ranked at the factories' capacity). */
-function rateNotes(input: PlanInput, p: Plan): string[] {
+export function rateNotes(input: PlanInput, p: Plan): string[] {
   const notes: string[] = [];
   const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
   const none = p.lines.filter((l) => !l.rate && !l.setAside);
@@ -1116,10 +1121,10 @@ function rateNotes(input: PlanInput, p: Plan): string[] {
   return notes;
 }
 
-const unusedRole = (p: PlanPlanet, charId: number, why: string): Role =>
+export const unusedRole = (p: PlanPlanet, charId: number, why: string): Role =>
   ({ planetId: p.planetId, charId, does: 'unused', extracts: [], makes: [], ships: [], fit: null, why });
 
-function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]): Setup {
+export function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]): Setup {
   return {
     kind, iskDay: null, iskDayHigh: null, before: [], taxDay: null, perPct: 0, taxes: [], outputs: [], inputs: [],
     roles: input.planets.map((p) => unusedRole(p, input.char.charId, p.type ? why : NO_PI)),
@@ -1129,7 +1134,7 @@ function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]
 }
 
 /** Why a setup none of whose outputs is valued has no figure: the outputs' own reasons, each once ("No home hub picked: …"). */
-const unvaluedWhy = (outputs: Output[]) => cap([...new Set(outputs.map((o) => o.sold.why ?? 'no price read'))].join('; '));
+export const unvaluedWhy = (outputs: Output[]) => cap([...new Set(outputs.map((o) => o.sold.why ?? 'no price read'))].join('; '));
 
 /** Units of a sale that go to Jita: as `soldOf` splits them, else all when Jita is the only place. */
 const jitaUnits = (s: Sold) => s.jitaUnits ?? (s.where.length === 1 && s.where[0] === 'jita' ? s.units : 0);
@@ -1223,7 +1228,7 @@ function repeatOf(input: PlanInput, colonies: readonly Colony[], at: (n: number)
   return { chars, n, iskDay: all?.value ?? null, caps };
 }
 /** A plan's layout as `fitted` filled its heads in (an extractor whose heads aren't known counts one), beside what stands there. */
-const layoutOf = (p: Plan, heads: readonly (number | null)[]): Layout => ({
+export const layoutOf = (p: Plan, heads: readonly (number | null)[]): Layout => ({
   ecus: p.lines.length, heads: heads.reduce<number>((n, h) => n + Math.max(1, h ?? 1), 0), basic: p.lines.reduce((n, l) => n + l.basics, 0),
   advanced: p.advanced?.count ?? 0, hightech: 0, storage: p.fitAt?.storage ?? 0, launchpads: p.fitAt?.launchpads ?? 1,
 });
@@ -1349,7 +1354,7 @@ function singleFrom(input: PlanInput, kind: 'p1' | 'p2', now: Assessed, shown: S
   };
 }
 /** Plan it's head figure (`Setup.made`): the held good's units a day among a setup's outputs; nothing with every product. */
-const madeOf = (input: PlanInput, outputs: readonly Output[]): { made?: Setup['made'] } => {
+export const madeOf = (input: PlanInput, outputs: readonly Output[]): { made?: Setup['made'] } => {
   const o = input.only == null ? undefined : outputs.find((x) => x.id === input.only);
   // Not among the outputs: absent, never 0 (not known is never a zero).
   return o ? { made: { id: o.id, perDay: o.perDay } } : {};
@@ -1382,7 +1387,7 @@ export function unitNet(sold: (id: number, perDay: number) => Sold, id: number):
   return s.isk != null && s.units > 0 ? Math.max(0, s.isk / s.units) : 0;
 }
 /** The amount `unitNet` asks about: far under any one a day a market takes at your share. */
-const SLIVER = 1e-6;
+export const SLIVER = 1e-6;
 
 /**
  * Plan it is units first (the user, 24 October 2026: "have the planner maximise the system i have chosen, picking the planets that give
@@ -1461,14 +1466,14 @@ function factoryMember(c: Cls): Member {
  * (made there from P1, or shipped in already made), and a P4's P3s (always made there). Units per unit of X are the
  * schematics' quantities over their outputs, so the cycle times drop out; `perFactory` is what one factory makes an hour.
  */
-type Tree = {
+export type Tree = {
   x: number; facility: Facility; perFactory: number;
   alpha: Map<number, number>;
   p2: Map<number, { beta: number; inputs: Map<number, number>; perFactory: number }>;
   p3: Map<number, { per: number; perFactory: number }>;
   kinds: number[];
 };
-function treeOf(ix: PiIndex, x: number): Tree | null {
+export function treeOf(ix: PiIndex, x: number): Tree | null {
   const s = ix.makes.get(x), c = ix.byId.get(x);
   if (!s || !c || !(c.tier === 'P2' || c.tier === 'P3' || c.tier === 'P4')) return null;
   const tierOf = (id: number) => ix.byId.get(id)?.tier;
@@ -1756,7 +1761,7 @@ const beats = (a: Score, b: Score | null) => !b || a.value > b.value + SAME_ISK
  */
 const mayBeat = (bound: number, upkeepAtLeast: number, best: Score) =>
   bound > best.value + SAME_ISK || (bound >= best.value - SAME_ISK && upkeepAtLeast < best.upkeep - 1e-9);
-const resets = (input: PlanInput, colonies: number) => (input.programHours > 0 ? (colonies * HOURS_A_WEEK) / input.programHours : 0);
+export const resets = (input: PlanInput, colonies: number) => (input.programHours > 0 ? (colonies * HOURS_A_WEEK) / input.programHours : 0);
 
 /** Whose planets a setup may use, in order: the shown character first. */
 type Who = { c: PlanChar; cap: number; cc: number };
@@ -1777,8 +1782,8 @@ type FedValue = {
   order: number[];
 };
 
-const factoriesFor = (perDay: number, perFactoryHour: number) => Math.max(0, Math.ceil(perDay / 24 / perFactoryHour - EPS));
-const mergeRows = (rows: TaxRow[]): TaxRow[] => TIERS_DOWN.filter((t) => rows.some((r) => r.tier === t)).map((tier) => {
+export const factoriesFor = (perDay: number, perFactoryHour: number) => Math.max(0, Math.ceil(perDay / 24 / perFactoryHour - EPS));
+export const mergeRows = (rows: TaxRow[]): TaxRow[] => TIERS_DOWN.filter((t) => rows.some((r) => r.tier === t)).map((tier) => {
   const of = rows.filter((r) => r.tier === tier);
   return { tier, base: of.reduce((n, r) => n + r.base, 0), perDay: of.some((r) => r.perDay == null) ? null : of.reduce((n, r) => n + r.perDay!, 0) };
 });
@@ -2470,15 +2475,15 @@ function coverable(ctx: FedCtx, who: Who[]): boolean {
  * A feeder's plan on the planet it was placed on: the same lines and factories (what the search valued; `feederFits` sized it to fit
  * on any planet of its class), that planet's name and place.
  */
-const remake = (p: Plan, m: Member): Plan => ({ ...p, planet: m.planet, at: m.at });
+export const remake = (p: Plan, m: Member): Plan => ({ ...p, planet: m.planet, at: m.at });
 
-const tierRank = (ix: PiIndex, id: number) => TIERS_DOWN.indexOf(ix.byId.get(id)?.tier ?? 'P0');
+export const tierRank = (ix: PiIndex, id: number) => TIERS_DOWN.indexOf(ix.byId.get(id)?.tier ?? 'P0');
 const stayNote = (stays: string[]) => `${listSaid(stays)} a day stay on the planet, building up: the market takes no more, so they aren’t exported or taxed`;
 /**
  * What stays on a planet, said: each good it keeps unoffered, with why (Ruling T15-5: it doesn't pay to ship, or a P0 has no price),
  * then what's offered and the market doesn't take.
  */
-function staysNotes(name: (id: number) => string, kept: readonly { id: number; perDay: number; why: string }[], over: readonly Ship[]): string[] {
+export function staysNotes(name: (id: number) => string, kept: readonly { id: number; perDay: number; why: string }[], over: readonly Ship[]): string[] {
   const notes = kept.filter((x) => x.perDay > 1e-6).map((x) => `${amountSaid(x.perDay)} ${name(x.id)} a day stay on the planet: ${x.why}`);
   if (over.length) notes.push(stayNote(over.map((x) => `${amountSaid(x.perDay)} ${name(x.id)}`)));
   return notes;
@@ -2487,7 +2492,7 @@ function staysNotes(name: (id: number) => string, kept: readonly { id: number; p
  * Ruling F9: a planet run with fewer factories than its rates feed says how many fit at what level, what they take of the P0 its
  * extractors give, and what becomes of the rest (`exported`: what the planet ships to market).
  */
-function fitNote(p: Plan, exported: readonly Ship[], owner?: number): string | null {
+export function fitNote(p: Plan, exported: readonly Ship[], owner?: number): string | null {
   const b = p.lines.reduce((n, l) => n + l.basics, 0), a = p.advanced?.count ?? 0;
   const all = p.lines.reduce((n, l) => n + l.perHour, 0), left = p.lines.reduce((n, l) => n + l.p0Left, 0);
   const p0s = new Set(p.lines.map((l) => l.p0));
@@ -2861,7 +2866,7 @@ export function* planChainSteps(given: PlanInput): Steps<Setup> {
  * factories can (`keptCap`). The planner's own words say the rest (extras, top-ups, fits, a rate learned elsewhere).
  */
 export const KEPT_NOT_HERE = 'A planet of this plan isn’t in this system any more';
-const NOT_KEPT = 'Not in your kept plan';
+export const NOT_KEPT = 'Not in your kept plan';
 
 /**
  * A kept planet's plan on today's rates (`KeptPlanet`): its extractors on the P0s kept, their heads and Basics as kept, a P0 → P2's
@@ -2870,7 +2875,7 @@ const NOT_KEPT = 'Not in your kept plan';
  * class's largest for a feeder, as `feederFits`) is set aside as the planner sets it aside (Ruling T15b-12), so a plan worked out on
  * the inputs it was kept on is the planner's own. Null when the planet has no planetary industry, or a P0 or product kept isn't one it has.
  */
-function keptPlanOf(input: PlanInput, planet: PlanPlanet, at: number, kp: KeptPlanet, fitAt: FitAt | null): Plan | null {
+export function keptPlanOf(input: PlanInput, planet: PlanPlanet, at: number, kp: KeptPlanet, fitAt: FitAt | null): Plan | null {
   const { ix } = input;
   const t = planet.type;
   if (!t || !kp.lines.length || kp.lines.some((l) => !ix.planetTypes[t].p0.includes(l.p0))) return null;
@@ -2893,15 +2898,16 @@ function keptPlanOf(input: PlanInput, planet: PlanPlanet, at: number, kp: KeptPl
 }
 
 /** What's said of a kept plan beside its lines: planets it takes past what a character it's planned for has. */
-function keptNotes(kept: KeptPlan, who: readonly PlanChar[]): string[] {
+export function keptNotes(kept: KeptPlan, who: readonly PlanChar[]): string[] {
   const notes: string[] = [];
   for (const c of who) {
-    const n = kept.kind === 'chain' ? kept.planets.filter((p) => p.charId === c.charId).length : kept.planets.length;
-    if (c.planets != null && n > c.planets) notes.push(`It takes ${n} planets${kept.kind === 'chain' ? ` of ${c.name}’s` : ''}: ${c.name} has ${c.planets}`);
+    const each = kept.kind === 'chain' || kept.kind === 'team';
+    const n = each ? kept.planets.filter((p) => p.charId === c.charId).length : kept.planets.length;
+    if (c.planets != null && n > c.planets) notes.push(`It takes ${n} planets${each ? ` of ${c.name}’s` : ''}: ${c.name} has ${c.planets}`);
   }
   return notes;
 }
-const withKept = (s: Setup, kept: KeptPlan, notes: string[]): Setup => ({ ...s, kept: { at: kept.at, notes } });
+export const withKept = (s: Setup, kept: KeptPlan, notes: string[]): Setup => ({ ...s, kept: { at: kept.at, notes } });
 
 /** A kept P0 → P1 or P0 → P2: each planet's plan as kept, valued together as `planSingle` values them. */
 function keptSingle(input: PlanInput, kept: KeptPlan): Setup {
@@ -2983,6 +2989,7 @@ function keptFed(input: PlanInput, kept: KeptPlan): Setup {
  */
 export function planKept(given: PlanInput, kept: KeptPlan): Setup {
   const input = heldInput(given);
+  if (kept.kind === 'team') return keptTeam(input, kept);
   return kept.kind === 'feed' || kept.kind === 'chain' ? keptFed(input, kept) : keptSingle(input, kept);
 }
 
@@ -3566,7 +3573,7 @@ function repeatBought(ctx: BuyCtx, inst: readonly number[], n: number): AtN | nu
  * three Gel-Matrix Biopaste factories had none of its three P2s routed in, so it made nothing.
  */
 export function factoryRoutes(ix: PiIndex, s: Pick<Setup, 'kind' | 'roles'>): { top: string; from: string[] } | null {
-  if (s.kind !== 'feed' && s.kind !== 'chain') return null;
+  if (s.kind !== 'feed' && s.kind !== 'chain' && s.kind !== 'team') return null;
   const f = s.roles.find((r) => r.does === 'factory');
   const top = f?.makes[f.makes.length - 1]?.id;
   const sch = top != null ? ix.makes.get(top) : undefined;
@@ -3601,6 +3608,8 @@ export type CanMake = { kind: SetupKind; can: boolean; on: PlanetType[]; why: st
  * chart says the condition with the "can" rather than a second copy of the rule that could drift from it.
  */
 export const CHAIN_P3_WHEN = 'only when it needs more planets than one character has (a fed factory plans the rest)';
+/** A factory character is planned under Plan it, with two characters or more doing planetary industry: said with its "can". */
+export const TEAM_WHEN = 'with two or more characters doing planetary industry, under Plan it';
 
 /** What each kind of setup sells (the planner's own kinds): the tiers its product can be, and that said. */
 export const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
@@ -3609,6 +3618,7 @@ export const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
   feed: { tiers: ['P2', 'P3'], said: 'its factory makes P2 and P3 only' },
   bought: { tiers: ['P2', 'P3', 'P4'], said: 'its factory makes P2, P3 and P4 only' },
   chain: { tiers: ['P3', 'P4'], said: 'it makes P3 and P4 only' },
+  team: { tiers: ['P2', 'P3'], said: 'its factory planets make P2 and P3 only (a P4 is the chain’s)' },
 };
 const FACILITY_SAID = { basic: 'Basic Industry Facility', advanced: 'Advanced Industry Facility', hightech: 'High-Tech Production Plant' } as const;
 
@@ -3632,12 +3642,12 @@ export function canMake(ix: PiIndex, id: number, types: readonly PlanetType[]): 
       return no(missing.length ? missingSaid : `no planet here gives ${listSaid(p0Of(ix, id).map((p) => ix.byId.get(p)?.name ?? `type ${p}`))} together`);
     }
     if (kind !== 'bought' && missing.length) return no(missingSaid);
-    return hosts.length ? { kind, can: true, on: hosts, why: null, when: kind === 'chain' && good.tier === 'P3' ? CHAIN_P3_WHEN : null } : no(hostWhy);
+    return hosts.length ? { kind, can: true, on: hosts, why: null, when: kind === 'chain' && good.tier === 'P3' ? CHAIN_P3_WHEN : kind === 'team' ? TEAM_WHEN : null } : no(hostWhy);
   });
 }
 
 /** A good's name, for the planner's sentences. */
-const goodName = (ix: PiIndex, id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
+export const goodName = (ix: PiIndex, id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
 /**
  * Plan it: why a kind of setup can't make the good it's held to (`PlanInput.only`) on these planets, as a sentence, or null when it
  * may (and when no good is chosen). The kind sells another tier ("Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only"), the
@@ -3662,13 +3672,14 @@ export function onlyWhy(input: PlanInput, kind: SetupKind, sold: (id: number, pe
 
 type Rankable = { kind?: SetupKind; iskDay: number | null; upkeep: { resetsPerWeek: number; restocksPerWeek: number }; perChar?: unknown[]; made?: { perDay: number } };
 /**
- * Best first by ISK a day to the cent (a chain's per character in it), the ones without a figure last; at the same cent,
- * less upkeep first (a chain's per character in it too, as its ISK is). By the cent rather than "within a cent of each
+ * Best first by ISK a day to the cent (a chain's or a factory character's per character in it), the ones without a figure last; at the
+ * same cent, less upkeep first (a chain's per character in it too, as its ISK is). By the cent rather than "within a cent of each
  * other", which isn't transitive (5.000 is within a cent of 5.008, and 5.008 of 5.016, but 5.000 isn't of 5.016).
- * Plan it (`Setup.made`): the most of the held good a day first, to a hundredth of a unit (a chain's per character in it), then as above.
+ * Plan it (`Setup.made`): the most of the held good a day first, to a hundredth of a unit (a chain's and a factory character's per character
+ * in it, so a team is set against one character's setups like for like), then as above.
  */
 export function rankSetups<T extends Rankable>(setups: T[]): T[] {
-  const per = (s: T) => (s.kind === 'chain' && s.perChar?.length ? s.perChar.length : 1);
+  const per = (s: T) => ((s.kind === 'chain' || s.kind === 'team') && s.perChar?.length ? s.perChar.length : 1);
   const upkeep = (s: T) => (s.upkeep.resetsPerWeek + s.upkeep.restocksPerWeek) / per(s);
   const units = (s: T) => (s.made && s.iskDay != null ? Math.round((s.made.perDay / per(s)) * 100) : null);
   return setups.map((s, i) => ({ s, i })).sort((a, b) => {
@@ -3679,8 +3690,8 @@ export function rankSetups<T extends Rankable>(setups: T[]): T[] {
   }).map((e) => e.s);
 }
 
-/** The five setups, in the order they're worked out (and ranked from, ties going to the earlier). */
-export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 'chain'];
+/** The six setups, in the order they're worked out (and ranked from, ties going to the earlier). A factory character last: Plan it's alone. */
+export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 'chain', 'team'];
 /**
  * One setup a step at a time (Ruling T11-13): feed and chain yield through their searches, the others are one step. The page drives
  * these in slices of a few milliseconds; drained, each is the plain call's answer.
@@ -3688,10 +3699,11 @@ export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 
 export function* planSteps(input: PlanInput, kind: SetupKind): Steps<Setup> {
   if (kind === 'feed') return yield* planFeedSteps(input);
   if (kind === 'chain') return yield* planChainSteps(input);
+  if (kind === 'team') return yield* planTeamSteps(input);
   return kind === 'bought' ? planBought(input) : planSingle(input, kind);
 }
 
-/** All five setups for the system and character, ranked. The user's own P0 → P2 is always among them. */
+/** All six setups for the system and character, ranked. The user's own P0 → P2 is always among them. */
 export function planSystem(input: PlanInput): Setup[] {
   return rankSetups(SETUP_KINDS.map((k) => drain(planSteps(input, k))));
 }

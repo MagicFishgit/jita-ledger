@@ -20,7 +20,7 @@ export function parsePlanetType(typeName: string): PlanetType | null {
 
 export type Step = { title: string; body: string; tip?: string };
 /** The planner's setup kinds (piPlan.ts `SetupKind`), named here so this file needs nothing of the planner's. */
-export type BuildKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
+export type BuildKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain' | 'team';
 /**
  * What a setup's steps name, as the page reads them off its planets' roles: the P0s its extractors pull, the goods its factories
  * make, and what a factory planet takes in. Names, not IDs: this file has no bundle.
@@ -47,7 +47,7 @@ const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0,
  */
 export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
   const extracts = kind !== 'bought';
-  const fed = kind === 'feed' || kind === 'chain' || kind === 'bought';
+  const fed = kind === 'feed' || kind === 'chain' || kind === 'team' || kind === 'bought';
   const p0 = n.p0s.length ? listSaid(n.p0s) : 'what each planet’s line names';
   const made = n.makes.length ? listSaid(n.makes) : 'what each planet’s line says it makes';
   const steps: Step[] = [
@@ -89,15 +89,15 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       },
     );
   }
-  if (kind === 'feed' || kind === 'chain') {
+  if (kind === 'feed' || kind === 'chain' || kind === 'team') {
     steps.push(
       {
         title: 'On each extraction planet, refine what it ships',
         body: 'Basic Industry Facilities turn each P0 into its P1 (3,000 every 30 minutes for 20: 150 P0 a P1), and an Advanced one where the line makes a P2 there. Whatever the line ships goes to the launchpad.',
       },
       {
-        title: 'On the factory planet, place the factories and a launchpad',
-        body: `Its line says what it makes (${made}) and how many factories: Advanced for a P2 or P3, a High-Tech Production Plant for a P4, which fits only on Barren and Temperate planets. The launchpad holds what comes in and what goes out (10,000 m³).`,
+        title: kind === 'team' ? 'On each factory planet, place the factories and a launchpad' : 'On the factory planet, place the factories and a launchpad',
+        body: `Its line says what it makes (${made}) and how many factories: Advanced for a P2 or P3, a High-Tech Production Plant for a P4, which fits only on Barren and Temperate planets. The launchpad holds what comes in and what goes out (10,000 m³).${kind === 'team' ? ' A factory planet that makes a P2 for another sends it on through its launchpad.' : ''}`,
       },
     );
   }
@@ -107,7 +107,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       body: `No extractor here: the planet only makes ${made}. Advanced factories for a P2 or P3, a High-Tech Production Plant for a P4 (Barren and Temperate only). The launchpad holds what you bring and what it makes (10,000 m³).`,
     });
   }
-  steps.push(kind === 'bought' || kind === 'feed' || kind === 'chain'
+  steps.push(kind === 'bought' || kind === 'feed' || kind === 'chain' || kind === 'team'
     ? {
       title: 'Link everything, then route it, which is the step that catches people',
       body: 'Links are roads; routes are the instructions. On a factory planet, route each input from the launchpad to the factories and the product back to the launchpad; on an extraction planet, from each extractor to its factory and on to the launchpad. Without routes the colony sits there built and moves nothing.',
@@ -120,7 +120,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       tip: 'If a structure shows a warning triangle, it has an input or output with nowhere to go.',
     });
   const t = n.topFrom;
-  if (t && (kind === 'feed' || kind === 'chain')) {
+  if (t && (kind === 'feed' || kind === 'chain' || kind === 'team')) {
     steps.push({
       title: `Route ${listSaid(t.from)} into every ${t.top} factory`,
       body: `Each ${t.top} factory needs ${t.from.length === 2 ? 'both' : `all ${t.from.length === 3 ? 'three' : t.from.length}`} of its inputs: route ${listSaid(t.from)} into each one, from the factories making them or the launchpad, and ${t.top} back to the launchpad. One input not routed in, and that factory makes nothing, while the rest of the colony looks fine.`,
@@ -132,6 +132,13 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       body: kind === 'bought'
         ? 'Buy them at the market the line names, carry them to the planet and import them through its customs office into the launchpad. An import pays half the export tax on the same goods. Restock before the launchpad runs dry: the restocks a week are in the setup’s upkeep.'
         : 'Export it from each extraction planet’s launchpad through its customs office, carry it to the factory planet and import it there. Each export pays the planet’s tax; each import half of it.',
+    });
+  }
+  if (kind === 'team') {
+    steps.push({
+      title: 'Hand what each character makes to the factory character',
+      body: 'A character can import only from its own customs office storage into its own launchpad, so each one exports what its planets ship, carries it to a station or structure in the system, and hands it to the factory character in an item exchange contract (docked, for nothing). The factory character takes it, carries it to its factory planets and imports it there.',
+      tip: 'One contract a character a visit carries it all. The setup says how many days each factory planet’s launchpad holds of what comes in, which is how often the factory character has to import.',
     });
   }
   if (extracts) {

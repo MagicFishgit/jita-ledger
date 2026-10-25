@@ -80,6 +80,13 @@ export const planetTypeOf = (ix: PiIndex, planetTypeId: number): PlanetType | nu
  */
 export const PI_TYPE_IDS = [11, 12, 13, 2014, 2015, 2016, 2017, 2063] as const;
 /**
+ * The region a system is in, or null. Here, not in piFinder.ts, so Planets.tsx can ask without importing the planner (piFinder imports
+ * piPlan, which put the planner, and the team kind with it, in the Side hustles chunk every tab loads).
+ */
+export const regionOf = (regions: readonly Region[], systemId: number | null | undefined): Region | null =>
+  (systemId == null ? null : regions.find((r) => r.systems.includes(systemId)) ?? null);
+
+/**
  * A system's row of planetRadii.json is delta-encoded: [firstId, v0, Δid1, v1, …], each v the radius in whole km times ten plus the
  * planet's type (an index into `PI_TYPE_IDS`). Each planet as [ID, radius in km, its type ID]: the first two as before the type was
  * added, so `new Map(decodeRadii(row))` is still ID to radius.

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ClipboardCheck, CircleCheck, CirclePlus, CircleX, Clock, Hammer, Info } from 'lucide-react';
+import { ChevronRight, ClipboardCheck, CircleCheck, CirclePlus, CircleX, Clock, Hammer, Info } from 'lucide-react';
+import type { AccountRef } from '../../lib/accounts';
 import { hasScope } from '../../lib/auth';
 import { cloudEnabled } from '../../lib/cloud';
 import type { ColoniesDoc } from '../../lib/colonies';
@@ -11,7 +12,7 @@ import { useNow } from '../../lib/hooks';
 import type { PiIndex } from '../../lib/piBundle';
 import { PI_READING, poorShare, type Rate } from '../../lib/piLearn';
 import type { PlanChar, Role, Sell, Setup } from '../../lib/piPlan';
-import { boardOf, buildSteps, cardKey, dropStale, FACILITY_SHORT, levelNeeded, roleSig, ticked, ticksDone, type Ticks } from '../../lib/planetBoard';
+import { boardOf, buildSteps, cardKey, dropStale, FACILITY_SHORT, headsNeeded, headsNeedSaid, levelNeeded, roleSig, ticked, ticksDone, type Ticks } from '../../lib/planetBoard';
 import type { Tax } from '../../lib/planetsDoc';
 import { lostSaid } from '../../lib/pilot';
 import { checkSaid, mainReadWhy, setupCheck, type CheckItem, type FeedersChecked } from '../../lib/setupCheck';
@@ -94,9 +95,9 @@ function startRead(c: IndustryChar, ctx: CheckCtx) {
     }).finally(bump);
 }
 
-/** Every character whose colony on this planet the check reads: a chain's card is its own character's; any other, every PI character's. */
+/** Every character whose colony on this planet the check reads: a chain's or a factory character's card is its own character's; any other, every PI character's. */
 function whoChecks(s: Setup, r: Role, ctx: CheckCtx): IndustryChar[] {
-  if (s.kind === 'chain') return ctx.chars.filter((c) => c.charId === r.charId);
+  if (s.kind === 'chain' || s.kind === 'team') return ctx.chars.filter((c) => c.charId === r.charId);
   const has = (c: IndustryChar) => !!ctx.colonies[c.charId]?.colonies.some((k) => k.planetId === r.planetId);
   return ctx.chars.filter((c) => ctx.pi.includes(c.charId) || c.charId === r.charId || has(c));
 }
@@ -142,8 +143,10 @@ function Term({ id, n, name, out, tip }: { id: number; n?: number; name: (id: nu
 }
 const Arrow = () => <span className="pl-arrow" aria-hidden="true">→</span>;
 
-export function PlanetBoard({ s, ix, planets, chars, name, details, words, systemId, good, programHours, ctx }: {
+export function PlanetBoard({ s, ix, planets, chars, name, details, words, systemId, good, programHours, ctx, accountOf = () => null }: {
   s: Setup; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; name: (id: number) => string;
+  /** Each character's account (the Characters page): a factory character's groups name it once any is set. */
+  accountOf?: (charId: number) => AccountRef | null;
   /** The setup's Details is open: every card shows the planner's words for its planet (where its figures come from). */
   details: boolean; words: (r: Role) => ReactNode;
   /** The system and the good planned (null: every product), for each card's key (`cardKey`). */
@@ -163,7 +166,9 @@ export function PlanetBoard({ s, ix, planets, chars, name, details, words, syste
   return (
     <div className="pl-board-scroll" data-planets="board">
       {b.layout === 'row' ? <div className="pl-board row">{b.groups[0].roles.map((r) => card(r, 'row'))}</div>
-        : <Flow b={b} card={card} name={name} charName={(id) => chars.find((c) => c.charId === id)?.name ?? `Character ${id}`} planets={planets} />}
+        : b.layout === 'team' ? <TeamFlow b={b} card={card} name={name} charName={(id) => chars.find((c) => c.charId === id)?.name ?? `Character ${id}`} accountOf={accountOf} factoryChar={s.team?.factoryChar ?? null}
+          parts={s.team?.parts ?? []} good={s.made?.id ?? null} />
+          : <Flow b={b} card={card} name={name} charName={(id) => chars.find((c) => c.charId === id)?.name ?? `Character ${id}`} planets={planets} />}
     </div>
   );
 }
@@ -236,6 +241,93 @@ function Flow({ b, card, name, charName, planets }: {
   );
 }
 
+/**
+ * A factory character's board: the feeders on the left grouped by character, each group folded to one line (who, its account once any is
+ * set, how many planets, what it sends a day) until opened to its planet cards; the factory character's factory planets stacked on the
+ * right; a line from each group to them labelled with what it sends a day. The user, 25 October 2026: "No need to show all build types
+ * fully extended at once. They can be collapsed and then I can pick the ones that can actually work and extend them to see more detail."
+ */
+function TeamFlow({ b, card, name, charName, accountOf, factoryChar, parts, good }: {
+  b: ReturnType<typeof boardOf>; card: (r: Role, at: 'feeder' | 'factory') => ReactNode; name: (id: number) => string; charName: (id: number) => string;
+  accountOf: (charId: number) => AccountRef | null; factoryChar: number | null;
+  /** Each character's part (`TeamFigures.parts`): the wire's label, its m³ a day and the good a day it stands for. */
+  parts: NonNullable<Setup['team']>['parts']; good: number | null;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState<Set<number>>(() => new Set());
+  type Wire = { key: string; d: string; x: number; y: number; goods: { id: number; perDay: number }[]; charId: number };
+  const [wires, setWires] = useState<{ w: number; h: number; list: Wire[] } | null>(null);
+  const anyAccount = b.groups.some((g) => g.charId != null && accountOf(g.charId));
+  const sig = `${b.groups.map((g) => `${g.charId}:${g.sends.map((x) => `${x.id}x${Math.round(x.perDay)}`).join(',')}`).join(' ')}|${[...open].join(',')}`;
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      const base = el.getBoundingClientRect();
+      const f = el.querySelector<HTMLElement>('[data-board="factories"]')?.getBoundingClientRect();
+      if (!f) return;
+      const heads = [...el.querySelectorAll<HTMLElement>('[data-board="group"]')];
+      const into = b.groups.map((g, i) => ({ g, rect: heads[i]?.getBoundingClientRect() })).filter((x) => x.rect && x.g.sends.length);
+      const span = Math.min(f.height * 0.7, Math.max(0, into.length - 1) * 34);
+      const list: Wire[] = into.map((x, i) => {
+        const x1 = x.rect!.right - base.left, y1 = x.rect!.top - base.top + x.rect!.height / 2;
+        const x2 = f.left - base.left, y2 = f.top - base.top + Math.min(f.height / 2, 160) - span / 2 + (into.length > 1 ? (span * i) / (into.length - 1) : 0);
+        const xa = Math.min(x2 - 30, x1 + 60), m = (xa + x2) / 2;
+        return { key: String(x.g.charId), d: `M${x1} ${y1} H${xa} C${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`, x: (xa + x2) / 2, y: (y1 + y2) / 2, goods: x.g.sends, charId: x.g.charId! };
+      });
+      const next = { w: base.width, h: base.height, list };
+      setWires((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.querySelectorAll('[data-board]').forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (id: number) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  return (
+    <div className="pl-board team" ref={box}>
+      {wires && (
+        <svg className="pl-wires" width={wires.w} height={wires.h} aria-hidden="true">
+          <defs><marker id="pl-team-wire-end" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" /></marker></defs>
+          {wires.list.map((w) => <path key={w.key} className="pl-wire" d={w.d} markerEnd="url(#pl-team-wire-end)" />)}
+        </svg>
+      )}
+      <div className="pl-feeders">
+        {b.groups.map((g) => {
+          const id = g.charId!, shown = open.has(id);
+          const acct = anyAccount ? accountOf(id)?.name ?? 'account not set' : null;
+          const n = g.roles.length;
+          return (
+            <div key={id} className={'pl-team-group' + (shown ? ' open' : '')} data-planets={`group:${id}`}>
+              <button type="button" className="pl-team-head" data-board="group" aria-expanded={shown} onClick={() => toggle(id)}
+                aria-label={`${shown ? 'Fold' : 'Open'} ${charName(id)}’s planets`}>
+                <ChevronRight className="chev" aria-hidden="true" />
+                <span className="pl-team-who"><b>{charName(id)}</b>{acct ? <span className="pl-type"> ({acct})</span> : null}
+                  <span className="sub">{n} planet{n === 1 ? '' : 's'}{id === factoryChar ? ' feeding' : ''}</span></span>
+                <span className="pl-team-sends" data-planets="sends">{g.sends.map((x, i) => (
+                  <span key={x.id} className="pl-term" data-tip={`${aDay(x.perDay)} ${name(x.id)} a day to the factory planets`}><ItemIcon id={x.id} size="sm" /><span className="nm">{name(x.id)}</span><b>{aDay(x.perDay)}</b>{i === g.sends.length - 1 ? <span className="pl-aday">a day</span> : null}</span>
+                ))}</span>
+              </button>
+              {shown && <div className="pl-team-cards">{g.roles.map((r) => card(r, 'feeder'))}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="pl-factory-col team" data-board="factories" data-planets="factories">{b.factories.map((r) => card(r, 'factory'))}</div>
+      {wires?.list.map((w) => (
+        <span key={w.key} className="pl-wire-label" style={{ left: w.x, top: w.y }} data-planets={`group-edge:${w.charId}`}
+          data-tip={w.goods.map((x) => `${aDay(x.perDay)} ${name(x.id)} a day from ${charName(w.charId)}’s planets`).join('\n')}>
+          {(() => { const part = parts.find((x) => x.charId === w.charId); return part ? (
+            <><span className="pl-wire-good"><b>{units(part.m3)}</b> m³ a day</span>{good != null && <span className="pl-wire-good"><ItemIcon id={good} size="sm" /><b>{aDay(part.perDay)}</b> a day’s worth</span>}</>
+          ) : null; })()}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** One planet: its type, name and owner, a badge for what it does, what it does drawn as goods and factories, Build it, Check my setup. */
 function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, words, cardKey: key, keyOf, programHours, ctx }: {
   r: Role; s: Setup; at: 'feeder' | 'factory' | 'row'; ix: PiIndex; planet: SystemPlanet | undefined; planets: SystemPlanet[]; pname: (id: number) => string; name: (id: number) => string; whose: string | null;
@@ -256,12 +348,15 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
   const lineOf = (e: Role['extracts'][number], i: number) => {
     const bs = basics[i];
     const share = poorShare(e.rate);
+    // Short of what its Basics take: what more heads would need here, beside the rate (never a promise).
+    const h = headsNeeded(r, i, ix, t, cc, planet?.radiusKm ?? null);
+    const tip = h ? `${rateSaid(e, name, t)}\n\n${headsNeedSaid(h)}.\n\n• At ${r.does === 'extract' ? 'this character’s' : 'its'} Command Center Upgrades level, beside the planet’s factories and one launchpad, that many heads fit for this line.\n• Heads overlap and the planet depletes, so more heads don’t each add what one did: it isn’t a promise.` : rateSaid(e, name, t);
     return (
       <div key={`${e.p0}:${i}`} className={'pl-bline' + (e.extra ? ' extra' : '')} data-planets={`line:${e.p0}`}>
         <div className="pl-bflow">
           <Term id={e.p0} name={name} />
           <span className="pl-chip" data-tip={rateSaid(e, name, t)}>{e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : 'heads?'}</span>
-          <Tip title={`${name(e.p0)} on ${planet?.name ?? 'this planet'}`} text={rateSaid(e, name, t)} />
+          <span data-planets={h ? 'heads-need' : undefined}><Tip title={`${name(e.p0)} on ${planet?.name ?? 'this planet'}`} text={tip} /></span>
           {bs && bs.count > 0 && <><Arrow /><span className="pl-badge">{bs.count} Basic</span><Arrow /><Term id={bs.id} n={bs.perDay} name={name} out tip={`${aDay(bs.perDay)} ${name(bs.id)} a day from ${bs.count} Basic Industry Facilit${bs.count === 1 ? 'y' : 'ies'}`} /></>}
         </div>
         {(e.extra || e.topsUp || e.setAside || !e.rate || share != null) && (
@@ -290,7 +385,12 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
       <div className="pl-card-body">
         {r.does === 'factory' && (r.imports ?? []).length > 0 && (
           <div className="pl-bline in" data-planets="takes-in"><span className="pl-k">{(r.imports ?? []).every((x) => x.from === 'market') ? 'Bought' : 'In'}</span>
-            {(r.imports ?? []).map((x, i) => <Term key={i} id={x.id} n={x.perDay} name={name} tip={`${aDay(x.perDay)} ${name(x.id)} a day ${x.from === 'market' ? 'bought at the market' : `from ${pname(x.from)}`}`} />)}
+            {/* Each good once, what comes from every planet summed (a factory character's come from several characters' colonies); the tip says from where. */}
+            {[...new Set((r.imports ?? []).map((x) => x.id))].map((id) => {
+              const from = (r.imports ?? []).filter((x) => x.id === id);
+              return <Term key={id} id={id} n={from.reduce((t, x) => t + x.perDay, 0)} name={name}
+                tip={from.map((x) => `${aDay(x.perDay)} ${name(id)} a day ${x.from === 'market' ? 'bought at the market' : `from ${pname(x.from)}`}`).join('\n')} />;
+            })}
           </div>
         )}
         {r.extracts.map(lineOf)}
@@ -302,6 +402,11 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
             </div>
           </div>
         ))}
+        {/* A feeder making a P2 beside its P1 (a factory character's): said, so the P2 is built as what it ships, not a by-product. */}
+        {r.does === 'extract' && above.filter((m) => r.ships.some((x) => x.id === m.id && typeof x.to === 'number') && r.ships.some((x) => x.id !== m.id && typeof x.to === 'number')).map((m) => {
+          const n = r.ships.filter((x) => x.id === m.id && typeof x.to === 'number').reduce((t, x) => t + x.perDay, 0);
+          return <div key={`as-well:${m.id}`} className="pl-bline" data-planets="as-well"><span className="pl-badge blue" data-tip={`Its ${m.count} Advanced make ${name(m.id)} here, which it ships to the factory planets beside its P1`}>As well</span> Ships <Term id={m.id} n={n} name={name} out /> as well as its P1</div>;
+        })}
         {market.length > 0 && (
           <div className="pl-bline out" data-planets="to-market"><span className="pl-k">Sold</span>
             {market.map((x, i) => <Term key={i} id={x.id} n={x.perDay} name={name} out tip={`${aDay(x.perDay)} ${name(x.id)} a day to market`} />)}
@@ -326,7 +431,7 @@ function BuildList({ r, ix, planet, cc, programHours, tickKey }: { r: Role; ix: 
   let need = levelNeeded(r, ix, planet?.type ?? null, planet?.radiusKm ?? null);
   // The planner fitted it at the character's level: never ask for more than that.
   if (r.fit?.fits && cc != null && (need.level == null || need.level > cc)) need = { level: cc, checked: true };
-  const steps = buildSteps(r, ix, need, r.does === 'factory' ? null : programHours);
+  const steps = buildSteps(r, ix, need, r.does === 'factory' ? null : programHours, { t: planet?.type ?? null, cc, radiusKm: planet?.radiusKm ?? null });
   return (
     <ol className="pl-build" data-planets="build-list">
       {steps.map((st, i) => (
@@ -351,7 +456,7 @@ function CheckResult({ r, s, ix, planet, planets, ctx, keyOf }: { r: Role; s: Se
   return (
     <div className="pl-check" data-planets="check-result">
       {who.map((c) => <CharCheck key={c.charId} c={c} r={r} ix={ix} planet={planet} planets={planets} ctx={ctx} now={now} many={who.length > 1}
-        feeders={feeders} chain={s.kind === 'chain'} keyOf={keyOf} />)}
+        feeders={feeders} chain={s.kind === 'chain' || s.kind === 'team'} keyOf={keyOf} />)}
     </div>
   );
 }
