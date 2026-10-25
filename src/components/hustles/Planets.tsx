@@ -244,7 +244,7 @@ export function Planets({ route }: { route: Route }) {
             {section === 'colonies' ? (
               <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} />
             ) : section === 'chart' ? (
-              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onPlanGood={planGood} onFind={findNear} ready={alts.ready}
+              <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onNext={(id) => { if (!goodWhy(ix, id)) toSetup(id); }} nextWhy={(id) => goodWhy(ix, id)} ready={alts.ready}
                 flow={flow} onPickChange={setChartPick} />
             ) : section === 'setup' ? (
               <PlanetsSetup chars={chars} shown={shown.charId} onShow={chooseShow} flow={flow} onFlow={chooseFlow} ix={ix} good={heldGood} />
@@ -254,7 +254,7 @@ export function Planets({ route }: { route: Route }) {
                 flow={flow} onPick={pickSystem} mainName={main.name} />
             ) : (
               <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph as Graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name}
-                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} onFind={findNear} flow={flow} />
+                good={heldTo(ix, asked ?? keptGood)} onEveryProduct={everyProduct} ready={alts.ready} reads={reads} readAlt={readAlt} flow={flow} />
             )}
           </Suspense>
         )}

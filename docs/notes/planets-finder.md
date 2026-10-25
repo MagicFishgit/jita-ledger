@@ -18,9 +18,9 @@ ratings ("not option 3"). The rest of Planets is in planets.md, the planner in p
   planet's name isn't in the static data, and the sort's order isn't the game's numbering (420 planets' `celestialIndex` differs), so the
   finder names none (Plan it here reads them from ESI as Plan does). The stargate map's securities are to 3 decimals: none of the 8,490
   systems crosses a band on that (checked 24 October 2026).
-- **Where it's reached**: a fourth section, Find, in the Seg; **Find the best system** beside Plan's system chooser while Plan is held
-  to a good, and beside the Chart's Plan it for a P1 to P3. Both open it in the region of Plan's system (the regions' chunk read on the
-  click). The region otherwise is the address's, else the one kept per browser (`jita-ledger:planets-find-region`), else Plan's system's,
+- **Where it's reached**: step 3 of the four (planets-flow.md): step 2's Next and step 4's Back open it in the region of Plan's system (the
+  regions' chunk read on the click). The **Find the best system** buttons beside Plan's system chooser and the Chart's Plan it went on 25
+  October 2026: they skipped step 2. The region otherwise is the address's, else the one kept per browser (`jita-ledger:planets-find-region`), else Plan's system's,
   else the home hub's. The good is the address's, else the one Plan is held to; the address's `good` holds Plan only on Plan, so the
   finder's choice never moves Plan until **Plan it here**, which sets Plan's system and holds it to the good.
 - **What it runs** (`piFinder.ts`, pure): each system whose planets supply every P0 the good needs (`splitByP0` over `missingFor`; the

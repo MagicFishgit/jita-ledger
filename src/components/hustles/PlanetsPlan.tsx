@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, Compass, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
+import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { ColoniesRead } from '../../lib/colonyTotals';
 import { ago, fmtShort, iskBig, units } from '../../lib/format';
@@ -80,7 +80,7 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false, reads = {}, readAlt = null, onFind = null, flow = DEFAULT_FLOW }: {
+export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName, good, onEveryProduct, ready = false, reads = {}, readAlt = null, flow = DEFAULT_FLOW }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
   /** Where each character's colonies stand (Planets.tsx, colonyTotals' words): Check my setup says why one can't be read fresh. */
   reads?: Record<number, ColoniesRead>;
@@ -94,8 +94,6 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
   good: number | null; onEveryProduct: () => void;
   /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
   ready?: boolean;
-  /** Find the best system: the system finder for the good held, in the region of the system chosen (planets-finder.md). */
-  onFind?: ((good: number) => void) | null;
   /** Step 2's choices (planets-flow.md): who's ticked, the setup type (the row opened), the skills what-if. */
   flow?: FlowChoice;
 }) {
@@ -149,7 +147,6 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
       {good != null && <PlanningGood ix={ix} good={good} name={name} who={c.name} system={value?.system.name ?? null} all={!working && !heldWorking && !blockedWhy && morning.ready ? setups : null} held={held} onEvery={onEveryProduct} />}
       <SystemChooser c={c} graph={graph} colonies={colonies[c.charId]} systemId={systemId} onSystem={onSystem} mainName={mainName} chosen={value ? value.system.name : null}
         extra={<>
-          {good != null && onFind && <FindButton name={name(good)} onFind={() => onFind(good)} />}
           <ProgramLength programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />
         </>} />
       {systemId != null && (sys.state === 'loading' ? <p className="note small" style={{ margin: 0 }}>Reading the system’s planets…</p>
@@ -285,14 +282,6 @@ export function Busy({ said, frac, tag = 'working' }: { said: ReactNode; frac: n
       <span className="note small" data-planets={`${tag}-said`}>{said}</span>
       <div className={'pl-bar' + (pct == null ? ' indef' : '')} data-progress={pct ?? undefined} aria-hidden="true"><span style={{ width: `${pct ?? 0}%` }} /></div>
     </div>
-  );
-}
-
-/** Find the best system (planets-finder.md): the system finder for a good, beside the system chooser on Plan and Plan it on the Chart. */
-export function FindButton({ name, onFind }: { name: string; onFind: () => void }) {
-  return (
-    <button type="button" className="btn" data-planets="find-it" onClick={onFind}
-      data-tip={`The best systems in a region for ${name}: each planned at your skills and rates, the most of it a day first`}><Compass aria-hidden="true" />Find the best system</button>
   );
 }
 

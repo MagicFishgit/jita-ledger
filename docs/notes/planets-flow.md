@@ -9,8 +9,11 @@ system for one character, so on their rates almost every Tenerifis system tied a
 first, 7M4C-F about 18th), where a team's best is the systems with two or more planets of the scarce P0 (`factory-main/systems.md`).
 
 - **The steps** (`SECTIONS`): **1 Product** (the Chart, `chart`), **2 Who and how** (`setup`), **3 System** (Find, `find`), **4 Plan** (`plan`), then
-  Colonies apart, numbered in the section switch. The addresses and the kept section stay, so every deep link lands where it did, and the
-  shortcuts stay: the Chart's Plan it (straight to step 4) and Find the best system, Find's Plan it here, Plan's Every product. Each step has Back
+  Colonies apart, numbered in the section switch. The addresses and the kept section stay, so every deep link lands where it did (an old
+  `plan?good=` link still holds Plan to its good). **No shortcut skips step 2** (the user, 25 October 2026: "we should probably get rid of controls
+  like these as we now have the next button and a flow. i think these would mess your flow up"): the Chart's recipe panel has "Next: who and
+  how" (`tree-next`, step 1's Next where the eye is after a pick) where Plan it and Find the best system were, and Plan's system chooser lost
+  Find the best system (step 4's Back is it). Find's Plan it here (step 3 to 4) and Plan's Every product stay. Each step has Back
   and Next (`StepNav`, top, and at the bottom of steps 1 to 3), Next named for where it goes ("Next: plan it at 5-NZNW") and disabled with its
   reason, beside it and in its tip, until the step is complete (`goodWhy`, `setupWhy`, `systemWhy`): no good picked (or a P0), nobody ticked or the
   factory character not among those ticked, no system picked. Step 1's good is the Chart's own pick, else the good Plan is held to; its Next holds

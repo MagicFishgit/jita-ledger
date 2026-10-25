@@ -131,7 +131,8 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     `RepeatLine` in PlanetsPlan.tsx). The user: "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go
     to PLAN I don't think it is showing how to build it on which planet to make that item". Plan ranked each kind by its own best
     product, so a good showed only when it won.
-    - The Chart's picked good (P1 to P4) has **Plan it**: `hustles/planets/plan?good=<id>`, kept per browser
+    - The Chart's picked good (P1 to P4) had **Plan it** until the four steps (planets-flow.md: its recipe panel has step 1's Next now);
+    `hustles/planets/plan?good=<id>` still holds Plan to it, kept per browser
     (`jita-ledger:planets-plan-good`) until **Every product**. "Planning Gel-Matrix Biopaste for Owner at 5-NZNW · Every product".
     - Every setup is held to it (planets-searches.md): a planet that can't make it alone says so; a kind that can't make it says why on
     `canMake`'s reasons (now in piPlan.ts, re-exported by piChart.ts): "Can’t make Gel-Matrix Biopaste, a P3: it sells P2 only", "Can’t

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, Cog, Cpu, Factory, Globe, MapPin, Pickaxe, X, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Clock, Cog, Cpu, Factory, Globe, MapPin, Pickaxe, X, type LucideIcon } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import { iskBig, units } from '../../lib/format';
 import { dayCount } from '../../lib/split';
@@ -15,7 +15,7 @@ import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import type { UnitBook, UnitNet } from './planetsMarket';
 import { usePlanning } from './planetsPlanning';
 import type { FlowChoice } from '../../lib/piFlow';
-import { FindButton, KIND, Selling } from './PlanetsPlan';
+import { KIND, Selling } from './PlanetsPlan';
 
 /**
  * Chart: every planetary good from P0 to P4 by tier, each valued a unit and a m³ where it sells best for the character shown (Show
@@ -56,14 +56,17 @@ const valueSaid = (u: UnitNet, hub: string | null) => `at ${u.fallback ? 'Jita�
 /** Ruling F11: a good the hub doesn't price, valued at Jita's: said with Jita's own listing price, so it can be listed at home at that. */
 const fallbackUnit = (u: UnitNet) => (u.fallback ? fallbackSaid({ isk: u.isk, units: 1, fallback: u.fallback }) : null);
 
-export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanGood, onFind = null, ready: collected = false, flow, onPickChange }: {
+export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onNext = null, nextWhy, ready: collected = false, flow, onPickChange }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
   /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
   ready?: boolean;
-  /** Plan it: opens Plan held to this good (`hustles/planets/plan?good=<id>`). */
-  onPlanGood: (id: number) => void;
-  /** Find the best system for this good (the system finder, planets-finder.md). */
-  onFind?: ((id: number) => void) | null;
+  /**
+   * Step 1's Next in the recipe panel (planets-flow.md): on to step 2 with this good, the same as the steps' own Next. It took the place of
+   * Plan it and Find the best system, which skipped step 2 (the user, 25 October 2026: "i think these would mess your flow up").
+   */
+  onNext?: ((id: number) => void) | null;
+  /** Why this good can't go on to step 2 (a P0), or null. */
+  nextWhy: (id: number) => string | null;
   /** Step 2's choices (planets-flow.md): one ranking with Plan's, so the Chart plans with the same characters and skills. */
   flow?: FlowChoice;
   /** Step 1 (planets-flow.md): the good picked, as it changes, for the steps' Next. */
@@ -116,7 +119,7 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan, onPlanG
           ))}
         </div>
         {pick != null && ix.byId.has(pick)
-          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} onPlanGood={onPlanGood} onFind={onFind} />
+          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} onNext={onNext} nextWhy={nextWhy} />
           : <p className="note small pl-tree-none">Pick a good for its recipe down to P0{sysName ? `, which of ${sysName}’s planets supply it, and which setups make it there` : ''}.</p>}
       </div>
     </section>
@@ -178,9 +181,9 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
 }
 
 /** A picked good: its recipe down to P0, what the system lacks of it, its P0s' planets here, and which setups can make it there. */
-function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan, onPlanGood, onFind }: {
-  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void; onPlanGood: (id: number) => void;
-  onFind: ((id: number) => void) | null;
+function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan, onNext, nextWhy }: {
+  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void;
+  onNext: ((id: number) => void) | null; nextWhy: (id: number) => string | null;
 }) {
   const ref = useRef<HTMLElement>(null);
   // Below the grid (a phone, a narrow window) a recipe picked now would land out of sight: brought into view when it isn't. Only
@@ -237,8 +240,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
           {u.isk != null && u.fallback && <span className="sub pl-up" data-planets="tree-fallback">{fallbackUnit(u)}.</span>}
         </div>
         <div className="pl-tree-acts">
-          {g.tier !== 'P0' && <PlanIt id={id} name={g.name} onPlanGood={onPlanGood} />}
-          {onFind && (g.tier === 'P1' || g.tier === 'P2' || g.tier === 'P3') && <FindButton name={g.name} onFind={() => onFind(id)} />}
+          {onNext && g.tier !== 'P0' && <NextButton name={g.name} why={nextWhy(id)} onNext={() => onNext(id)} />}
           <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
         </div>
       </div>
@@ -323,7 +325,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
           );
         })}
       </div>
-      {sysName ? <Makes id={id} ix={ix} p={p} sysName={sysName} onPlan={onPlan} onPlanGood={onPlanGood} />
+      {sysName ? <Makes id={id} ix={ix} p={p} sysName={sysName} onPlan={onPlan} />
         : g.tier !== 'P0' && <span className="note small">Choose a system on Plan to see which of its setups can make it.</span>}
     </section>
   );
@@ -334,18 +336,18 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan,
  * ranking does make it with, and for each what the ranking does; the kinds that can't, in one line.
  */
 /**
- * Plan it (the user, 19 October 2026: "I am clicking on Gel-Matrix Biopaste which is the one I want to go for but when I go to PLAN I
- * don't think it is showing how to build it on which planet to make that item"): opens Plan held to this good, every setup type's
- * best way to make it here ranked, with which planet does what. No setup sells a P0, so a P0 has none.
+ * Step 1's Next, where the eye is after a pick (planets-flow.md): on to step 2, Who and how, with this good. Plan it (19 October 2026) and
+ * Find the best system sat here until the four steps; both skipped step 2, so a plan ran on its last choices unseen, and the user asked
+ * for them to go (25 October 2026). Disabled with its reason as the steps' own Next is. No setup sells a P0, so a P0 has none.
  */
-function PlanIt({ id, name, onPlanGood }: { id: number; name: string; onPlanGood: (id: number) => void }) {
+function NextButton({ name, why, onNext }: { name: string; why: string | null; onNext: () => void }) {
   return (
-    <button type="button" className="btn" data-planets="plan-it" onClick={() => onPlanGood(id)}
-      data-tip={`Plan ${name}: the most of it your planets can make a day at your skills, and which planet does what`}>Plan it</button>
+    <button type="button" className="btn primary" data-planets="tree-next" onClick={onNext} disabled={!!why}
+      data-tip={why ?? `Plan ${name}: who takes part and how, then the best system, then the plan`}>Next: who and how<ArrowRight aria-hidden="true" /></button>
   );
 }
 
-function Makes({ id, ix, p, sysName, onPlan, onPlanGood }: { id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; sysName: string; onPlan: () => void; onPlanGood: (id: number) => void }) {
+function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; sysName: string; onPlan: () => void }) {
   const planets = p.value?.planets ?? [];
   const types = [...new Set(planets.map((x) => x.type).filter((t): t is PlanetType => !!t))];
   const can = canMake(ix, id, types);

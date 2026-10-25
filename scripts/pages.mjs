@@ -4228,9 +4228,14 @@ try {
       if (!/72 hours, typed/.test(await text('[data-planets="system"] [data-planets="program"]'))) problems.push(`the program length isn't at the top beside the system: “${await text('[data-planets="system"]')}”`);
       await section('Chart');
       await page.locator(good(GEL)).click().catch((e) => problems.push(`couldn't pick Gel-Matrix Biopaste: ${e.message.split('\n')[0]}`));
-      await page.waitForSelector('[data-planets="tree"] [data-planets="plan-it"]', { timeout: 10_000 }).catch(() => problems.push('Gel-Matrix Biopaste’s recipe has no Plan it'));
-      await page.locator('[data-planets="tree"] [data-planets="plan-it"]').click().catch(() => undefined);
-      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 10_000 }).catch(() => problems.push('Plan it didn’t land on Plan held to the good'));
+      // The recipe panel's way on is step 1's Next (planets-flow.md): Plan it and Find the best system, which skipped step 2, are gone.
+      await page.waitForSelector('[data-planets="tree"] [data-planets="tree-next"]', { timeout: 10_000 }).catch(() => problems.push('Gel-Matrix Biopaste’s recipe has no Next: who and how'));
+      if (await page.locator('[data-planets="tree"] :is([data-planets="plan-it"], [data-planets="find-it"])').count()) problems.push('the recipe panel still has Plan it or Find the best system');
+      await page.locator('[data-planets="tree"] [data-planets="tree-next"]').click().catch(() => undefined);
+      await page.waitForFunction(() => /^#\/hustles\/planets\/setup$/.test(location.hash), null, { timeout: 10_000 }).catch(async () => problems.push(`the recipe's Next didn't land on step 2: “${await page.evaluate(() => location.hash)}”`));
+      // An old Plan it link still holds Plan to the good.
+      await page.goto(`http://localhost:${PORT}/jita-ledger/#/hustles/planets/plan?good=2348`);
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 10_000 }).catch(() => problems.push('a Plan it link didn’t land on Plan held to the good'));
       const hash = await page.evaluate(() => location.hash);
       if (!/^#\/hustles\/planets\/plan\?good=2348$/.test(hash)) problems.push(`Plan it's address: “${hash}”`);
       const head = await text('[data-planets="planning-head"]');
@@ -4915,7 +4920,9 @@ try {
       await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).catch(() => problems.push('Find: Plan never drew'));
       await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no “Where Owner is”: ${e.message.split('\n')[0]}`));
       await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('Find: 5-NZNW’s planets never listed'));
-      await page.locator('[data-planets="system"] [data-planets="find-it"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Find the best system beside the system chooser: ${e.message.split('\n')[0]}`));
+      // Find from Plan is step 4's Back (planets-flow.md): the button that sat beside the system chooser is gone.
+      if (await page.locator('[data-planets="system"] [data-planets="find-it"]').count()) problems.push('Find: Find the best system is still beside the system chooser');
+      await page.locator('[data-planets="step-nav"] [data-planets="back"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Back: system on step 4: ${e.message.split('\n')[0]}`));
       await page.waitForFunction(() => /#\/hustles\/planets\/find/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
       const hash = await page.evaluate(() => location.hash);
       if (hash !== `#/hustles/planets/find?good=${GEL}&region=${TENERIFIS}`) problems.push(`Find from Plan: the address “${hash}”, not Gel-Matrix Biopaste in Tenerifis`);
@@ -4966,10 +4973,12 @@ try {
       if (await page.evaluate(() => location.hash) !== `#/hustles/planets/plan?good=${GEL}`) problems.push(`Plan it here's address: “${await page.evaluate(() => location.hash)}”`);
       await page.waitForFunction(() => /at 5-NZNW/.test(document.querySelector('[data-planets="planning-head"]')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
       if (!/^Planning Gel-Matrix Biopaste for Owner at 5-NZNW/.test((await text('[data-planets="planning-head"]')).trim())) problems.push(`Plan it here didn't set Plan's system: “${await text('[data-planets="planning-head"]')}”`);
-      // The Chart's Find beside Plan it: the region of Plan's system again.
+      // From the Chart, the recipe's Next and step 2's Next: Find in the region of Plan's system again.
       await page.goto(`${APP}#hustles/planets/chart`);
       await page.locator(`[data-planets="chart"] [data-planets="good:${GEL}"]`).first().click().catch(() => undefined);
-      await page.locator('[data-planets="tree"] [data-planets="find-it"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Find the best system beside the Chart's Plan it: ${e.message.split('\n')[0]}`));
+      await page.locator('[data-planets="tree"] [data-planets="tree-next"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Next in the Chart's recipe: ${e.message.split('\n')[0]}`));
+      await page.waitForFunction(() => /#\/hustles\/planets\/setup/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
+      await page.locator('[data-planets="step-nav"] [data-planets="next"]').click({ timeout: 10_000 }).catch((e) => problems.push(`Find: no Next on step 2: ${e.message.split('\n')[0]}`));
       await page.waitForFunction(() => /#\/hustles\/planets\/find/.test(location.hash), null, { timeout: 10_000 }).catch(() => undefined);
       if (await page.evaluate(() => location.hash) !== `#/hustles/planets/find?good=${GEL}&region=${TENERIFIS}`) problems.push(`Find from the Chart: the address “${await page.evaluate(() => location.hash)}”`);
     }
