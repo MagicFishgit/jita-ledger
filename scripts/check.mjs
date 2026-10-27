@@ -8,7 +8,7 @@ import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFo
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS, effectiveCapacity, hullClassOf } from '../src/lib/courier.ts';
 import { parsePlanetType, setupSteps } from '../src/lib/pi.ts';
-import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
+import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf, soonHoursOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 import { buyerShare, sideVolume, competitionShare, roundTripDays, returnPerDay, EVEN_SPLIT, COMPETITION_MIN, COMPETITION_MAX, tradingSplit, MIN_BOOK_SOLD } from '../src/lib/split.ts';
@@ -914,6 +914,11 @@ eq('one about to end', readExtractor(extractor(6), NOWP).state, 'endingSoon');
 eq('  and a day out is still "soon"', readExtractor(extractor(23), NOWP).state, 'endingSoon');
 eq('  but three days out is not', readExtractor(extractor(72), NOWP).state, 'running');
 eq('one that has ended', readExtractor(extractor(-5), NOWP).state, 'expired');
+// Ending soon is a programme's last quarter, at most a day (26 October 2026: on 24-hour programmes "within a day" flagged every colony right
+// after its reset, and the user read it as the app moaning about setups they had just restarted).
+eq('ending soon: the last quarter of the programme, at most a day', [soonHoursOf(0, 24 * 3600_000), soonHoursOf(0, 72 * 3600_000), soonHoursOf(0, 7 * 24 * 3600_000), soonHoursOf(null, 24 * 3600_000)], [6, 18, 24, 24]);
+const dayLong = (left) => ({ ...extractor(left), install_time: hoursOut(left - 24) });
+eq('  a 24-hour programme reset an hour ago is running, not ending; 5 hours out it is', [readExtractor(dayLong(23), NOWP).state, readExtractor(dayLong(5), NOWP).state], ['running', 'endingSoon']);
 eq('  and it says how long ago', Math.round(readExtractor(extractor(-5), NOWP).hours), -5);
 // An extractor with no programme never started; that is not the same as one that ran out.
 eq('no expiry at all is idle', readExtractor(extractor(null), NOWP).state, 'idle');
@@ -9842,7 +9847,7 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   const idle = chainOf(nanites({ pins: [fac(46, BASIC, null)] }));
   eq('  a factory with no schematic is idle', [flagsOf(idle), idle.makes.length, near(idle.iskDay)], [[['idle', null, 46]], 3, 2_741_760]);
   // Programmes ending and ended: said, and worked out at the rate they ran at.
-  eq('  ending within a day', flagsOf(chainOf(nanites(), { now: T + 59 * H })), [['endingSoon', MICRO, 10], ['endingSoon', BASE, 11]]);
+  eq('  ending in its last quarter (18 h of a 72-hour programme)', [flagsOf(chainOf(nanites(), { now: T + 59 * H })), flagsOf(chainOf(nanites(), { now: T + 41 * H }))], [[['endingSoon', MICRO, 10], ['endingSoon', BASE, 11]], []]);
   eq('  ended', flagsOf(chainOf(nanites(), { now: T + 61 * H })), [['expired', MICRO, 10], ['expired', BASE, 11]]);
   eq('  ended, its figures are the programme’s', near(chainOf(nanites(), { now: T + 61 * H }).iskDay), 2_741_760);
   has('  ended says to reset the heads', saidOf(chainOf(nanites(), { now: T + 61 * H })), 'reset');
@@ -9861,11 +9866,24 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   ], [[30, 51, BACTERIA, 40], [30, 51, REACTIVE, 40], [30, 52, BACTERIA, 40], [30, 52, REACTIVE, 40], [51, 30, NANITES, 5], [52, 30, NANITES, 5]]);
   const P = chainOf(padFed);
   eq('  fed from its launchpad: no flag, what it makes while kept stocked, and what that takes', [P.flags, P.makes.map((m) => [m.id, near(m.perDay)]), P.imports?.map((i) => [i.id, near(i.perDay)])], [[], [[NANITES, 240]], [[BACTERIA, 1920], [REACTIVE, 1920]]]);
-  eq('  its ISK a day isn’t known, though every output is priced: the imports’ cost isn’t, never 0', [P.iskDay, P.iskDayHigh, P.taxDay, P.why, P.outputs.map((o) => [o.id, near(o.sold.isk)])], [null, null, null, 'Its Bacteria and Reactive Metals come from off the planet, and their cost isn’t known here', [[NANITES, 2_400_000]]]);
-  // One good brought in reads "come", as many goods' names are plural (Ruling T15-7: "Its Bacteria come", never "comes").
+  // A factory planet is valued (Ruling F28, 26 October 2026; the user: "i have factory planets and it is not accounting for them"): its imports
+  // at what they'd sell for (1,920 Bacteria and 1,920 Reactive Metals at 400), their import tax at half (P1's base 400 × 2% × ½), the Nanites
+  // at 10,000 less their export tax (P2's base 7,200 × 2%): what its factories add over what it brings in.
+  eq('  a factory planet: its imports valued, at half the tax, and its figure what its factories add', [near(P.inputs?.worth), near(P.inputs?.taxDay), near(P.iskDay), near(P.taxDay), P.why, P.outputs.map((o) => [o.id, near(o.sold.isk)])],
+    [1_536_000, 15_360, 2_400_000 - 34_560 - 1_536_000 - 15_360, 34_560 + 15_360, null, [[NANITES, 2_400_000]]]);
+  eq('  a colony that brings nothing in has no inputs', chainOf(nanites()).inputs, null);
+  // Its outputs uncapped, every unit at its first unit's net (as Plan it values the held good): a market taking 100 a day doesn't cut it.
+  const capped100 = (id, perDay) => (id === NANITES ? { isk: Math.min(perDay, 100) * 10_000, units: Math.min(perDay, 100), where: ['jita'], why: null } : sell(id, perDay));
+  eq('  its output uncapped: all 240 Nanites at today’s price', near(chainOf(padFed, { sell: capped100 }).outputs[0].sold.isk), 2_400_000);
+  // An import with no price leaves it null, named, never valued at 0.
+  const noBac = chainOf(padFed, { sell: sellBy(unitOf({ [BACTERIA]: null })) });
+  eq('  an import with no price: no figure, said', [noBac.iskDay, noBac.inputs?.unpriced, noBac.why], [null, [BACTERIA], 'Its Bacteria and Reactive Metals come from off the planet, and Bacteria has no price here, so what its factories add over them isn’t known']);
+  // A factory planet is half of a setup across planets: no single-planet best is set against it.
+  eq('  versusBest says nothing of a factory planet', versusBest(P, { kind: 'p2', iskDay: 1e9, roles: [] }, ix), { gain: null, said: '' });
+  // One good brought in, the rest made on the planet: valued the same way.
   const oneIn = chainOf(colony([pin(1, CC), ecu(11, BASE, 6000), pin(20, STORE), pin(30, PAD), fac(43, BASIC, S_REACT), fac(51, ADV, S_NAN)],
     [[11, 20, BASE, 6000], [20, 43, BASE, 3000], [43, 51, REACTIVE, 40], [30, 51, BACTERIA, 40], [51, 30, NANITES, 5]]));
-  eq('  one good brought in: "Its Bacteria come …"', oneIn.why, 'Its Bacteria come from off the planet, and its cost isn’t known here');
+  eq('  one good brought in: valued, its import named', [oneIn.why, oneIn.imports.map((x) => x.id), oneIn.inputs?.worth != null, oneIn.iskDay != null], [null, [BACTERIA], true, true]);
   // A P0 is never brought in (Ruling T15-7): a freshly placed extractor with no product and no routes beside two Basics drawing
   // Microorganisms from storage read 288,000 Microorganisms a day imported and the planet's ISK a day not known. Now the idle
   // extractor explains them, its flag naming what it holds back, nothing is imported, and the figure is known.
@@ -9932,6 +9950,15 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   // the colony doesn't extract, the rate learned for another P0 of Barren planets (Microorganisms', 12,000 an hour); typed, the
   // typed one; with nothing learned (no programme of yours readable), none: the planner assumes what two Basics take.
   eq('  another P0’s learned rate: said as that', vsOf(Ad, dearMech), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate learned for another P0' });
+  // A colony feeding a factory planet of yours is never told to make something else (26 October 2026: every one of the user's feeders read
+  // "the best P1s it can make alone here … pay … more a day"); a good it doesn't ship that a factory planet takes changes nothing.
+  {
+    const { best: bAd, own: oAd } = bestsFor(kOf.get(Ad), Ad, ix, inputOf(Ad, dearMech, {}, 4, planet));
+    eq('  feeding a factory planet: no other product suggested; feeding nothing it ships, as before', [versusBest(Ad, bAd, ix, oAd, new Set([NANITES])), versusBest(Ad, bAd, ix, oAd, new Set([BACTERIA])).gain],
+      [{ gain: 0, said: '' }, 377_280]);
+    const { fedGoods } = await import('../src/lib/colonyChain.ts');
+    eq('  fedGoods: what the factory planets among the chains bring in', [...fedGoods([P, Ad])].sort((x, y) => x - y), [BACTERIA, REACTIVE].sort((x, y) => x - y));
+  }
   eq('  a typed rate: said as that', vsOf(Ad, dearMech, { typed: { [NOBLE]: { perHour: 12000, programHours: 72, heads: 5 } } }), { gain: 377_280, said: 'Makes Nanites; the best P2 it can make alone here, Mechanical Parts, pays 377,280 ISK more a day, with Noble Metals at the rate you typed' });
   // With nothing learned the colony's own P0s are assumed too, and Mechanical Parts at 12,000 pays 3.8% more, under the line below:
   // at 16,000 it clears it.
@@ -10056,7 +10083,8 @@ console.log('\n--- Planets: a colony\'s real chain (colonyChain.ts: what a kept 
   eq('  an unpriced output on either side: gain null, and why', [vsNoPrice.gain, vsNoPrice.said.includes('Reactive Metals'), vsBestNoPrice.gain, vsBestNoPrice.said.includes('Reactive Metals')], [null, true, null, true]);
   eq('  nothing to compare: no gain, and why', [versusBest(A, null, ix).gain, versusBest(A, null, ix).said.length > 0], [null, true]);
   const vsU = versusBest(U, best, ix), vsN = versusBest(A, bestOf(A, () => ({ isk: null, units: 0, where: [], why: NOHUB })), ix), vsP = versusBest(P, best, ix);
-  eq('  no valued ISK on either side: gain null, never 0, and why', [vsU.gain, vsU.said.length > 0, vsN.gain, vsN.said.includes('home hub'), vsP.gain, vsP.said.includes('off the planet')], [null, true, null, true, null, true]);
+  eq('  no valued ISK on either side: gain null, never 0, and why', [vsU.gain, vsU.said.length > 0, vsN.gain, vsN.said.includes('home hub'), vsP.gain, vsP.said], [null, true, null, true, null, '']);
+  // (A factory planet now says nothing against a single-planet best: Ruling F28.)
   eq('  before the customs tax, said', versusBest(chainOf(nanites(), { sell: dearMech, tax: { rate: null, from: 'none', npc: 0, interbus: false } }), { ...bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }), before: ['tax'] }, ix).said.includes('before the customs tax'), true);
   // A best whose fit isn't checked (the planet's size not known) is no better either: nothing said (the re-review's R5).
   const noSize = bestOf(A, dearMech, { [NOBLE]: { perHour: 12000, higher: null } }, 4, { ...planet, radiusKm: null });

@@ -3,7 +3,7 @@ import { byAccount } from '../../lib/accounts';
 import { altLedger } from '../../lib/altLedger';
 import { getAlts, refreshAlts, useAlts } from '../../lib/altStore';
 import { hasScope } from '../../lib/auth';
-import { cloudAltRead } from '../../lib/cloud';
+import { cloudAltRead, cloudEnabled } from '../../lib/cloud';
 import { altPulledWhy } from '../../lib/setupCheck';
 import type { ColoniesDoc } from '../../lib/colonies';
 import type { ColoniesRead } from '../../lib/colonyTotals';
@@ -242,7 +242,7 @@ export function Planets({ route }: { route: Route }) {
         ) : (
           <Suspense fallback={<p className="note small" style={{ margin: 0 }} data-planets="loading">Loading this section…</p>}>
             {section === 'colonies' ? (
-              <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} />
+              <Colonies chars={chars} reads={reads} colonies={colonies} ix={ix} pick={chars.length > 1 ? coloniesFor : main.charId} ready={alts.ready} readAlt={cloudEnabled() ? readAlt : null} />
             ) : section === 'chart' ? (
               <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} onNext={(id) => { if (!goodWhy(ix, id)) toSetup(id); }} nextWhy={(id) => goodWhy(ix, id)} ready={alts.ready}
                 flow={flow} onPickChange={setChartPick} />

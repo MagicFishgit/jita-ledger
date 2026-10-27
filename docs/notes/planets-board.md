@@ -88,7 +88,7 @@ the board draws its roles. The ranking is in planets-planner.md, a kept plan in 
   - Under `SHORT_UNDER` (90%) of the plan's amount is short; from `MORE_OVER` (5%) over is a plus, said once, "3 Basic where the plan has
     2" only as its reason. Faults: not made ("Makes Precious Metals where the plan has Electrolytes" when another of its tier is made
     instead, the user's mistake of 23 October, with the chain's root cause beside it when it names one), made and sent none, short (with fewer factories or heads than planned beside it), an input
-    whose route is missing (Messenger from God's P3 factory), a programme ended. Ending within a day and storage near full are "to see
+    whose route is missing (Messenger from God's P3 factory), a programme ended. Ending soon (its last quarter, at most a day) and storage near full are "to see
     to", programmes alike said together. A good downstream of a fault "makes none until what's above reaches them".
   - **The chain's flags are reasons for a fault only**: a planet's own 73–93% starving behind a plan met isn't said (the user's real Gas
     planets), nor an idle pin unrelated to what the plan needs. ESI's quantity not sent: "Can't tell yet". A planet poor a head: said,

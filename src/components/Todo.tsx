@@ -134,7 +134,7 @@ export function Todo() {
   // An alt's colonies as the cloud's hourly sheet kept them (the `colonies` doc of its pulled copy), for its extractors that end.
   // Only the alt's extractors ending within a day are read here, so the main's colony read isn't asked for them.
   const altCols = useMemo(() => roster.map((a) => ({ a, doc: sanitizeColonies(copies[a.charId]?.docs.colonies) })).filter((x) => x.doc?.colonies.length), [roster, copies]);
-  const altPi = useMemo(() => altCols.flatMap(({ a, doc }) => doc!.colonies.flatMap((k) => colonyOfKept(k, now).extractors.filter((e) => e.expiry != null && e.state !== 'idle' && (e.expiry - now) / 3600_000 <= 24).map((e) => ({ a, k, e })))), [altCols, now]);
+  const altPi = useMemo(() => altCols.flatMap(({ a, doc }) => doc!.colonies.flatMap((k) => colonyOfKept(k, now).extractors.filter((e) => e.expiry != null && (e.state === 'expired' || e.state === 'endingSoon')).map((e) => ({ a, k, e })))), [altCols, now]);
   const altPiIds = [...new Set(altPi.flatMap(({ k, e }) => [k.systemId, ...(e.productTypeId != null ? [e.productTypeId] : [])]))].sort((a, b) => a - b).join(',');
   const [altPiNames, setAltPiNames] = useState<Record<number, string>>({});
   useEffect(() => {

@@ -55,7 +55,7 @@ plans.
   alt's blueprints doc or the system it was first seen in), never a container.
 - **An alt's expiring extractors go on To do** (Planets Task 17, 24 October 2026; kind `piExpired` / `piEnding`, source `roster`, `altPiItem`,
   `judgeAltPi` in todo.ts). Built in Todo.tsx from each alt's pulled `colonies` doc (the cloud's hourly sheet keeps it, only with the planets
-  permission), through `colonyOfKept` and the main's rule (a programme ending within a day, or ended; idle ones skipped), keyed `pi:<char>:<pin>`
+  permission), through `colonyOfKept` and the main's rule (a programme in its last quarter, at most a day, `soonHoursOf`; or ended; idle ones skipped), keyed `pi:<char>:<pin>`
   so the main's `pi:<pin>` never reopens, versioned `<expiry>:ended|ending`, titled `<who> · <system> · <product>` with the Colonies section as
   its button. **Stake 0**, as an alt's industry items: To do has no price source for an alt's goods. A refused or lost login says the item is as
   the cloud last read it (`lostSaid`). Judged as `judgeAltIndustry` is: only on a roster read of this session (`rosterLive`, and only with the

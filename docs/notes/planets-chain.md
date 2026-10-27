@@ -31,7 +31,18 @@ in planets-planner.md.
   - **Imports** (Ruling T15-2): an input nothing on the planet makes, routed in from storage or a launchpad, is brought in (a
     factory planet fed from its launchpad): never starving, worked out as kept stocked (`imports`), and the planet's ISK a day is
     null, "Its … come from off the planet, and their cost isn't known here", never 0. The first version read such a planet as
-    "starving, makes nothing" at 0 ISK.
+    "starving, makes nothing" at 0 ISK. **Valued since 26 October 2026** (Ruling F28, `factoryPlanet`, `Chain.inputs`; the user, with four
+    factory planets fed by five characters' feeders: "i have factory planets and it is not accounting for them and showing me the
+    projections"): the null figure blanked the character's and All's totals. Now the imports are worth their first unit's net (`unitNet`,
+    kept stocked), their import tax at half the rate, the outputs uncapped at their first unit's net (`uncappedSell`, as Plan it values the
+    held good), and its ISK a day is what its factories add over the imports, so the feeders' goods, valued on their own colonies, aren't
+    counted twice in a total. An import with no price leaves it null, named. `versusBest` says nothing of a factory planet: a single-planet
+    best is no measure of half a setup across planets. On the user's colonies of 26 October (Jita asks of 25 October, before freight):
+    each CCU V factory planet of 6/6/6/3 adds 6.4–7.0 M ISK a day over the 18.5 M of P1 it takes in. **A feeder isn't told to make something else**
+    (`versusBest`'s `feeds`, `fedGoods`: what any character's factory planets in the system bring in): every one of the user's 25 feeders read
+    "the best P1s it can make alone here, Water and Precious Metals, pay 431,017 ISK more a day" (or Rocket Fuel, Electrolytes) beside the
+    factory planets needing what it makes, which they read as the page moaning about their setup. A colony shipping such a good says
+    another product no more; its own factories making less than they can still speaks. On their 31 colonies, nothing is said.
   - **Valuing**: what's left of each good is an output (the surplus P1 and P0 included), shipped only while a unit pays (Ruling
     T15-5, the planner's `keptWhy`; a P0 with no price stays too), sold and taxed as the planner does (`taxRows`; I1). Every real
     colony's P0 left over nets −0.17 to −1.33 ISK a unit through Brave Freight, and was counted sold at a loss. A good that can't leave sells none, "isn't shipped", counted in `unshipped`, never as unpriced. ISK a day is 0

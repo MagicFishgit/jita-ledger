@@ -77,8 +77,20 @@ export type Extractor = {
   unitsPerHour: number;
 };
 
-/** Hours before its end that a programme is ending soon: the colony panel, To do, the alerts and a colony's chain (colonyChain.ts). */
+/** Hours before its end that a programme is ending soon, at most: the colony panel, To do, the alerts and a colony's chain (colonyChain.ts). */
 export const ENDING_SOON_HOURS = 24;
+/** A programme is ending soon in its last quarter (`soonHoursOf`). */
+export const ENDING_SOON_SHARE = 0.25;
+/**
+ * The hours before its end that a programme is ending soon: the last quarter of its length, at most `cap` (a day). The user runs 24-hour
+ * programmes (26 October 2026), and "within a day" read every colony as ending right after its reset ("it is moaning about my setup for
+ * some characters even though i have restarted their programs"): 6 hours on a 24-hour programme, 18 on 3 days, a day on a week. With no
+ * install time, `cap`.
+ */
+export function soonHoursOf(install: number | null, expiry: number | null, cap = ENDING_SOON_HOURS): number {
+  if (install == null || expiry == null || !Number.isFinite(install) || !Number.isFinite(expiry) || !(expiry > install)) return cap;
+  return Math.min(cap, (ENDING_SOON_SHARE * (expiry - install)) / 3600_000);
+}
 
 /** An extractor with no programme installed is idle, not merely expired: it never started. */
 export function readExtractor(pin: RawPin, now: number, soonHours = ENDING_SOON_HOURS): Extractor {
@@ -88,11 +100,12 @@ export function readExtractor(pin: RawPin, now: number, soonHours = ENDING_SOON_
   const cycle = d.cycle_time ?? 0;
   const msLeft = expiry == null ? NaN : expiry - now;
   const hours = Number.isNaN(msLeft) ? Infinity : msLeft / 3600_000;
+  const soon = soonHoursOf(pin.install_time ? Date.parse(pin.install_time) : null, expiry, soonHours);
 
   const state: ExtractorState =
     expiry == null || qty <= 0 || cycle <= 0 ? 'idle'
       : msLeft <= 0 ? 'expired'
-        : hours <= soonHours ? 'endingSoon'
+        : hours <= soon ? 'endingSoon'
           : 'running';
 
   return {

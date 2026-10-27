@@ -2,11 +2,12 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Globe, Siren } from 'lucide-react';
 import { accountCountSaid } from '../../lib/accounts';
 import type { KeptColony, KeptPin } from '../../lib/colonies';
-import { ENDING_SOON_HOURS } from '../../lib/colony';
-import { bestsFor, colonyChain, pinKindOf, versusBest, type Chain, type ChainFlag, type ChainFlagRow } from '../../lib/colonyChain';
+import { soonHoursOf } from '../../lib/colony';
+import { bestsFor, colonyChain, fedGoods, pinKindOf, versusBest, type Chain, type ChainFlag, type ChainFlagRow } from '../../lib/colonyChain';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../../lib/colonyStore';
 import { allColoniesTotal, charColoniesTotal, coloniesWhy, type CharColoniesTotal, type ColoniesRead, type ColonyDay } from '../../lib/colonyTotals';
 import { hasScope } from '../../lib/auth';
+import { cloudEnabled } from '../../lib/cloud';
 import { ago, iskBig, units } from '../../lib/format';
 import { useNow, useStable } from '../../lib/hooks';
 import { monthOfOmega, omegaShare, periods, shareSaid, type Periods } from '../../lib/iskPeriods';
@@ -26,6 +27,7 @@ import type { IndustryChar } from './industryChars';
 import { loadRadii } from './planetsBundle';
 import { usePlanetMarket } from './planetsMarket';
 import { useLearned, type LearnedFrom } from './planetsPlanning';
+import { ALT_READ_BOUND_MS } from './PlanetBoard';
 import { Outputs } from './PlanetsPlan';
 
 /**
@@ -163,16 +165,30 @@ function totalNotes(t: Pick<CharColoniesTotal, 'beforeTax' | 'unvalued'>): strin
   ].filter((x): x is string => !!x);
 }
 
-export function Colonies({ chars, reads, colonies, ix, pick, ready = false }: {
+export function Colonies({ chars, reads, colonies, ix, pick, ready = false, readAlt = null }: {
   chars: IndustryChar[]; reads: Record<number, ColoniesRead>; colonies: Parameters<typeof useLearned>[0]; ix: PiIndex; pick: 'all' | number;
   /** Every character's copy is loaded: the learned rates' record may be written (planner fix 2). */
   ready?: boolean;
+  /** Has the cloud read an alt now and pulls its copy (Check my setup's read, planets-board.md): null with the cloud off. */
+  readAlt?: ((id: number) => Promise<string | null>) | null;
 }) {
   const main = chars[0];
   const { busy, error } = useColonies();
   const canRead = hasScope(PLANETS_SCOPE);
   // Every character's kept colonies teach the rates a colony's best is planned at, as Plan's are (Task 16).
   const learned = useLearned(colonies, ix, ready);
+  // What every character's factory planets bring in, by system: a colony shipping one of those goods feeds them, so its comparison never
+  // suggests another product in its place (versusBest's `feeds`). Imports come from the routes alone, so no prices or taxes are needed.
+  const feedsBySystem = useMemo(() => {
+    const unpriced: Sell = () => ({ isk: null, units: 0, where: [], why: 'not priced' });
+    const at = Date.now(), by = new Map<number, Chain[]>();
+    for (const doc of Object.values(colonies)) for (const k of doc?.colonies ?? []) {
+      const list = by.get(k.systemId) ?? [];
+      list.push(colonyChain(k, ix, unpriced, at, NO_TAX, PI_READING));
+      by.set(k.systemId, list);
+    }
+    return new Map([...by].map(([sys, chs]) => [sys, fedGoods(chs)]));
+  }, [colonies, ix]);
   const plex = usePlexPrice();
   const settings = useData().settings;
   const plexNow = useNow(60_000);
@@ -207,7 +223,7 @@ export function Colonies({ chars, reads, colonies, ix, pick, ready = false }: {
           <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
             <span className="panel-title">All characters</span>
             <span className="note small" data-planets="all-read">{all.read} of {all.of} characters read{all.read < all.of ? ': the others’ colonies aren’t known, so not counted' : ''}</span>
-            <Tip title="All characters" text={'What every character’s colonies make a day together.\n\n• Only the characters whose colonies were read are added up: one not read yet, or whose login can’t be read, adds nothing, said below.\n• A character whose login was refused after a read counts at the cloud’s last read of it.\n• A colony that can’t be valued leaves the total “–”, never a sum short by it.'} />
+            <Tip title="All characters" text={'What every character’s colonies make a day together.\n\n• Only the characters whose colonies were read are added up: one not read yet, or whose login can’t be read, adds nothing, said below.\n• A character whose login was refused after a read counts at the cloud’s last read of it.\n• A colony that can’t be valued leaves the total “–”, never a sum short by it.\n• A factory planet counts what its factories add over what it brings in, so the planets feeding it, valued on their own, aren’t counted twice.'} />
           </div>
           <IskFigures per={all.day} why={totalWhy(all)} omega={omega} k={Math.max(1, all.accounts.k)} accountsSaid={`the months of Omega of ${accountCountSaid(all.accounts)}`} tag="all-figures"
             nothing={all.read === 0 ? 'no character’s colonies read yet' : undefined} />
@@ -215,15 +231,16 @@ export function Colonies({ chars, reads, colonies, ix, pick, ready = false }: {
         </div>
       )}
       {shown.map((c) => (
-        <CharColonies key={c.charId} c={c} read={reads[c.charId] ?? { state: 'unread' }} ix={ix} learned={learned} omega={omega} head={pick === 'all'} onTotal={onTotal} />
+        <CharColonies key={c.charId} c={c} read={reads[c.charId] ?? { state: 'unread' }} ix={ix} learned={learned} omega={omega} head={pick === 'all'} onTotal={onTotal} readAlt={readAlt} feedsBySystem={feedsBySystem} />
       ))}
     </div>
   );
 }
 
 /** One character's colonies: its read state, its figures, and each colony's row, opening to its chain and the planner's best. */
-function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
+function CharColonies({ c, read, ix, learned, omega, head, onTotal, readAlt, feedsBySystem }: {
   c: IndustryChar; read: ColoniesRead; ix: PiIndex; learned: LearnedFrom; omega: OmegaCost; head: boolean; onTotal: (id: number, t: CharColoniesTotal) => void;
+  readAlt: ((id: number) => Promise<string | null>) | null; feedsBySystem: Map<number, Set<number>>;
 }) {
   const doc = read.state === 'read' ? read.value : null;
   const ks = useMemo(() => doc?.colonies ?? [], [doc]);
@@ -238,6 +255,21 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
   const cce = customsLevel(c.pilot.skills);
   const planChar = useStable(planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone }));
   const [open, setOpen] = useState<number | null>(null);
+  // An alt's colonies are the cloud's hourly read (at :37): after resetting programmes in game, Read now has the cloud read it at once and
+  // pulls its copy, as Check my setup does (the user, 26 October 2026: "it is moaning about my setup for some characters even though i have
+  // restarted their programs").
+  const [altRead, setAltRead] = useState<{ busy: boolean; said: string | null }>({ busy: false, said: null });
+  const readNow = async () => {
+    if (!readAlt) return;
+    setAltRead({ busy: true, said: null });
+    try {
+      const why = await Promise.race([readAlt(c.charId), new Promise<never>((_, no) => setTimeout(() => no(new Error(`the cloud’s read hadn’t come back after ${ALT_READ_BOUND_MS / 1000} seconds`)), ALT_READ_BOUND_MS))]);
+      setAltRead({ busy: false, said: why ? `${why}.` : 'Read just now.' });
+    } catch (e) {
+      setAltRead({ busy: false, said: `Couldn’t read ${c.name} now: ${(e as Error).message}.` });
+    }
+  };
+  const canReadAlt = !c.isMain && !!readAlt && cloudEnabled() && (read.state === 'read' || read.state === 'unread');
 
   // Each planet's customs tax as the planner has it, once its system's security is read (null while it is: the colony waits).
   const taxes = useMemo(() => new Map(ks.map((k): [number, Tax | null] => {
@@ -320,6 +352,14 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
       {why ? <p className="note small" style={{ margin: 0 }} data-planets="read">{why}</p> : (
         <p className="note small" style={{ margin: 0 }} data-planets="read">{readSaid}{lost ? ` ${lost}` : ''}{!ks.length ? ' No colonies yet: find what pays on Plan, put a command centre on a planet, and this fills in.' : ''}</p>
       )}
+      {canReadAlt && (
+        <div className="row" style={{ gap: 8, alignItems: 'center' }} data-planets={`read-alt:${c.charId}`}>
+          <button type="button" className="btn" disabled={altRead.busy} onClick={() => void readNow()}
+            data-tip={`The cloud reads ${c.name}’s colonies hourly; this has it read them now, after you reset programmes in game. EVE holds what it says about a colony for about 10 minutes, and only after Submit.`}>
+            <Globe aria-hidden="true" />{altRead.busy ? `Reading ${c.name}…` : `Read ${c.name} now`}</button>
+          {altRead.said && <span className="note small" data-planets="read-alt-said">{altRead.said}</span>}
+        </div>
+      )}
       {ks.length > 0 && (
         <>
           <IskFigures per={total.day} why={totalWhy(total)} omega={omega} tag="char-figures" />
@@ -361,7 +401,8 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
                           </button>
                         </td>
                         <td className="l txt wrap" style={{ color: 'var(--cell)' }}>{makesSaid(ch, ix)}</td>
-                        <td style={{ color: soonest ? STATE_C[soonest.state] : 'var(--neg)' }}>{soonest ? (soonest.state === 'expired' ? `ended ${left(soonest.hours)}` : left(soonest.hours)) : 'no programme'}</td>
+                        {/* A factory planet has no extractor to run a programme: said plainly, never in red as a fault (Ruling F28). */}
+                        <td style={{ color: soonest ? STATE_C[soonest.state] : ch.extracts.length ? 'var(--neg)' : 'var(--note)' }}>{soonest ? (soonest.state === 'expired' ? `ended ${left(soonest.hours)}` : left(soonest.hours)) : ch.extracts.length ? 'no programme' : 'no extractors'}</td>
                         <td data-planets={`colony-isk:${k.planetId}`}><ColonyIsk d={d} ch={ch} /></td>
                         <td className="l">
                           <span className="flags" style={{ justifyContent: 'flex-start' }}>
@@ -375,7 +416,7 @@ function CharColonies({ c, read, ix, learned, omega, head, onTotal }: {
                           <td colSpan={5} className="col-detail">
                             {/* The opened colony keeps to the table's visible width (styles.css `.col-unfold`, Ruling T12-3). */}
                             <div className="unfold col-unfold">
-                              <ColonyDetail k={k} ch={ch} d={d} ix={ix} now={now} nameOf={nameOf} omega={omega} pname={pname(k)} bests={bests.get(k.planetId)} marketReady={market.ready} />
+                              <ColonyDetail k={k} ch={ch} d={d} ix={ix} now={now} nameOf={nameOf} omega={omega} pname={pname(k)} bests={bests.get(k.planetId)} marketReady={market.ready} feeds={feedsBySystem.get(k.systemId)} />
                             </div>
                           </td>
                         </tr>
@@ -397,7 +438,7 @@ function exState(p: KeptPin, now: number): { state: ExState; hours: number; ends
   const ends = p.expiry ? Date.parse(p.expiry) : NaN;
   if (!p.extractor || p.extractor.qty == null || !Number.isFinite(ends)) return { state: 'idle', hours: Infinity, ends: null };
   const hours = (ends - now) / H;
-  return { state: hours <= 0 ? 'expired' : hours <= ENDING_SOON_HOURS ? 'endingSoon' : 'running', hours, ends };
+  return { state: hours <= 0 ? 'expired' : hours <= soonHoursOf(p.install ? Date.parse(p.install) : null, ends) ? 'endingSoon' : 'running', hours, ends };
 }
 
 const TIERS = ['P0', 'P1', 'P2', 'P3', 'P4'];
@@ -422,6 +463,7 @@ function ColonyIsk({ d, ch }: { d: ColonyDay; ch: Chain }) {
     <span className="col" style={{ gap: 2, alignItems: 'flex-end' }}>
       <b style={{ color: per.day > 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBig(per.day)}</b>
       <span className="sub" data-planets="colony-periods">{iskBig(per.week)} a week · {iskBig(per.month)} a month</span>
+      {ch.inputs && <span className="sub" data-planets="colony-adds">over what it brings in</span>}
       {ch.flags.some((f) => f.flag === 'expired') && <span className="sub neg">at the rate it ran: its programme has ended</span>}
     </span>
   );
@@ -463,9 +505,9 @@ const FAC: Record<string, [string, string]> = { basic: ['Basic', 'Basics'], adva
  * the hub doesn't price named as valued at Jita's, F11), its figures, its flags, and below them its comparison with the planner's best
  * (versusBest's words whole, never its gain alone: "(a flag above says why)" points at the flags drawn above it).
  */
-function ColonyDetail({ k, ch, d, ix, now, nameOf, omega, pname, bests, marketReady }: {
+function ColonyDetail({ k, ch, d, ix, now, nameOf, omega, pname, bests, marketReady, feeds }: {
   k: KeptColony; ch: Chain; d: ColonyDay; ix: PiIndex; now: number; nameOf: (id: number) => string; omega: OmegaCost; pname: string;
-  bests: { best: Setup | null; own: Setup | null } | undefined; marketReady: boolean;
+  bests: { best: Setup | null; own: Setup | null } | undefined; marketReady: boolean; feeds?: Set<number>;
 }) {
   const exts = k.pins.filter((p) => p.extractor);
   const stored = new Map<number, number>();
@@ -475,7 +517,7 @@ function ColonyDetail({ k, ch, d, ix, now, nameOf, omega, pname, bests, marketRe
   }
   const fell = fallbackGoods(ch.outputs);
   const hub = ch.outputs.find((o) => o.sold.fallback)?.sold.fallback?.hub;
-  const vs = bests ? versusBest(ch, bests.best, ix, bests.own) : null;
+  const vs = bests ? versusBest(ch, bests.best, ix, bests.own, feeds) : null;
   const per = d.pending || d.iskDay == null || (d.iskDay === 0 && !ch.why) ? null : periods(d.iskDay);
   return (
     <div className="col" style={{ gap: 10 }} data-planets={`detail:${k.planetId}`}>
@@ -505,7 +547,12 @@ function ColonyDetail({ k, ch, d, ix, now, nameOf, omega, pname, bests, marketRe
           {ch.imports.map((x) => <span key={x.id} className="pl-line">Brings in {dayCount(x.perDay)} <b>{nameOf(x.id)}</b> a day, while kept stocked</span>)}
         </div>
       )}
-      {ch.outputs.length > 0 && <Outputs outputs={ch.outputs} name={nameOf} label="What leaves it, valued" />}
+      {ch.outputs.length > 0 && <Outputs outputs={ch.outputs} name={nameOf} label={ch.inputs ? 'What leaves it, valued: all it makes, at today’s price' : 'What leaves it, valued'} />}
+      {ch.inputs && ch.inputs.worth != null && (
+        <span className="note small" data-planets={`inputs:${k.planetId}`}>
+          {`A factory planet: what it brings in (${listSaid(ch.imports.map((x) => nameOf(x.id)))}) would sell for ${iskBig(ch.inputs.worth)} a day${ch.inputs.taxDay != null ? `, and its import tax is ${iskBig(ch.inputs.taxDay)} a day` : ''}. Its figure is what its factories add over that, so the planets feeding it, valued on their own rows, aren’t counted twice in a total. Every unit at today’s price, as Plan it values a plan, while its inputs are kept stocked.`}
+        </span>
+      )}
       {marketReady && fell.length > 0 && <span className="note small" data-planets="fallback-goods">{`Valued at Jita’s for want of a ${hub} figure: ${listSaid(fell.map(nameOf))} (each line says why).`}</span>}
       {ch.taxDay != null && ch.taxDay > 0 && <span className="note small">Customs: {iskBig(ch.taxDay)} a day, taken off the figures.</span>}
       {ch.before.includes('tax') && ch.iskDay != null && <span className="note small">Before the customs tax, which isn’t known here: each 1% costs {iskBig(ch.perPct)} a day.</span>}

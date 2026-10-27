@@ -8,10 +8,10 @@
 import type { PlanetType } from './pi';
 import type { Facility, PiIndex, Schematic, Tier } from './piBundle';
 import type { KeptColony, KeptPin } from './colonies';
-import { ENDING_SOON_HOURS } from './colony';
+import { soonHoursOf } from './colony';
 import { lowerReading, readings } from './piExtraction';
 import { PI_READING, type Rate } from './piLearn';
-import { anHour, fallbackGoods, keptSold, keptWhy, listSaid, planSingle, taxRows, valuedOutput, type Hold, type Output, type PlanInput, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
+import { anHour, fallbackGoods, keptSold, keptWhy, listSaid, planSingle, SLIVER, taxRows, uncappedSell, unitNet, valuedOutput, type Hold, type Output, type PlanInput, type Reserve, type Role, type Sell, type Setup, type Sold } from './piPlan';
 import type { Tax } from './planetsDoc';
 import { iskBig, units as unitsSaid } from './format';
 import { dayCount } from './split';
@@ -72,6 +72,13 @@ export type Chain = {
    * factory planet fed from its launchpad). What the factories take a day of each while kept stocked; `makes` counts them so.
    */
   imports: { id: number; perDay: number }[];
+  /**
+   * A factory planet's inputs from off the planet, valued (Ruling T15-2, revised 26 October 2026): `worth` what the imports would sell for
+   * a day at their first unit's net (null with one unpriced, named in `unpriced`), `taxDay` their import tax at half the rate (null when
+   * the rate isn't known). Its outputs are then valued uncapped, every unit at its first unit's net, as Plan it values the held good, and
+   * `iskDay` is what its factories add over the imports. Null for a colony that brings nothing in.
+   */
+  inputs: { worth: number | null; taxDay: number | null; unpriced: number[] } | null;
   /**
    * What of each good reaches storage, a launchpad or the command centre and is left there once the factories routed from it have
    * drawn theirs, a day: what the colony sends on, ready to leave the planet (Check my setup reads it, planets-board.md). Empty when
@@ -381,12 +388,13 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     }
   }
 
-  // Programmes ending and ended, as the colony panel judges them (colony.ts' readExtractor): ended at its end, ending within a day.
+  // Programmes ending and ended, as the colony panel judges them (colony.ts' readExtractor): ended at its end, ending in its last quarter
+  // (at most a day: `soonHoursOf`).
   const timeFlags: ChainFlagRow[] = [];
   for (const x of timed) {
     const left = (x.ends - now) / H;
     if (left <= 0) timeFlags.push({ flag: 'expired', id: x.p0, pinId: x.pin.id, said: `The ${name(x.p0)} programme ended ${hoursSaid(-left)} ago: it extracts nothing until its heads are reset. What the colony makes here is at the rate it ran at` });
-    else if (left <= ENDING_SOON_HOURS) timeFlags.push({ flag: 'endingSoon', id: x.p0, pinId: x.pin.id, said: `The ${name(x.p0)} programme ends in ${hoursSaid(left)}: reset its heads before then` });
+    else if (left <= soonHoursOf(x.pin.install ? Date.parse(x.pin.install) : null, x.ends)) timeFlags.push({ flag: 'endingSoon', id: x.p0, pinId: x.pin.id, said: `The ${name(x.p0)} programme ends in ${hoursSaid(left)}: reset its heads before then` });
   }
 
   const to = new Map<number, Map<number, number[]>>(), from = new Map<number, Map<number, number[]>>();
@@ -586,7 +594,7 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
   }));
   const imports = flow ? [...flow.imports].sort((a, b) => tierAt(a[0]) - tierAt(b[0]) || a[0] - b[0]).map(([id, perHour]) => ({ id, perDay: perHour * 24 })) : [];
   const exported = flow ? [...flow.exported].filter(([, v]) => v > MIN_FLOW).sort((a, b) => tierAt(a[0]) - tierAt(b[0]) || a[0] - b[0]).map(([id, perHour]) => ({ id, perDay: perHour * 24 })) : [];
-  const base = { planetId: k.planetId, planetType: k.planetType, level: k.level, lastUpdate: k.lastUpdate, extracts, makes: makesList, imports, exported, flags };
+  const base = { planetId: k.planetId, planetType: k.planetType, level: k.level, lastUpdate: k.lastUpdate, extracts, makes: makesList, imports, exported, flags, inputs: null };
   const blank = { iskDay: null, iskDayHigh: null, taxDay: null, perPct: 0, taxes: [], before: [] };
 
   if (!flow) {
@@ -596,17 +604,11 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
       why: `What it makes isn’t known: ${unknown[0].why}${unknown.length > 1 ? `, and ${unknown.length - 1} more extractor${unknown.length > 2 ? 's' : ''} the same` : ''}`,
     };
   }
-  const v = valuedOf(ix, flow, sell, tax);
-  // Its inputs come from off the planet: what they cost isn't known here, so no figure, never one without them (Ruling T15-2).
-  // Only a running factory's imports: one whose other input doesn't reach it draws nothing (its own flag says why).
+  // Its inputs come from off the planet (Ruling T15-2). Only a running factory's imports: one whose other input doesn't reach it draws
+  // nothing (its own flag says why).
   const brought = [...new Set([...imported].filter(([id]) => runs.has(id)).flatMap(([, s]) => [...s]))].sort((a, b) => tierAt(a) - tierAt(b) || a - b);
-  if (brought.length) {
-    const one = brought.length === 1;
-    return {
-      ...base, ...blank, outputs: v.outputs, unvalued: v.unvalued, unshipped: v.unshipped,
-      why: `Its ${listSaid(brought.map(name))} come from off the planet, and ${one ? 'its' : 'their'} cost isn’t known here`,
-    };
-  }
+  if (brought.length) return factoryPlanet(ix, flow, sell, tax, { ...base, imports }, brought, name);
+  const v = valuedOf(ix, flow, sell, tax);
   const before: Chain['before'] = [];
   if (v.taxDay == null) before.push('tax');
   if (v.unvalued) before.push('price');
@@ -619,6 +621,56 @@ export function colonyChain(k: KeptColony, ix: PiIndex, sell: Sell, now: number,
     iskDay: none ? null : v.value,
     iskDayHigh: none || !high ? null : valuedOf(ix, high, sell, tax).value,
     taxDay: none ? null : v.taxDay, perPct: v.perPctBase / 100, taxes: v.taxes, before, unvalued: v.unvalued, unshipped: v.unshipped,
+    why: none ? cap([...new Set(shipped.map((o) => o.sold.why ?? 'no price read'))].join('; ')) : null,
+  };
+}
+
+/** The goods the factory planets among `chains` bring in (each one's `imports`): what a colony shipping them feeds (`versusBest`'s `feeds`). */
+export function fedGoods(chains: Iterable<Chain>): Set<number> {
+  const out = new Set<number>();
+  for (const c of chains) if (c.inputs) for (const x of c.imports) out.add(x.id);
+  return out;
+}
+
+/**
+ * A factory planet: a colony whose factories draw inputs nothing on it makes, routed in from storage or a launchpad (Ruling T15-2,
+ * revised 26 October 2026). The user, with four factory planets fed by five characters' feeders: "i have factory planets and it is not
+ * accounting for them and showing me the projections". It had no figure ("their cost isn't known here"), and so neither had its
+ * character's nor All's total. Now its imports are valued at what they would sell for (their first unit's net, kept stocked) with their
+ * import tax at half the rate, its outputs uncapped at their first unit's net (as Plan it values the held good: its whole run, not what
+ * a market takes at your share), and its figure is what its factories add over the imports. So the feeders' goods, valued on their own
+ * planets, aren't counted twice in a total: All is what the team makes. An import with no price leaves the figure null, named.
+ */
+function factoryPlanet(ix: PiIndex, flow: Flow, sell: Sell, tax: Tax, base: Omit<Chain, 'outputs' | 'iskDay' | 'iskDayHigh' | 'taxDay' | 'perPct' | 'taxes' | 'before' | 'unvalued' | 'unshipped' | 'why'>,
+  brought: number[], name: (id: number) => string): Chain {
+  const noCap: Sell = (id, perDay) => uncappedSell(sell, id)(id, perDay);
+  const v = valuedOf(ix, flow, noCap, tax);
+  const ins = base.imports.filter((x) => x.perDay > 0);
+  const unpriced = ins.filter((x) => sell(x.id, SLIVER).isk == null).map((x) => x.id);
+  const blank = { iskDay: null, iskDayHigh: null, taxDay: null, perPct: 0, taxes: [], before: [] };
+  if (unpriced.length) {
+    return {
+      ...base, ...blank, outputs: v.outputs, unvalued: v.unvalued, unshipped: v.unshipped, inputs: { worth: null, taxDay: null, unpriced },
+      why: `Its ${listSaid(brought.map(name))} come from off the planet, and ${listSaid(unpriced.map(name))} ${unpriced.length === 1 ? 'has' : 'have'} no price here, so what its factories add over them isn’t known`,
+    };
+  }
+  const worth = ins.reduce((t, x) => t + x.perDay * unitNet(sell, x.id), 0);
+  const rows = taxRows(ix, ins, tax.rate, 0.5);
+  const taxKnown = rows.every((r) => r.perDay != null);
+  const inTax = rows.reduce((t, r) => t + (r.perDay ?? 0), 0);
+  const inputs = { worth, taxDay: taxKnown ? inTax : null, unpriced: [] };
+  const before: Chain['before'] = [];
+  if (v.taxDay == null || !taxKnown) before.push('tax');
+  if (v.unvalued) before.push('price');
+  const shipped = v.outputs.filter((o) => o.sold !== NOT_SHIPPED);
+  const none = shipped.length > 0 && !shipped.some(valuedOutput);
+  return {
+    ...base, inputs, outputs: v.outputs,
+    iskDay: none ? null : v.value - worth - inTax,
+    iskDayHigh: null,
+    taxDay: none || v.taxDay == null || !taxKnown ? null : v.taxDay + inTax,
+    perPct: (v.perPctBase + rows.filter((r) => r.perDay == null).reduce((t, r) => t + r.base, 0)) / 100,
+    taxes: [...v.taxes, ...rows.map((r) => ({ tier: r.tier, perDay: r.perDay }))], before, unvalued: v.unvalued, unshipped: v.unshipped,
     why: none ? cap([...new Set(shipped.map((o) => o.sold.why ?? 'no price read'))].join('; ')) : null,
   };
 }
@@ -758,8 +810,17 @@ export function bestsFor(k: KeptColony, chain: Chain, ix: PiIndex, input: PlanIn
  * in its own words (Ruling T15b-5: none, assumed; another P0's learned; typed), and so does one before the customs tax. The planet's
  * name isn't in the chain: the page puts it in front.
  */
-export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: Setup | null): { gain: number | null; said: string } {
+/**
+ * `feeds`: goods a factory planet of yours brings in (any character's, in the colony's system: `fedGoods`). A colony shipping one of them
+ * feeds it, so another product is never suggested in its place (26 October 2026: every one of the user's 25 feeders read "the best P1s it
+ * can make alone here, Water and Precious Metals, pay 431,017 ISK more a day" beside the factory planets that need what it makes); its own
+ * factories making less than they can is still said.
+ */
+export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: Setup | null, feeds?: ReadonlySet<number>): { gain: number | null; said: string } {
   const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
+  // A factory planet is half of a setup across planets (its inputs come from others): a single-planet best is no measure of it, and its
+  // feeders' own comparisons say what they could make.
+  if (chain.inputs) return { gain: null, said: '' };
   if (!best) return { gain: null, said: 'The planner has no single-planet setup for this planet to set it against' };
   const roleOf = (s: Setup) => s.roles.find((r) => r.planetId === chain.planetId && r.does !== 'unused');
   const top = chain.makes.length ? Math.max(...chain.makes.map((m) => TIERS.indexOf(ix.byId.get(m.id)?.tier ?? 'P0'))) : -1;
@@ -833,7 +894,8 @@ export function versusBest(chain: Chain, best: Setup | null, ix: PiIndex, own?: 
   let otherSaid = '';
   const bestRole = roleOf(best);
   const otherGain = best.iskDay == null ? null : best.iskDay - base;
-  if (!bestHeld && otherGain != null && best !== mine && !ownMix(best) && fitsHere(ix, chain, bestRole) && otherGain > SAME_ISK && otherGain >= OTHER_PRODUCT_MIN * colony) {
+  const feeding = !!feeds && chain.exported.some((x) => feeds.has(x.id));
+  if (!feeding && !bestHeld && otherGain != null && best !== mine && !ownMix(best) && fitsHere(ix, chain, bestRole) && otherGain > SAME_ISK && otherGain >= OTHER_PRODUCT_MIN * colony) {
     const t = theirTop(best), pays = `${iskBig(otherGain)} more a day${ownSaid ? ' than that' : ''}`;
     otherSaid = (best.kind === 'p1'
       ? `the best P1s it can make alone here${t.length ? `, ${listSaid(t.map(name))},` : ''} pay ${pays}`

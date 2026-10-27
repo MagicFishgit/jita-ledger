@@ -39,7 +39,12 @@ in planets.md and planets-planner.md.
   alone, never a live read's prices: the main's (Read my colonies writes it, as To do, the alerts and the cloud's hourly read do) and
   each alt's the cloud keeps, which Planets.tsx passes down (the one importer of the alt store). A read is said as the last one
   (the main's has no read time: "as kept", with when EVE last updated the newest; an alt's at its `sheet` job's `lastOk`); `lastUpdate`
-  is the game's, never said as a read. Goods are named from the planets bundle, never "Item #…".
+  is the game's, never said as a read. Goods are named from the planets bundle, never "Item #…". **An alt has Read <alt> now** (26 October
+  2026; the user: "it is moaning about my setup for some characters even though i have restarted their programs", their resets landing after
+  the cloud's :37 read): the cloud reads it at once and the copy is pulled, as Check my setup does (`readAlt`, `ALT_READ_BOUND_MS`), said
+  either way. **Ending soon is a programme's last quarter, at most a day** (`soonHoursOf`, colony.ts; Colonies, the chain's flags, To do, the
+  alerts): on 24-hour programmes "within a day" read every colony as ending right after its reset. **A factory planet is valued** (planets-chain.md,
+  Ruling F28): its row says "over what it brings in", its Programme ends "no extractors", never red.
   - **Show for gains All** here alone (`jita-ledger:planets-colonies-show`; picking a character picks it for Show for too), grouped by
     account. **Where each stands** (colonyTotals.ts' `coloniesWhy`): a kept document is read, a refused alt's too, said with `lostSaid`
     (read data wins); else the main's login without the permission, an alt's refused or not held, one handed over without the planets

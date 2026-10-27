@@ -4766,10 +4766,16 @@ try {
       // Gas pins as ESI types them: command 2534, extractor 3060, Basic 2492, Advanced 2494, storage 2536, launchpad 2543. Reactive Gas
       // 2311 → Oxidizing Compound 2392 (schematic 125), Noble Gas 2310 → Oxygen 3683 (124), both → Oxides 2317 (69).
       const gasColony = { planetId: GAS_VII, systemId: SYS, planetType: 'Gas', level: 4, lastUpdate: iso(now - 1800_000), links: [],
-        pins: [pinC(1, 2534), ecuC(10, 3060, 2311, install, 47.5), ecuC(11, 3060, 2310, install, 47.5), pinC(20, 2536, { contents: [[2310, 4000], [2311, 4000]] }), pinC(30, 2543, { contents: [[2317, 30]] }),
+        pins: [pinC(1, 2534), ecuC(10, 3060, 2311, install - 13 * 3600_000, 47.5), ecuC(11, 3060, 2310, install - 13 * 3600_000, 47.5), pinC(20, 2536, { contents: [[2310, 4000], [2311, 4000]] }), pinC(30, 2543, { contents: [[2317, 30]] }),
           facC(41, 2492, 125), facC(42, 2492, 125), facC(43, 2492, 124), facC(44, 2492, 124), facC(51, 2494, 69)],
         routes: [[10, 20, 2311, 1], [11, 20, 2310, 1], [20, 41, 2311, 3000], [20, 42, 2311, 3000], [20, 43, 2310, 3000], [20, 44, 2310, 3000],
           [41, 20, 2392, 20], [42, 20, 2392, 20], [43, 20, 3683, 20], [44, 20, 3683, 20], [20, 51, 2392, 40], [20, 51, 3683, 40], [51, 30, 2317, 5]] };
+      // A factory planet of Gas Alt's (Ruling F28): 5-NZNW III, two Advanced on Oxides (69) fed from its launchpad (Oxidizing Compound 2392 and
+      // Oxygen 3683 brought in, Oxides 2317 out). It is valued: what its factories add over what it brings in.
+      const FACTORY_III = 40307993;
+      const factoryColony = { planetId: FACTORY_III, systemId: SYS, planetType: 'Barren', level: 4, lastUpdate: iso(now - 1800_000), links: [],
+        pins: [pinC(1, 2524), pinC(30, 2544, { contents: [[2392, 9000], [3683, 9000]] }), facC(51, 2474, 69), facC(52, 2474, 69)],
+        routes: [[30, 51, 2392, 40], [30, 51, 3683, 40], [30, 52, 2392, 40], [30, 52, 3683, 40], [51, 30, 2317, 5], [52, 30, 2317, 5]] };
       // Barren pins: command 2524, extractor 2848, Basic 2473, launchpad 2544. Microorganisms 2073 → Bacteria 2393 (131), its 72-hour
       // programme ended a day ago.
       const oldColony = { planetId: UALX_I, systemId: UALX_SYS, planetType: 'Barren', level: 3, lastUpdate: iso(now - 2 * 86400_000), links: [],
@@ -4782,7 +4788,7 @@ try {
           entry(REFUSED, 'Refused Alt', { refusedAt: now - 7200_000, refused: 'invalid_grant', jobs: [ok('archive', 9000_000), ok('sheet', 8000_000)] }),
         ] },
         [`alt:${ALPHA}`]: altStore[`alt:${ALPHA}`], [`alt:${UNREAD}`]: altStore[`alt:${UNREAD}`],
-        [`alt:${GAS}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: SK, meta: { cloneDetected: 'omega', attributes: ATTRS }, colonies: { colonies: [gasColony] } } },
+        [`alt:${GAS}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: SK, meta: { cloneDetected: 'omega', attributes: ATTRS }, colonies: { colonies: [gasColony, factoryColony] } } },
         [`alt:${REFUSED}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: SK, meta: { cloneDetected: 'omega', attributes: ATTRS }, colonies: { colonies: [oldColony] } } },
       };
       const ACCTS = { accounts: [{ id: 'a1' }], byChar: { [OWNER]: 'a1', [GAS]: 'a1' } };
@@ -4810,14 +4816,15 @@ try {
       await coloniesSeed(ledger.meta.plex);
 
       // Task 17: To do lists an alt's extractors that end, from its kept colonies, under its name. Refused Alt's programme ended a day
-      // ago (its login was refused after that read, which the item says); Gas Alt's two end in about 23 hours (ending); a main's
+      // ago (its login was refused after that read, which the item says); Gas Alt's two end in about 10.5 hours (ending); a main's
       // item never carries an alt's name. Names ESI is not asked for in this check read as the planet and "Item #".
       await page.goto(`http://localhost:${PORT}/jita-ledger/#todo`);
       await page.waitForFunction(() => /Refused Alt · /.test(document.body.textContent ?? '') && /Gas Alt · /.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
       const altPi = await text('.tn-item:has-text("Refused Alt ·")');
       if (!/ended/i.test(altPi) || !/Open planets/i.test(altPi) || !/As the cloud last read it. EVE refused Refused Alt’s login/.test(altPi)) problems.push(`To do doesn’t list the refused alt’s ended extractor under its name: “${altPi.slice(0, 300)}”`);
       const gasPi = await text('.tn-item:has-text("Gas Alt ·")');
-      if (!/ends in 2[34] h/.test(gasPi) || /As the cloud last read it/.test(gasPi)) problems.push(`To do doesn’t list Gas Alt’s extractors ending in about a day, or says its login is lost: “${gasPi.slice(0, 300)}”`);
+      // Ending soon is a programme's last quarter (a 47.5-hour one's last 11.9 h): Gas Alt's end in about 10.5 h.
+      if (!/ends in 1[01] h/.test(gasPi) || /As the cloud last read it/.test(gasPi)) problems.push(`To do doesn’t list Gas Alt’s extractors ending in their last quarter, or says its login is lost: “${gasPi.slice(0, 300)}”`);
       await page.goto(`http://localhost:${PORT}/jita-ledger/#hustles/planets/colonies`);
       await page.waitForSelector('[data-planets="colonies"]', { timeout: 30_000 }).catch(() => problems.push('Colonies never drew after To do (Task 17)'));
 
@@ -4875,11 +4882,30 @@ try {
       const colOmega = await text(`[data-planets="detail:${GAS_VII}"] [data-planets="colony-figures"] [data-planets="omega"]`);
       if (!/(under 1%|\d+%|[\d.]+×) of one account’s month/.test(colOmega)) problems.push(`Gas Alt's colony's Omega share: “${colOmega}”`);
       if (SHOTS) { await page.locator(`[data-planets="versus:${GAS_VII}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-gas.png` }); }
+      // Its factory planet (Ruling F28): valued, said as what it adds over what it brings in, its imports' worth said, and never set
+      // against a single-planet best.
+      const facCell = await text(`[data-planets="colony-isk:${FACTORY_III}"]`);
+      if (!(money(facCell) !== 0 && !Number.isNaN(money(facCell))) || !/over what it brings in/.test(facCell)) problems.push(`Gas Alt's factory planet isn't valued as what it adds: “${facCell}”`);
+      await openColony(FACTORY_III);
+      await worked('Gas Alt’s factory planet opened');
+      const facIn = await text(`[data-planets="inputs:${FACTORY_III}"]`);
+      if (!/^A factory planet: what it brings in \(Oxidizing Compound and Oxygen\) would sell for [\d.,]+ ?[kMB]? ISK a day, and its import tax is/.test(facIn)) problems.push(`Gas Alt's factory planet doesn't say what its imports are worth: “${facIn}”`);
+      if (await text(`[data-planets="versus:${FACTORY_III}"]`)) problems.push(`a factory planet is set against a single-planet best: “${await text(`[data-planets="versus:${FACTORY_III}"]`)}”`);
+      if (SHOTS) { await page.locator(`[data-planets="inputs:${FACTORY_III}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-factory.png` }); }
+      // Read Gas Alt now: the cloud's read and the pull, said either way (here the cloud's route isn't stubbed, so it says it couldn't).
+      const readBtn = page.locator(`[data-planets="read-alt:${GAS}"] button`);
+      if (!(await readBtn.count())) problems.push('Gas Alt has no Read now on Colonies');
+      else {
+        await readBtn.click().catch(() => undefined);
+        const saidRead = await page.waitForSelector(`[data-planets="read-alt:${GAS}"] [data-planets="read-alt-said"]`, { timeout: 20_000 }).then(() => true, () => false);
+        if (!saidRead) problems.push('Read Gas Alt now said nothing');
+      }
 
       // Show for the main: its colony makes nothing that leaves the planet, said, never 0 ISK; its best rests on a rate no colony shows.
       await coloniesFor('Owner');
       await worked('Owner');
       if (!(await page.locator(`[data-planets="colony-isk:${PLANET_I}"] [data-planets="nothing-leaves"]`).count())) problems.push(`the main's colony doesn't say it makes nothing that leaves: “${await text(`[data-planets="colony-isk:${PLANET_I}"]`)}”`);
+      if (await page.locator('[data-planets^="read-alt:"]').count()) problems.push('the main has a cloud Read now: its colonies are read here');
       await openColony(PLANET_I);
       await worked('Owner’s colony opened');
       // A planet's versusBest line: another product on a rate this colony hasn't shown, with its qualifier beside the figure, and the
