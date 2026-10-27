@@ -4258,6 +4258,96 @@ try {
       if (order[order.length - 1] !== 'setup:bought') problems.push(`bought isn't below the setups that use the system's planets: ${JSON.stringify(order)}`);
       // The folds as Plan it leaves them, before any is opened here (the team's checks below read them).
       const foldsAtFirst = await page.locator('[data-planets="plan"] [data-planets^="setup:"]').evaluateAll((xs) => xs.map((x) => [x.getAttribute('data-planets'), x.querySelector('[data-planets="open"]')?.getAttribute('aria-expanded'), x.querySelector('.pl-rank')?.textContent]));
+      // --- Nothing folds on a refresh (team-p1-dispatch.md item 3). The user (26 October 2026): "in the planner while i was building at some
+      // point there is some background refresh that goes on and even though i have kept the plan at that point it would collapse anything i
+      // had open". The team plan kept, its row, a feeder group, a card's Build it and its details opened, and today's ranking unfolded with
+      // the feed opened by hand; then what happens in the background while they build, one at a time: a cloud pull that moves a colony's
+      // rate, the cloud's live books merged into the scan held here (every ten minutes), the hub's own read asked for again, a meta write.
+      // After each, everything opened is still open.
+      const foldsHold = async () => {
+        await page.locator('[data-planets="setup:team"] [data-planets="keep"]').click().catch((e) => problems.push(`folds: no Keep this plan on the team: ${e.message.split('\n')[0]}`));
+        const K = '[data-planets="kept"] [data-planets="kept-setup:team"]';
+        await page.waitForSelector(K, { timeout: 30_000 }).catch(() => problems.push('folds: the kept team plan never drew'));
+        // Opens what isn't open (the first group, a factory planet's Build it, the details, today's ranking and the feed in it).
+        const openEverything = async () => {
+          const keptHead = page.locator(`${K} [data-planets="open"]`).first();
+          if ((await keptHead.getAttribute('aria-expanded').catch(() => null)) === 'false') await keptHead.click().catch(() => undefined);
+          const group = page.locator(`${K} [data-planets^="group:"] [data-board="group"]`).first();
+          if ((await group.getAttribute('aria-expanded').catch(() => null)) === 'false') await group.click().catch((e) => problems.push(`folds: no feeder group to open: ${e.message.split('\n')[0]}`));
+          if (!(await page.locator(`${K} [data-planets="build-list"]`).count())) await page.locator(`${K} [data-planets="factories"] [data-planets="build"]`).first().click().catch((e) => problems.push(`folds: no Build it on a factory planet: ${e.message.split('\n')[0]}`));
+          const det = page.locator(`${K} button[aria-expanded="false"]`, { hasText: 'What it makes' });
+          if (await det.count()) await det.first().click().catch(() => undefined);
+          const others = page.locator('[data-planets="others"] > div > button[aria-expanded="false"]');
+          if (await others.count()) await others.first().click().catch(() => undefined);
+          await page.waitForTimeout(400);
+          const feedHead = page.locator('[data-planets="others"] [data-planets="setup:feed"] [data-planets="open"]').first();
+          if ((await feedHead.getAttribute('aria-expanded').catch(() => null)) === 'false') await feedHead.click().catch(() => undefined);
+          await page.waitForTimeout(400);
+        };
+        await openEverything();
+        const state = () => page.evaluate((k) => {
+          const row = document.querySelector(k);
+          const exp = (el) => el?.getAttribute('aria-expanded') ?? null;
+          return {
+            kept: exp(row?.querySelector('[data-planets="open"]')),
+            groups: row ? [...row.querySelectorAll('[data-planets^="group:"]')].map((g) => `${g.getAttribute('data-planets')}=${exp(g.querySelector('[data-board="group"]'))}`) : [],
+            builds: row ? row.querySelectorAll('[data-planets="build-list"]').length : 0,
+            details: exp(row ? [...row.querySelectorAll('button')].find((b) => /What it makes/.test(b.textContent)) : null),
+            others: exp(document.querySelector('[data-planets="others"] > div > button')),
+            feed: exp(document.querySelector('[data-planets="others"] [data-planets="setup:feed"] [data-planets="open"]')),
+          };
+        }, K);
+        const before = await state();
+        if (before.kept !== 'true' || !before.groups.some((g) => g.endsWith('=true')) || before.builds < 1 || before.details !== 'true' || before.others !== 'true' || before.feed !== 'true') problems.push(`folds: couldn't open everything to begin with: ${JSON.stringify(before)}`);
+        const modUrl = (re) => page.evaluate((r) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => new RegExp(r).test(n)) ?? null, re);
+        const storeU = await modUrl('/src/lib/store\\.ts'), scanU = await modUrl('/src/lib/scan\\.ts'), homeU = await modUrl('/src/components/hustles/industryMarket\\.ts');
+        if (!storeU || !scanU || !homeU) problems.push(`folds: couldn't find the app's modules: ${JSON.stringify([storeU, scanU, homeU])}`);
+        const moved = { colonies: colonies.colonies.map((k) => ({ ...k, pins: k.pins.map((x) => (x.extractor ? { ...x, extractor: { ...x.extractor, qty: Math.round(x.extractor.qty * 1.15) } } : x)) })) };
+        const events = [
+          ['a cloud pull that moves a colony’s rate', () => page.evaluate(async ([u, c]) => { const m = await import(u); m.update(() => ({ colonies: c }), { origin: 'cloud' }); }, [storeU, moved])],
+          ['the cloud’s live books merged into the scan held here', () => page.evaluate(async (u) => {
+            const m = await import(u); const c = await m.loadCache();
+            const t = Object.keys(c.books).find((k) => c.stats[k] && c.books[k]?.at);
+            return m.mergeLiveBooks({ [t]: { ...c.books[t], at: new Date(Date.parse(c.books[t].at) + 3_600_000).toISOString() } });
+          }, scanU)],
+          ['the hub’s own read asked for again', () => page.evaluate(async (u) => { const m = await import(u); m.refreshHomeMarkets(); }, homeU)],
+          ['a meta write', () => page.evaluate(async (u) => { const m = await import(u); m.update((x) => ({ meta: { ...x.meta, lastSeenAt: new Date().toISOString() } })); }, storeU)],
+        ];
+        for (const [said, run] of events) {
+          const r = await run().catch((e) => `threw: ${e.message.split('\n')[0]}`);
+          if (typeof r === 'string') problems.push(`folds: ${said} ${r}`);
+          await page.waitForTimeout(2500);
+          await page.waitForFunction(() => !document.querySelector('[data-planets="plan"] [data-planets="working"]'), null, { timeout: 45_000 }).catch(() => problems.push(`folds: still working out after ${said}`));
+          await page.waitForTimeout(500);
+          const after = await state();
+          // Each event judged on its own: anything it folded is opened again before the next.
+          if (JSON.stringify(after) !== JSON.stringify(before)) { problems.push(`folds: after ${said}, what was open isn't: ${JSON.stringify(after)} against ${JSON.stringify(before)}`); await openEverything(); }
+        }
+        if (SHOTS) { await page.locator(K).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-kept.png` }); }
+        // Ruling F27-2: the rows stay through a read in flight, not for a lasting reason. The scan held here emptied (no scan in this browser:
+        // a lasting reason; Show for on a character whose skills aren't read hides the rows through `blockedWhy` and can't tell): the old rows
+        // go and the reason shows, with no "Working them out again" over rows priced on a scan that's gone. Then the scan comes back.
+        const held = await page.evaluate(async ([u]) => {
+          const m = await import(u); const c = await m.loadCache();
+          const items = Object.keys(c.stats).map((t) => [Number(t), c.stats[t], c.books[t], c.sample?.counts?.[t] ?? 0]).filter((x) => x[2]);
+          await m.clearScan();
+          await m.adoptCloudScan({ meta: { at: new Date(Date.now() + 3_600_000).toISOString(), pages: 1 }, items: [] });
+          return { n: items.length, items, sample: c.sample ?? null, at: c.sample?.at ?? null };
+        }, [scanU]);
+        await page.waitForTimeout(2000);
+        const lasting = { rows: await page.locator('[data-planets="plan"] [data-planets^="setup:"]').count(), plan: await text('[data-planets="plan"]') };
+        if (!held.n) problems.push('folds: no scan held to empty');
+        if (lasting.rows) problems.push(`folds: with no scan here, ${lasting.rows} old rows stay drawn`);
+        if (/Working them out again/.test(lasting.plan)) problems.push('folds: with no scan here, “Working them out again” is said');
+        if (!/No market scan here yet/.test(lasting.plan)) problems.push(`folds: with no scan here, the reason isn't shown: “${lasting.plan.slice(0, 300)}”`);
+        await page.evaluate(async ([u, h]) => { const m = await import(u); await m.adoptCloudScan({ meta: { at: new Date(Date.now() + 7_200_000).toISOString(), pages: h.sample?.totalPages ?? 1 }, items: h.items }); }, [scanU, held]);
+        await page.waitForFunction(() => !document.querySelector('[data-planets="plan"] [data-planets="working"]') && document.querySelector('[data-planets="kept"]'), null, { timeout: 60_000 }).catch(() => problems.push('folds: the kept plan never came back after the scan did'));
+        // Forget it, so what follows reads the ranking as Plan it leaves it; the feed opened again for its resets below.
+        await page.locator('[data-planets="forget"]').click().catch((e) => problems.push(`folds: no Forget this plan: ${e.message.split('\n')[0]}`));
+        await page.waitForTimeout(800);
+        await settled();
+        await openRow('feed', false);
+      };
       // The feed: its factory planet makes Gel-Matrix Biopaste, fed by the system's planets.
       await openRow('feed');
       await openRow('bought', false);
@@ -4379,9 +4469,17 @@ try {
           const vs = await text('[data-planets="setup:team"] [data-planets="team-vs"]');
           if (!/^\+[\d.,]+ a day against the fed factory repeated on the one of your 2 characters it suits \([\d.,]+ a day\); this counts both, each at its own level and planets\./.test(vs.trim())) problems.push(`the team's comparison: “${vs}”`);
           const load = await team.locator('[data-planets^="team-load:"]').allInnerTexts();
-          if (!load.length || load.some((l) => !/runs at \d+% of what fits: \d+ of the \d+ Advanced it holds/.test(l))) problems.push(`the factory planets' loads: ${JSON.stringify(load)}`);
+          if (!load.length || load.some((l) => !/: \d+ of the \d+ whole sets? it holds \(.+: \d+ of the \d+ Advanced it holds\), [\d.,]+ Gel-Matrix Biopaste a day, \d+% of what its sets make\./.test(l))) problems.push(`the factory planets' loads: ${JSON.stringify(load)}`);
+          // Ruling F27: every factory planet in whole sets, its card saying its counts as the user builds them ("6 Oxides, 6 Biocells, 6
+          // Superconductors, 3 Gel-Matrix Biopaste: 21 of the 22 Advanced it holds"), each P2's count twice the good's. Ruling F26: no feeder
+          // makes a P2, and no "As well" is drawn.
+          const counts = await team.locator('[data-planets="factories"] [data-planets="factory-counts"]').allInnerTexts();
+          const bad = counts.filter((c) => { const m = /^(\d+) Oxides, (\d+) Biocells, (\d+) Superconductors, (\d+) Gel-Matrix Biopaste: (\d+) of the (\d+) Advanced it holds$/.exec(c.trim()); return !m || !(+m[1] === 2 * +m[4] && +m[2] === 2 * +m[4] && +m[3] === 2 * +m[4] && +m[5] === 7 * +m[4] && +m[5] <= +m[6]); });
+          if (!counts.length || bad.length) problems.push(`a factory planet isn't in whole sets, or its card doesn't say its counts: ${JSON.stringify(counts)}`);
+          const p2Feeders = await team.locator('[data-does="extract"] [data-planets^="makes:"]').count();
+          if (p2Feeders || await team.locator('[data-planets="as-well"]').count()) problems.push(`a factory character's feeder makes a P2 (${p2Feeders}), or an “As well” is drawn`);
           const fill = await text('[data-planets="setup:team"] [data-planets="team-fill"]');
-          if (!/^One factory planet here \(\d+ Advanced\) is full at [\d.,]+ Gel-Matrix Biopaste a day, fed by \d+ P0 → P1 feeder planets/.test(fill.trim())) problems.push(`the fill count: “${fill}”`);
+          if (!/^One factory planet here \(\d+ Advanced, \d+ whole sets? of 7\) is full at [\d.,]+ Gel-Matrix Biopaste a day, fed by \d+ P0 → P1 feeder planets/.test(fill.trim())) problems.push(`the fill count: “${fill}”`);
           if (!/^(Convert another planet when these run full: at about \d+ more feeder planets?\.|These run full: convert another planet when the next feeders come\.|Convert another planet when these run full: how many more feeder planets that takes isn’t worked out, since how many fill one factory planet here isn’t\.)$/.test((await text('[data-planets="setup:team"] [data-planets="team-convert"]')).trim())) problems.push(`the convert line: “${await text('[data-planets="setup:team"] [data-planets="team-convert"]')}”`);
           if (!(await team.locator('[data-planets^="team-part:"]').count())) problems.push('the team says no character’s part');
           const all = await text('[data-planets="setup:team"]');
@@ -4389,6 +4487,7 @@ try {
           const wide = await page.evaluate(() => { const c = document.querySelector('.content'); const b = document.querySelector('[data-planets="setup:team"] .pl-board-scroll'); return [c ? c.scrollWidth - c.clientWidth : 0, b ? b.scrollWidth - b.clientWidth : 0]; });
           if (!PHONE && (wide[0] > 1 || wide[1] > 1)) problems.push(`the team row scrolls sideways at 1440: page ${wide[0]} px, board ${wide[1]} px`);
           await undoTeam();
+          await foldsHold();
         }
       }
       // Resets at the typed 72 hours: every 3 days, the feed's planets each time, and the week's sittings and planet resets.
@@ -5150,11 +5249,10 @@ try {
       await page.unroute('**/src/data/planetRegions.json*');
     }
 
-    // --- The "As well" line (fix round 1's I2). In 5-NZNW every factory character here feeds Biocells from a planet whose P1 its 2 Advanced take
-    // whole (1,920 of each: 2 × 40 an hour), so that planet ships its P2 alone and no "As well" is due: the rule is right. A feeder making a P2
-    // and shipping some of its P1 too is what draws it, as DT-PXH II on the user's board: DT-PXH with three characters at Command Center Upgrades
-    // IV does that here (its planets from the bundle, answered as ESI would). Each such line is one line: "As well: ships Biocells N a day as
-    // well as its P1".
+    // --- P0 → P1 feeders and balanced factory planets (Rulings F26 and F27, team-p1-dispatch.md). DT-PXH with three characters at Command
+    // Center Upgrades IV (its planets from the bundle, answered as ESI would) drew feeders making Biocells beside their P1 ("As well", fix round
+    // 1's I2) until the user, having built it: "i don't want p2 on the p1 factory planets". Now no feeder makes a P2, no "As well" is drawn,
+    // and every factory planet's card says whole sets: twice the good's count of each P2.
     {
       const GEL = 2348, DTPXH = 30004806, TEAM_ALT = 900104, THIRD_ALT = 900105, APP = `http://localhost:${PORT}/jita-ledger/`;
       const radiiRows = JSON.parse(fs.readFileSync(new URL('../src/data/planetRadii.json', import.meta.url), 'utf8'));
@@ -5171,19 +5269,23 @@ try {
       await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, threeAlts, { prospects: SCAN });
       await page.evaluate((id) => localStorage.setItem('jita-ledger:planets-system', String(id)), DTPXH);
       await page.goto(`${APP}#hustles/planets/plan?good=${GEL}`);
-      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 30_000 }).catch(() => problems.push('As well: Plan never drew at DT-PXH'));
+      await page.waitForSelector('[data-planets="planning-head"]', { timeout: 30_000 }).catch(() => problems.push('P1 feeders: Plan never drew at DT-PXH'));
       await settled();
-      if (!/at DT-PXH/.test(await text('[data-planets="planning-head"]'))) problems.push(`As well: Plan isn't at DT-PXH: “${await text('[data-planets="planning-head"]')}”`);
+      if (!/at DT-PXH/.test(await text('[data-planets="planning-head"]'))) problems.push(`P1 feeders: Plan isn't at DT-PXH: “${await text('[data-planets="planning-head"]')}”`);
       const teamRow = page.locator('[data-planets="setup:team"]').first();
       await openRow('team', false);
       for (const head of await teamRow.locator('[data-planets^="group:"] [data-board="group"][aria-expanded="false"]').all()) { await head.click().catch(() => undefined); await page.waitForTimeout(250); }
-      const aw = await teamRow.locator('[data-planets="as-well"]').evaluateAll((xs) => xs.map((x) => [x.textContent.replace(/\s+/g, ' ').trim(), Math.round(x.getBoundingClientRect().height)]));
-      if (!aw.length || aw.some(([t, h]) => !/^As well: ships Biocells ?[\d,.]+ ?a day as well as its P1$/.test(t) || h > 40)) problems.push(`As well: the team's lines at DT-PXH (want at least one, each one line, “As well: ships Biocells N a day as well as its P1”): ${JSON.stringify(aw)}`);
+      const aw = await teamRow.locator('[data-planets="as-well"]').count();
+      const p2Feeders = await teamRow.locator('[data-does="extract"] [data-planets^="makes:"]').count();
+      if (aw || p2Feeders) problems.push(`P1 feeders: at DT-PXH a feeder makes a P2 (${p2Feeders} lines) or an “As well” is drawn (${aw})`);
+      const counts = await teamRow.locator('[data-planets="factories"] [data-planets="factory-counts"]').allInnerTexts();
+      const off = counts.filter((c) => { const m = /^(\d+) Oxides, (\d+) Biocells, (\d+) Superconductors, (\d+) Gel-Matrix Biopaste: (\d+) of the (\d+) Advanced it holds$/.exec(c.trim()); return !m || !(+m[1] === 2 * +m[4] && +m[2] === 2 * +m[4] && +m[3] === 2 * +m[4]); });
+      if (!counts.length || off.length) problems.push(`P1 feeders: a factory planet at DT-PXH isn't in whole sets: ${JSON.stringify(counts)}`);
       if (!PHONE) {
         const at = await page.evaluate(() => { const b = document.querySelector('[data-planets="setup:team"] .pl-board.team'); return b ? b.scrollWidth - (b.closest('.pl-board-scroll')?.clientWidth ?? b.scrollWidth) : null; });
-        if (at == null || at > 1) problems.push(`As well: the team board at DT-PXH scrolls sideways or isn't drawn: ${at}`);
+        if (at == null || at > 1) problems.push(`P1 feeders: the team board at DT-PXH scrolls sideways or isn't drawn: ${at}`);
       }
-      if (SHOTS && aw.length) { await teamRow.locator('[data-planets="as-well"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-aswell.png` }); }
+      if (SHOTS) { await teamRow.locator('[data-planets="factories"]').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}-planets-team-dtpxh.png` }); }
     }
     }
 

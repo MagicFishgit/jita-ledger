@@ -26,6 +26,8 @@ export type UnitBook = 'now' | 'morning' | 'hub' | 'goonmetrics';
 export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; book?: UnitBook | null; fallback?: Fallback | null };
 export type PlanetMarket = {
   sell: Sell; buy: Buy; unit: (typeId: number) => UnitNet; ready: boolean; said: string;
+  /** Not ready only because a read is in flight (the scan, the cloud's home markets, the hub's prices): the last rows may stand meanwhile. */
+  pending: boolean;
   /** Whether any of the goods named in `live` has its Jita book read live yet: the planner ranks again on them only then. */
   live: boolean;
   /**
@@ -228,6 +230,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       : !hasScan ? 'No market scan here yet: the cloud’s comes every morning.'
         : hubMissing?.status === 'loading' ? 'Reading your home markets from the cloud…'
           : hub && home.pending ? `Reading ${hub.short}’s prices from the cloud…` : null;
+  const pending = c.feeKnown && (scan.state === 'loading' || (hasScan && (hubMissing?.status === 'loading' || !!(hub && home.pending))));
   const hubSaid = homeSaid({ hub, home, hubMissing }, now, homeAgo);
   const liveCount = Object.keys(liveBooks).length;
   const jitaSource = liveCount > 0 ? 'the planner’s goods on Jita’s books now, the rest on this morning’s' : 'this morning’s Jita books';
@@ -253,7 +256,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       !usesJita ? (jitaLeg.kind !== 'none' ? `What ${hub.short} doesn’t price is valued at Jita’s, after ${jitaLeg.kind === 'route' ? jitaLeg.name : 'the carry'}, and what it doesn’t sell is bought at Jita with the freight in; each says so.`
         : `What ${hub.short} doesn’t price is valued at Jita’s before freight (no freight route is picked on the Industry tab), and says so; what it doesn’t sell can’t be bought at Jita without one.`) : null,
     ].filter(Boolean).join(' '));
-  return { ...fns, ready: !waiting, said, live: liveCount > 0, settled: booksSettled && histSettled, late: booksLate + histLate, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
+  return { ...fns, ready: !waiting, pending, said, live: liveCount > 0, settled: booksSettled && histSettled, late: booksLate + histLate, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null,
     liveSaid: usesJita ? 'on Jita’s books now' : `on the trading history of ${hub!.short}’s region`,
     reads: { books: booksCount, history: histCount, hub: hub?.short ?? null } };
 }

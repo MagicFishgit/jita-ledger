@@ -5,7 +5,7 @@
  */
 import type { PlanetType } from './pi';
 import type { Facility, PiIndex } from './piBundle';
-import { fitOf, maxHeads, type Layout } from './piFit';
+import { fitOf, maxFactories, maxHeads, type Layout } from './piFit';
 import type { Role, Setup } from './piPlan';
 import { dayCount } from './split';
 import { units } from './format';
@@ -112,6 +112,23 @@ export function headsNeeded(role: Role, i: number, ix: PiIndex, t: PlanetType | 
 /** "3 Basics take 18,000 an hour: at 7 heads that's 2,572 a head; this line was learned at 2,300 a head (5 heads)". */
 export const headsNeedSaid = (h: HeadsNeed): string =>
   `${h.basics} Basic${h.basics === 1 ? ' takes' : 's take'} ${units(h.take)} an hour: at ${h.heads} head${h.heads === 1 ? '' : 's'} that’s ${units(h.perHead)} a head${h.learnedPerHead != null ? `; this line was learned at ${units(h.learnedPerHead)} a head (${+h.learnedHeads!.toFixed(1)} head${h.learnedHeads === 1 ? '' : 's'})` : ''}`;
+
+/**
+ * A factory planet's factories as the user builds them (Ruling F27; their own four, 27 October 2026: "6 Oxides, 6 Biocells, 6
+ * Superconductors, 3 Gel-Matrix Biopaste: 21 of the 22 Advanced it holds"): each kind's count, the P2s first, then what they come to of
+ * the Advanced the planet holds at the character's level beside one launchpad (`known`, else worked out; left out when its size or the
+ * level isn't known). Null for a planet that isn't a factory planet of Advanced alone.
+ */
+export function factoryCounts(role: Role, ix: PiIndex, at: { t: PlanetType | null; cc: number | null; radiusKm: number | null } | null, known?: number): string | null {
+  if (role.does !== 'factory') return null;
+  const tier = (id: number) => TIERS.indexOf(ix.byId.get(id)?.tier ?? 'P0');
+  const ms = role.makes.filter((m) => m.count > 0).map((m, i) => ({ m, i })).sort((a, b) => tier(a.m.id) - tier(b.m.id) || a.i - b.i).map((x) => x.m);
+  if (!ms.length || ms.some((m) => m.facility !== 'advanced')) return null;
+  const n = ms.reduce((t, m) => t + m.count, 0);
+  const holds = known ?? (at?.t && at.cc != null && at.radiusKm != null && at.radiusKm > 0 ? maxFactories(ix, at.t, at.cc, 'advanced', 1, at.radiusKm) : null);
+  const name = (id: number) => ix.byId.get(id)?.name ?? `#${id}`;
+  return `${ms.map((m) => `${m.count} ${name(m.id)}`).join(', ')}${holds != null && holds > 0 ? `: ${n} of the ${holds} Advanced it holds` : `: ${n} Advanced`}`;
+}
 
 /** One step of "Build it": a stable `id` (a tick is kept by it) and its words. */
 export type BuildStep = { id: string; text: string };

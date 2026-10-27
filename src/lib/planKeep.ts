@@ -97,7 +97,8 @@ export function newerThan(kept: KeptPlan, keptNow: Setup | null, fresh: readonly
   const was = keptNow && keptNow.why == null && keptNow.made ? perChar(keptNow) : 0;
   const now = perChar(top);
   if (!(now > 0)) return null;
-  if (was > 0 && now < was * (1 + KEEP_MARGIN)) return null;
+  // A team plan kept before feeders made P1 only and factories ran whole sets (Ruling F27-1) is offered today's whatever the margin.
+  if (was > 0 && now < was * (1 + KEEP_MARGIN) && !keptNow?.kept?.legacy) return null;
   return { s: top, more: was > 0 ? now / was - 1 : null };
 }
 

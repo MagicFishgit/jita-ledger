@@ -159,7 +159,10 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
             <Selling said={market.said} />
             {/* Plan it's rows waited for every live read; past the bound, they're worked out on what came in (fix round 1 of planner fix 2). */}
             {!blockedWhy && morning.ready && heldLate > 0 && rows && <p className="note small" style={{ margin: 0 }} data-planets="late">{heldLate} of the live reads hadn’t come back after {LIVE_READ_BOUND_MS / 1000} seconds, so these are worked out on what had: those goods are on this morning’s books, and it’s all worked out again when they land.</p>}
-            {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
+            {/* The rows stay drawn while the morning's prices are read again (the hub's own read, the scan held here), with the reason beside
+                them: swapped for the waiting line, every row, group and card opened folded (team-p1). */}
+            {!blockedWhy && !morning.ready && <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p>}
+            {blockedWhy || (!morning.ready && !rows) ? null : (
               <Setups setups={rows} working={!rowsWorking ? null : good != null || !rowsLive ? 'Working them out again…' : `Working them out again ${market.liveSaid}…`} ix={ix} planets={value.planets} chars={everyone} shown={planChar} name={name} programHours={programHours} good={good}
                 accountOf={(id) => chars.find((x) => x.charId === id)?.account ?? null} kept={kept} onKeep={keep} check={check} board={{ systemId: value.system.systemId, good }}
                 progress={progressSaid(planning, good != null)} openKind={openKind} whatIf={flow.atV} unticked={unticked}
@@ -875,7 +878,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name, omega, progr
           {whatIf && <span className="note small pl-up" data-planets="glance-whatif">{WHAT_IF_SAID}.</span>}
           <Glance s={s} per={per} chainAll={chainAll} share={share} cost={cost} omega={omega} perChar={perChar && !isTeam} name={name} usedSaid={usedSaid}
             resets={resetsTile(s, programHours, (id) => who(id)?.name ?? `Character ${id}`)} accts={accts} />
-          {isTeam && s.team && <TeamLines s={s} feed={feed} name={name} pname={pname} who={(id: number) => who(id)?.name ?? `Character ${id}`} accountOf={accountOf} used={used} />}
+          {isTeam && s.team && <TeamLines s={s} feed={feed} name={name} pname={pname} who={(id: number) => who(id)?.name ?? `Character ${id}`} accountOf={accountOf} used={used} ix={ix} />}
           {/* A kept plan's own words (planner fix 2): planets it takes past what the character shown has. */}
           {(s.kept?.notes ?? []).map((k) => <span key={k} className="note small pl-up" data-planets="kept-note">{`${k}.`}</span>)}
           {s.repeat && s.kind !== 'chain' && <RepeatLine r={s.repeat} chars={chars} shown={shown} name={name} omega={omega} accountOf={accountOf} unticked={unticked} />}

@@ -25,13 +25,21 @@ import type { BookLevel, HistRow } from '../../lib/types';
  */
 export type Loaded<T> = { state: 'loading' } | { state: 'failed'; error: string; retry: () => void } | { state: 'ok'; value: T };
 
-/** A shared read as a hook's state, read again on retry or when `key` changes. */
+/**
+ * A shared read as a hook's state, read again on retry or when `key` changes. A read already held stands while it's read again (team-p1,
+ * 27 October 2026): `key` is the scan's save count (`useScanCache`), which the cloud's live books bump every ten minutes, and going back to
+ * `loading` each time took the planner's prices away for a moment, so Plan drew "Reading the market scan…" in place of its rows and every
+ * row, group and card the user had opened folded ("while i was building at some point there is some background refresh that goes on and
+ * even though i have kept the plan at that point it would collapse anything i had open").
+ * So `key` must be a refresh of the same thing: an `ok` value stands while it's read again, so a key meaning "a different item" would show the
+ * previous item's value until the new one lands.
+ */
 export function useShared<T>(read: () => Promise<T>, key = ''): Loaded<T> {
   const [st, setSt] = useState<Loaded<T>>({ state: 'loading' });
   const [tries, setTries] = useState(0);
   useEffect(() => {
     let alive = true;
-    setSt({ state: 'loading' });
+    setSt((was) => (was.state === 'ok' ? was : { state: 'loading' }));
     read().then((value) => { if (alive) setSt({ state: 'ok', value }); },
       (e) => { if (alive) setSt({ state: 'failed', error: e instanceof Error ? e.message : String(e), retry: () => setTries((n) => n + 1) }); });
     return () => { alive = false; };

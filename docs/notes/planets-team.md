@@ -17,12 +17,27 @@ planets-searches.md, the board in planets-board.md, a kept plan in planets-kept.
   planned as Omega), else `teamTooFew` ("A factory character needs two characters doing planetary industry: one here does"). The Chart's
   "can make" says it with `TEAM_WHEN`.
 - **Who does what**: the factory character is the one shown. Its factory planets are Advanced factories at its level beside one launchpad
-  (`sitesOf`, `maxFactories` on the planet's own radius), on any planet whose type runs the good's and its P2s' schematics, as few as hold
-  the run; P2 made on one may feed the good on another. Every character, the factory character's other planets too, feeds from the
-  planner's single-planet plans at its own level and planets (`optionsAt`: `plansFor`'s P0 → P1, and for a P3 the P0 → P2 of a P2 it
-  takes, F9's ways at that level on the rates Plan uses, each planet's own first), one colony a planet a character, a plan matched or beaten
-  on every good and on ISK by another on its planet dropped. Characters alike in level and planets are one group to the search
-  (`groupsOf`), its colonies dealt to them planet by planet in roster order (`realised`).
+  (`sitesOf`, `maxFactories` on the planet's own radius), on any planet whose type runs the good's and its P2s' schematics and holds a
+  whole set, as few as hold the run. Every character, the factory character's other planets too, feeds from the planner's single-planet
+  P0 → P1 plans at its own level and planets (`optionsAt`: `plansFor`'s, F9's ways at that level on the rates Plan uses, each planet's own
+  first), one colony a planet a character, a plan matched or beaten on every good and on ISK by another on its planet dropped. Characters
+  alike in level and planets are one group to the search (`groupsOf`), its colonies dealt to them planet by planet in roster order
+  (`realised`).
+- **Feeders make P1 only, and every factory planet is whole sets of its own** (Rulings F26 and F27, 27 October 2026; team-p1-dispatch.md).
+  The user, having built the first plan: "for the factory character setup i don't want p2 on the p1 factory planets and the total
+  factories it wants me to build on the factory planets are crazy and wouldn't balanance out", and of their own build, "this is what I
+  consider a good setup". F22 had let a feeder make a P2 beside its P1 and dealt the factories over the factory planets in proportion,
+  carrying P2 between them, so a factory planet's counts read off balance (say 8 Oxides, 5 Biocells, 7 Superconductors and 3 of the good)
+  and the plan asked for Advanced on feeders they don't build. Now `optionsAt` offers no plan with an Advanced; a set is one factory of the
+  good and, for each P2, the Advanced that make what it takes (`recipeOf`'s `set`, rounded up: a P3 takes 10 of each P2 an hour, an Advanced
+  makes 5, so two a P2, Gel-Matrix Biopaste's set 7; a P2 good's, one Advanced); each factory planet holds `floor(holds ÷ set)` sets
+  (`setsIn`), filled in turn with as many as the run takes, the last running fewer cycles, nothing carried between them. The programme and
+  every comparison use the sets' capacity planet by planet: two factory planets of 25 Advanced at V hold 3 sets each, 6, not the 7 their 50
+  together would (check.mjs: 432 a day, not 504). So the factory count is no longer a variable: the programme loses its factory variables,
+  the branch and bound branches on colonies alone, and the rate is `min(sets × the set's day, what the P1 allow)`, with no step to step down.
+  A card and Build it say the counts as the user builds them ("6 Oxides, 6 Biocells, 6 Superconductors, 3 Gel-Matrix Biopaste: 21 of the 22
+  Advanced it holds", `factoryCounts`). A plan kept before reads the whole sets its kept counts make (`keptSets`), and a feeder of it that
+  made a P2 still says "As well"; nothing new draws it.
 - **The order it judges in** (`TeamKey`, `weighted`): the good a day across the team, then the fewest factory planets, then the fewest
   colonies, then ISK (each plan's ships at their first unit's net after its export tax). One figure for the programme and every comparison:
   R − 0.001 × factory planets (`W_SITE`, so a hundredth of a unit outweighs the six the factory character could take) − a colony's weight
@@ -30,9 +45,9 @@ planets-searches.md, the board in planets-board.md, a kept plan in planets-kept.
   planet (0.00001 each up to 50), the team's most ISK under half a colony. A fixed trillionth an ISK didn't hold (the review, 25 October
   2026): 30 colonies of a million ISK a day weighed three colonies, so a colony more with more ISK could come first; check.mjs has that case,
   and the old weight planted fails it. The good is valued as Plan it values it (`heldInput`: its first unit's net, no cap).
-- **The rate** (`teamRate`): the most of the good a day whole factories make from what's shipped, each P2 the good takes shipped in first,
-  the rest made from P1, each kind of factory rounded up within what the factory planets hold; stepped down from the smooth rate
-  (`smoothRate`, fractional factories) by the factories' breakpoints, so a P1 in plenty can't send it looking from a huge figure.
+- **The rate** (`teamRate`): the most of the good a day the factory planets' whole sets make from what's shipped, `min(A × xDay, what the
+  P1 allow)` with `A` the sets (Ruling F27); a P2 shipped in (only a plan kept before F26 ships any) first, the rest made from P1. The
+  annealing's figure adds a share of the P1s' limits on average (`spreadRate`), so a move toward the next P1 short counts.
 - **The search** (`searchTeam`, a step at a time; `TEAM_BUDGET` 3,000,000, a programme `LP_COST` 400):
   1. the linear programme over colonies, factories and factory planets (`lpOf`) bounds the good a day (`boundR`, factory planets free) and
      names each count's likeliest sets of factory planets;
@@ -40,26 +55,26 @@ planets-searches.md, the board in planets-board.md, a kept plan in planets-kept.
      each with its own bound;
   3. simulated annealing within the `REFINE_SETS` (6) sets of highest bound and each count's highest (`ANNEAL_STEPS` 100,000 a run, seeded,
      so the same inputs give the same answer), then the `AGAIN_SETS` (3) that came out best `AGAIN_RUNS` (5) times more, each answer
-     polished (steepest ascent on the smooth rate and each P1's limit, then a two-for-one trim of colonies that add nothing);
-  4. a branch and bound on each set, the highest bound first, factories branched before colonies, sharing `TEAM_NODES` (1,500). A branch
-     fixes factory planets: with them free in the programme an up-branch on a factory count read infeasible.
+     polished (steepest ascent on each P1's limit, then a two-for-one trim of colonies that add nothing);
+  4. a branch and bound on each set, the highest bound first, on the colonies, sharing `TEAM_NODES` (1,500), the factory planets fixed.
   `done` when the bound is reached or every arrangement ruled out; `cut` when one not ruled out could make more than half a hundredth more
   (`UNITS_SLACK`), said as "the best of the arrangements tried" with "no arrangement here makes more than X a day (the linear programme’s
   bound)". Why not the reference's way: `team2.mjs` takes 3–5 minutes a system (40,000 nodes for each count of factory planets, then a local
   search); local search, kicks and dives alone stalled 1–2% under it (7M4C-F's 777 for five characters), annealing within a set reached it.
-- **The setup** (`teamSetup`): the good's factories dealt over the factory planets by what each holds (`dealt`, the largest remainders),
-  P2 a factory planet makes past its own need carried to one short of it; every P1 drawn from the feeders fill-first (the lowest customs
-  rate, the planet listed first, roster order), as the feed draws; what's left offered to market where a unit pays to ship (Ruling T15-5)
-  and sold once. Customs: export at each feeder on all it ships, import at half on each factory planet, export there of the good and of P2
-  carried between them.
+- **The setup** (`teamSetup`): each factory planet its whole sets, filled in turn (Ruling F27), each making its own sets' share of the good
+  from its own P2; every P1 drawn from the feeders fill-first (the lowest customs rate, the planet listed first, roster order), as the feed
+  draws; what's left offered to market where a unit pays to ship (Ruling T15-5) and sold once. Customs: export at each feeder on all it
+  ships, import at half on each factory planet, export there of the good.
 - **Its figures** (`TeamFigures`, drawn by `TeamLines`):
   - each character's part: its colonies, what it hands over a day (in the good's worth, the goods and m³) and what it must train to fit
     its planets as planned; the m³ a day the others hand the factory character ("in contracts docked");
-  - each factory planet's load ("runs at 82% of what fits: 18 of the 22 Advanced it holds") and the days its launchpad holds of its intake;
-  - the fill count (`fillOf`, `fillProblem`): the factory planet holding most, fed by the fewest P0 → P1 colonies at the level most
-    feeding characters are at, held to what it makes from P1 alone, a search of its own (`FILL_BUDGET` 300,000, up to `FILL_CHARS` 12
-    colonies a planet); then "Convert another planet when these run full: at about N more feeder planets" (the factories spare over what
-    one feeder takes of a full one's), the user's own plan of converting the main's planets one at a time as alts join;
+  - each factory planet's load in sets ("5-NZNW XI: 2 of the 3 whole sets it holds (4 Oxides, 4 Biocells, 4 Superconductors, 2 Gel-Matrix
+    Biopaste: 14 of the 22 Advanced it holds), 144 Gel-Matrix Biopaste a day, 67% of what its sets make") and the days its launchpad holds of
+    its intake;
+  - the fill count (`fillOf`, `fillProblem`): the factory planet holding the most whole sets, fed by the fewest P0 → P1 colonies at the level
+    most feeding characters are at, held to what its sets make, a search of its own (`FILL_BUDGET` 300,000, up to `FILL_CHARS` 12 colonies a
+    planet); then "Convert another planet when these run full: at about N more feeder planets" (what the sets could make past what they
+    make, over what one feeder adds to a full one), the user's own plan of converting the main's planets one at a time as alts join;
   - against each repeating its own fed factory (the feed row's repeat line, units held to no market on both sides): "+34 a day, 10% more
     than each of you repeating your own fed factory"; where the feed suits only some of the team, "+X a day against the fed factory
     repeated on the one of your 2 characters it suits (… a day); this counts both, each at its own level and planets".
@@ -70,34 +85,44 @@ planets-searches.md, the board in planets-board.md, a kept plan in planets-kept.
   (planets-board.md): the factory planets stacked on the right (`data-board="factories"`), the feeders on the left a group a character,
   the factory character's first, each folded to one line until opened ("Willi Wakkerr (Account 2) · 5 planets", then what it sends, "Plasmoids
   3,236, Water 4,900 a day"), a line from each group to the factory column labelled with its m³ and the good a day it's worth (`group-edge:`). Build it
-  and Check my setup on every card, for the card's own character, as a chain's. A feeder making a P2 says so on its card ("As well: Ships Biocells
-  240 as well as its P1"), and Build it routes it "as well as its P1".
+  and Check my setup on every card, for the card's own character, as a chain's. A factory planet's card and Build it lead with its counts.
+- **A team plan kept before feeders made P1 only and factory planets ran whole sets is drawn as kept, noted, and the newer layout offered** (Ruling
+  F27-1, `keptTeam`, `Setup.kept.legacy`, `newerThan`; the review of team-p1). `keptTeam` rebuilds colonies and factories from the kept layout,
+  so a plan kept under F22 still drew a feeder's Advanced, the board's "As well" and factory counts off balance, running only their whole
+  sets: the user keeps plans while building, so it was the likeliest first thing opened after the deploy. The user's kept plans never move by
+  themselves, so it isn't altered or dropped: it carries "Kept before feeders made P1 only and factory planets ran whole sets: its feeders’
+  P2 and its factory counts are as you kept them. Use the new one for today’s layout", and `newerThan` offers today's best beside it whatever
+  `KEEP_MARGIN`, when it's another layout. A plan in whole sets with P1 feeders gets neither. check.mjs: off-balance counts and a P0 → P2
+  feeder (planted without the mark, both failed), and a whole-sets plan with neither. `between` in `teamSetup` stays for exactly such a plan.
 - **Keep this plan** keeps it as a chain (each colony with its character; `layoutKey` with the character; `MAX_KEPT_PLANETS` 120, 40
   before, for a team's colonies). `keptTeam` works it out on today's inputs, the kept factories its cap (`fixed`); shown for a character
   that isn't its factory character it says "This plan’s factory planets are another character’s: show it for X". A newer layout is offered
   as for every kind (planets-kept.md).
-- **Measured on the user's real rates** (`.playwright-mcp/planets-team/compare.txt` and `timing.txt`, gitignored: Gel-Matrix Biopaste,
-  CCU IV, 5 planets a character, the main at 5 or 6, against `team2.mjs`'s figures in each system's `team2-sys-<system>.json`):
-  - where the research proved its answer (one Suspended Plasma planet: 5-NZNW, 6-IAFR, BW-WJ2), every figure the bound, not cut: 5-NZNW
-    364.1 a day for three characters on 2 factory planets, 485.4 for four, 728.1 for six; one factory planet full at 216 a day on 8 P1
-    feeders, the research's;
-  - elsewhere (8 systems, the research's best found, not proven), 63 of 64 cases equal or above it (up to 7%): 7M4C-F 453.0, 623.1, 782.7
-    and 963.7 for three to six with the main at 5 (the research's 453.0, 612.0, 777.0, 947.1), 7 feeders filling a factory planet there.
-    DT-PXH with the main at 6 and six characters reads 947.1 against its 955.0 (−0.8%): the research's arrangement reads 954.96 in this
-    model, so it's the search's miss, not a different model; a bigger budget doesn't find it (12 M and 30 M: 947.1), more annealing does
-    (`AGAIN_RUNS` 20, 4.3 s; `REFINE_SETS` 20, 2.5 s) and `REFINE_SETS` 8, 10, 12 or 16 doesn't (946.5–947.1): the draws, not a rule;
-  - time through the planner (this machine): 1.5–2.0 s a run for 3, 4, 6 and 10 characters in 5-NZNW, DT-PXH and 7M4C-F (10 of mixed IV
-    and V: 5-NZNW 1213.5 at the bound, DT-PXH 1755.0 and 7M4C-F 1860.9 cut), about 10,500 steps, the longest 12–15 ms (the first programme,
-    cold), the rest under 7 ms. Plan it works it out twice, on the morning's books and then the live ones.
-- **check.mjs** (synthetic rates and the page case's fixture only): `teamRate` against a bisection on its rule (400 random shipments); the
-  search against an exhaustive one on 24 small random teams (2–3 characters, 3–4 planets, factory planets of 4–22 Advanced), every one
+- **Against the user's own build** (27 October 2026; the probes and their figures are in `.playwright-mcp/planets-team-p1/` and
+  `.superpowers/sdd/2026-10-17-planets/team-p1-report.md`, both gitignored, since they read the user's private colonies). Their system is
+  EQWO-Y (30004835; the brief named it 7M4C-F). In this model their own build (four factory planets of 6/6/6/3, three Basics a line on every
+  alt feeder) makes exactly what its four planets' whole sets take. The planner keeps their 6/6/6/3 planets and their P0 → P1 feeders, and
+  plans a fifth factory planet on the main's Gas feeder, because their lines are learned well past what three Basics take and a fourth
+  Basic fits where it does at CCU IV; on three Basics a line, four factory planets are all their supply fills.
+- **The research's P0 → P1 checks** (`team2.mjs`'s `feed: 'p1'` runs): 5-NZNW's figures for three and four characters are the research's,
+  as is one factory planet full on 8 P1 feeders there, 7 elsewhere; where the research put four characters' run on two factory planets at V
+  carrying P2 between them, it takes three here (two of 25 hold 6 sets). 7M4C-F's four P1 runs equal the solver's under the same rule.
+- **check.mjs** (synthetic rates and the page case's fixture only): a set's size and the sets 20, 22 and 25 Advanced hold; `teamRate` against a
+  bisection on its rule (400 random shipments and counts of sets); the search against an exhaustive one on 24 small random teams (2–3
+  characters, 3–4 planets, P0 → P1 plans, factory planets of 1 to 3 sets), every one
   finished and equal (the good a day, factory planets, colonies, ISK), and the branch and bound alone the same; units first, then the
   fewest factory planets; the fill count against every count; through the planner on 5-NZNW's fixture its reasons, a colony a planet a
   character, the factory planets the shown character's, customs summed role by role, the parts, the fill (216 a day on 21 of 22 Advanced,
-  11 feeders) and a kept plan worked out again; and a colony against 30 M ISK a day of another, equal in units and factory planets. Planted wrong, each failed: the factory planets' weight's sign, imports at the full rate, one
-  character planned, a group past its planets, a P4 allowed, colonies unweighted, the fill on P2 feeders or on the smallest planet. Not
+  11 feeders) and a kept plan worked out again; and a colony against 30 M ISK a day of another, equal in units and factory planets; two
+  factory planets of 25 make 432 a day, not 504; every plan offered a feeder P0 → P1; each factory planet whole sets of its own, on the fixture
+  and with three characters on several. Planted wrong, each failed: the factory planets' weight's sign, imports at the full rate, one
+  character planned, a group past its planets, a P4 allowed, colonies unweighted, the fill on P2 feeders or on the smallest planet; since
+  F26 and F27, a P2 feeder offered again, the P2 factories put on one planet, the sets counted over the factories together. Not
   branching on factories first didn't (the annealing finds those cases anyway). The recorded steps fixture (`planets-steps.json`) is
   compared for the five kinds it was recorded with; the team kind postdates it.
+- **The four steps' synthetic region** (check.mjs, planets-flow.md) runs at 5 heads a line since F26: at 8, one Basic fit a line on its
+  6,000 km planets, so every P1 feeder made 960 whatever its rate and no factory character beat the fed factory repeated; its two Lavas
+  systems have four planets, so their bound stays under the tenth best.
 - **The chunk**: Plan's chunk holds piTeam (251 KB, 89 KB gzipped). Planets.tsx took `regionOf` from piFinder, which imports piPlan, so
   since Find the whole planner rode in the Side hustles chunk every tab loads (main: 586 KB, 182 KB gzipped); `regionOf` is piBundle's now
   (piFinder re-exports it), and Side hustles is 498 KB (150 KB).
@@ -113,12 +138,14 @@ State these rather than letting them be discovered.
 - **Never two extractors on one P0 on a planet**: heads on the same hot spot deplete it faster (the same 2011 note), and the research's
   two-Suspended-Plasma colony only "found more" by assuming the second extractor yields like the first.
 - **A search cut short is the best of what was tried**, 2–4% under the programme's bound where a system has more than one planet of the
-  scarcest P0; seeded, so the same inputs give the same answer, but a small change of inputs can land about 1% apart (DT-PXH six: 947.1
-  where 955.0 exists). The fewest colonies and the ISK are proven only when `done`; units first holds within the weights' slack.
-- **A P2 good's feeders make only P1**: a planet making the good itself as a P0 → P2 colony isn't among the plans, so a P2 is made on the
-  factory planets alone.
-- **The fill count is one level's, on P0 → P1 feeders alone**; a feeder making a P2 beside its P1 saves factories, so a factory planet can
-  make more than it says. The convert line rests on it.
+  scarcest P0; seeded, so the same inputs give the same answer, but a small change of inputs can land about 1% apart (before F26, DT-PXH
+  with six characters missed the research's best by 0.8%). The fewest colonies and the ISK are proven only when `done`; units first holds
+  within the weights' slack.
+- **Feeders make P1 only** (Ruling F26): a planet making a P2 (or a P2 good itself) as a P0 → P2 colony isn't among the plans, though in
+  some systems one pays (the research: in 7M4C-F, P1-only feeders make about 15% less); the user builds P1 feeders.
+- **Every factory planet is whole sets** (Ruling F27): factories past the last whole set a planet holds stay unbuilt (22 Advanced hold 3
+  sets, 21 of them), and no P2 is carried to fill another planet's spare room.
+- **The fill count is one level's, on P0 → P1 feeders**, and the convert line rests on it.
 - **Hauling between characters isn't costed**: the user hands goods over by contract in one system (a Squall); its m³ is said.
 - **Within a group of characters alike in level and planets**, which character runs which colony is roster order: any deal of them is
   as good.

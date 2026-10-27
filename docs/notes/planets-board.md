@@ -12,6 +12,20 @@ the board draws its roles. The ranking is in planets-planner.md, a kept plan in 
   rate yet, Valued at Jita's, N not valued); "before the customs tax" stays beside the figure, with its sentence in the tip, and a
   blocked setup's reason stays in view. **Only the best opens by itself** (P0 → P2 did too: two open was the overload); a fold set by hand
   holds for its place, as before (m3). A kept plan opens by itself, the newer layout and today's ranking stay folded (planets-kept.md).
+- **Nothing folds on a refresh** (team-p1, 27 October 2026; the user, building from a kept plan: "at some point there is some background refresh
+  that goes on and even though i have kept the plan at that point it would collapse anything i had open"). The cause: every ten minutes the
+  cloud's live books are merged into the scan held here (`mergeLiveBooks`, which bumps the scan's save count); `useScanCache` read it again
+  under the new key and went back to `loading` meanwhile (`useShared`), so the morning's prices weren't ready for a moment and Plan drew
+  "Reading the market scan held in this browser…" in place of `Setups`: every row, kept plan, feeder group, card, Build it and details
+  unmounted and came back as each opens by itself. Reproduced in the page check before the fix: the colony pull left everything open, the
+  scan's merge folded all of it (the kept plan's group, Build it and details, today's ranking and the feed in it). Fixed at the root and in two guards: `useShared` keeps a value it holds while it reads again; `usePlanned` keeps the
+  last ranking while its input is away for a moment (marked as being worked out again); and Plan keeps `Setups` drawn once it has rows,
+  the waiting line beside them. A re-rank that makes another row the best still opens it and folds the last (m3), as ruled; a kept plan's
+  row stays open, and what's opened inside a row stays while the row does. (A rule freezing every fold once one was touched was tried and
+  dropped: it broke m3's own check.) The page check
+  keeps the team plan, opens its row, a feeder group, a factory planet's Build it and its details, and today's ranking with the feed opened
+  by hand, then pulls a colony whose rate moved, merges the cloud's live books into the scan, asks for the hub's own read again and writes
+  `meta`, each judged on its own: everything stays open. Planted back (the three changes undone), it failed on the scan's merge.
 - **The plan at a glance** (`Glance`): tiles, the good's units a day first under Plan it, ISK a day, a week, a month, the share of a
   month of Omega, planets used ("5 of 5"), resets ("Every 3 days", `resetsTile`, which left the upkeep tiles). Each keeps its words as
   the tile's note or tip; a chain's "in all" sits in the day's note (`data-planets="chain-all"`). Then the kept plan's notes, the repeat
@@ -29,7 +43,10 @@ the board draws its roles. The ranking is in planets-planner.md, a kept plan in 
     other Gas planets").
   - **A factory character's board** (`layout: 'team'`, planets-team.md): its factory planets stacked on the right, its feeders a group a
     character, each folded to one line (who, its account, its planets and what it sends a day) until opened, a line from each group to
-    the factory column with its m³ and the good a day it's worth; a feeder's P2 is "As well" on its card and routed "as well as its P1".
+    the factory column with its m³ and the good a day it's worth. Its feeders make P1 only since Ruling F26, so "As well" is drawn only for a
+    plan kept before it. **A factory planet's card says its counts** as the user builds them (`factoryCounts`, `data-planets="factory-counts"`:
+    "6 Oxides, 6 Biocells, 6 Superconductors, 3 Gel-Matrix Biopaste: 21 of the 22 Advanced it holds", the P2s first, the holds at the card's
+    character's level beside a launchpad), and so does its Build it, first (`build-counts`), for any factory planet of Advanced alone.
   - **Heads to reach the Basics' need** (`headsNeeded`, `headsNeedSaid`; the user, 25 October 2026: "the extra level will help me install
     more heads so i can be sure to hit the 18k average extraction needed to run the 3 basic factories"), on every board: where a line's
     rate is short of what its Basics take, its ⓘ and its Build it step say the heads that fit for it at the card's own character's level

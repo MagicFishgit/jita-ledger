@@ -98,10 +98,10 @@ const METER_MS = 250;
  * The five setups for an input, worked out once the input has stayed the same `SETTLE_MS`, in slices of `SLICE_MS` (each setup's
  * steps, one after another) so the page keeps drawing between them, and ranked. Between slices the page has its turn: a message
  * posted to itself, which nested timers would clamp to 4 ms each. An input that changes drops the run between two slices (its steps
- * are never asked for again). The last ranking stays (marked as being worked out again) until the new one lands; a different
- * `scope` (another system) drops it, since its planets are another system's.
+ * are never asked for again). The last ranking stays (marked as being worked out again) until the new one lands, and while the input is
+ * away (null) for a moment; a different `scope` (another system) drops it, since its planets are another system's.
  */
-function usePlanned(input: PlanInput | null, scope: string | number | null): Planned {
+function usePlanned(input: PlanInput | null, scope: string | number | null, keep = false): Planned {
   const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: string | number | null }>({ setups: null, for: null, scope: null });
   const [prog, setProg] = useState<{ for: PlanInput; p: PlannedProgress } | null>(null);
   useEffect(() => {
@@ -134,9 +134,13 @@ function usePlanned(input: PlanInput | null, scope: string | number | null): Pla
     timer = setTimeout(slice, SETTLE_MS);
     return () => { alive = false; clearTimeout(timer); if (channel) { channel.port1.onmessage = null; channel.port1.close(); channel.port2.close(); } };
   }, [input, scope]);
-  const mine = st.scope === scope ? st.setups : null;
-  const working = !!input && st.for !== input;
-  return { setups: input ? mine : null, working, progress: working && prog?.for === input ? prog.p : null };
+  // The last ranking stands while its input is away for a moment (the prices read again: team-p1, 27 October 2026), marked as being worked
+  // out again: dropped, the rows unmounted and everything the user had opened in them folded.
+  // Only while the input waits on a read in flight (`keep`, Ruling F27-2): for a lasting reason (skills not read, no scan here) the rows go
+  // and the reason shows, as before.
+  const mine = st.scope === scope && (input || keep) ? st.setups : null;
+  const working = input ? st.for !== input : mine != null;
+  return { setups: mine, working, progress: input && working && prog?.for === input ? prog.p : null };
 }
 
 /** The goods a ranking names (what its setups sell and buy), sorted, so the same goods keep one array. */
@@ -224,14 +228,14 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   const inputM = useMemo((): PlanInput | null => (planets && morning.ready
     ? { ix, planets, char: planChar, others, rateOf, planetKey, heads, sell: morning.sell, buy: morning.buy, programHours, programFrom, freight: morning.freight } : null),
   [ix, planets, planChar, others, rateOf, planetKey, heads, morning.ready, morning.sell, morning.buy, morning.freight, programHours, programFrom]);
-  const first = usePlanned(inputM, systemId);
+  const first = usePlanned(inputM, systemId, morning.pending);
   // The goods to read live come from the ranking on the morning's books, never the live one: each live re-rank could name more.
   const goodsKey = goodsOf(first.setups);
   const live = useMemo(() => (goodsKey ? goodsKey.split(',').map(Number) : []), [goodsKey]);
   const market = usePlanetMarket(c, ix, { live });
   const inputL = useMemo((): PlanInput | null => (inputM && market.live && market.ready ? { ...inputM, sell: market.sell, buy: market.buy, freight: market.freight } : null),
     [inputM, market.live, market.ready, market.sell, market.buy, market.freight]);
-  const second = usePlanned(inputL, systemId);
+  const second = usePlanned(inputL, systemId, morning.pending || market.pending);
   const setups = (inputL && second.setups) ? second.setups : first.setups;
   const working = first.working || (!!inputL && second.working);
   const livePass = !first.working && !!inputL && second.working;
@@ -241,7 +245,7 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   // it out again for nothing. Scoped to the system and the good, so another good's held ranking never stands in for this one.
   const inputMO = useMemo((): PlanInput | null => (inputM && only != null ? { ...inputM, only } : null), [inputM, only]);
   const heldScope = `${systemId}:${only}`;
-  const firstO = usePlanned(inputMO, heldScope);
+  const firstO = usePlanned(inputMO, heldScope, morning.pending);
   const goodsKeyO = goodsOf(firstO.setups);
   const liveO = useMemo(() => (goodsKeyO ? goodsKeyO.split(',').map(Number) : []), [goodsKeyO]);
   const marketO = usePlanetMarket(c, ix, { live: liveO, counted: only != null });
@@ -251,12 +255,12 @@ export function usePlanning({ c, chars, colonies, ix, systemId, only = null, rea
   // pass naming no goods (every setup blocked) is the answer as it is.
   const inputLO = useMemo((): PlanInput | null => (inputMO && liveO.length && marketO.settled && marketO.ready ? { ...inputMO, sell: marketO.sell, buy: marketO.buy, freight: marketO.freight } : null),
     [inputMO, liveO.length, marketO.settled, marketO.ready, marketO.sell, marketO.buy, marketO.freight]);
-  const secondO = usePlanned(inputLO, heldScope);
+  const secondO = usePlanned(inputLO, heldScope, morning.pending || marketO.pending);
   const noLive = !!firstO.setups && !firstO.working && !liveO.length;
   // The last live ranking for this system and good, shown (as being worked out again) while the goods to read change under a new one.
   const lastO = useRef<{ scope: string; setups: Setup[] } | null>(null);
   if (secondO.setups) lastO.current = { scope: heldScope, setups: secondO.setups };
-  const held = only == null ? null : secondO.setups ?? (lastO.current?.scope === heldScope ? lastO.current.setups : null) ?? (noLive ? firstO.setups : null);
+  const held = only == null ? null : secondO.setups ?? (lastO.current?.scope === heldScope && (morning.pending || marketO.pending) ? lastO.current.setups : null) ?? (noLive ? firstO.setups : null);
   const heldWorking = only != null && (noLive ? firstO.working : firstO.working || !inputLO || secondO.working);
   const heldLive = only != null && heldWorking && !!held;
   const heldLate = only != null && inputLO ? marketO.late : 0;

@@ -1,6 +1,8 @@
 import type { AccountRef } from '../../lib/accounts';
 import { units } from '../../lib/format';
+import type { PiIndex } from '../../lib/piBundle';
 import type { Role, Setup } from '../../lib/piPlan';
+import { factoryCounts } from '../../lib/planetBoard';
 import { dayCount } from '../../lib/split';
 import { Tip } from '../ui';
 
@@ -15,9 +17,9 @@ const aDay = (n: number) => dayCount(n);
 const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const daysSaid = (d: number) => (d >= 10 ? `${Math.round(d)} days` : `${+d.toFixed(1)} day${+d.toFixed(1) === 1 ? '' : 's'}`);
 
-export function TeamLines({ s, feed, name, pname, who, accountOf, used }: {
+export function TeamLines({ s, feed, name, pname, who, accountOf, used, ix }: {
   s: Setup; feed: Setup | null; name: (id: number) => string; pname: (id: number) => string; who: (id: number) => string;
-  accountOf: (charId: number) => AccountRef | null; used: Role[];
+  accountOf: (charId: number) => AccountRef | null; used: Role[]; ix: PiIndex;
 }) {
   const t = s.team!;
   const g = name(s.made!.id);
@@ -47,7 +49,10 @@ export function TeamLines({ s, feed, name, pname, who, accountOf, used }: {
   }
   const anyAccount = s.perChar.some((p) => accountOf(p.charId));
   const lacksOf = (charId: number) => [...new Set(used.filter((x) => x.charId === charId && x.fit && !x.fit.fits && x.lacks).map((x) => x.lacks!))];
-  const full = t.factories.every((f) => f.holds - f.runs < (t.fill && t.fill.feeders > 0 ? t.fill.runs / t.fill.feeders : 1) / 2);
+  // Full: what the factory planets' whole sets could make past what they make is under half of what one more feeder adds.
+  const spare = t.factories.reduce((n, f) => n + f.setsHeld * t.setDay - f.perDay, 0);
+  const full = spare < (t.fill && t.fill.feeders > 0 ? t.fill.perDay / t.fill.feeders : 1) / 2;
+  const counts = (planetId: number, holds: number) => { const r = used.find((x) => x.planetId === planetId && x.does === 'factory'); return r ? factoryCounts(r, ix, null, holds) : null; };
   const factoryN = t.factories.length;
   return (
     <div className="col pl-lines" data-planets="team">
@@ -68,15 +73,19 @@ export function TeamLines({ s, feed, name, pname, who, accountOf, used }: {
         );
       })}
       <span className="lbl">The factory planets</span>
-      {t.factories.map((f) => (
-        <span key={f.planetId} className="pl-line" data-planets={`team-load:${f.planetId}`}>
-          <b>{pname(f.planetId)}</b> runs at {f.holds > 0 ? Math.round((f.runs / f.holds) * 100) : 0}% of what fits: {f.runs} of the {f.holds} Advanced it holds.
-          {f.days != null && ` What comes in a day (${units(f.intakeM3)} m³) fills its launchpad in ${daysSaid(f.days)}.`}
-        </span>
-      ))}
+      {t.factories.map((f) => {
+        const c = counts(f.planetId, f.holds);
+        const of = f.setsHeld * t.setDay;
+        return (
+          <span key={f.planetId} className="pl-line" data-planets={`team-load:${f.planetId}`}>
+            <b>{pname(f.planetId)}</b>: {f.sets} of the {f.setsHeld} whole set{f.setsHeld === 1 ? '' : 's'} it holds{c ? ` (${c})` : ''}, {aDay(f.perDay)} {g} a day, {of > 0 ? Math.round((f.perDay / of) * 100) : 0}% of what its sets make.
+            {f.days != null && ` What comes in a day (${units(f.intakeM3)} m³) fills its launchpad in ${daysSaid(f.days)}.`}
+          </span>
+        );
+      })}
       {t.fill ? (
-        <span className="pl-line" data-planets="team-fill">One factory planet here ({t.fill.holds} Advanced) is full at {aDay(t.fill.perDay)} {g} a day, fed by {t.fill.feeders} P0 → P1 feeder planets{t.fill.days != null ? `; its launchpad holds ${daysSaid(t.fill.days)} of what it takes in` : ''}.
-          <Tip title="A full factory planet" text={'The factory planet holding the most Advanced here, at the factory character’s level, fed by as few P0 → P1 feeder planets as make what its factories can from P1 alone.\n\n• Worked out at the level most of your feeding characters are at, on the rates Plan uses.\n• A feeder that makes a P2 beside its P1 saves factories, so a factory planet can make more than this when some do.'} /></span>
+        <span className="pl-line" data-planets="team-fill">One factory planet here ({t.fill.holds} Advanced, {Math.round(t.fill.runs / t.setSize)} whole set{Math.round(t.fill.runs / t.setSize) === 1 ? '' : 's'} of {t.setSize}) is full at {aDay(t.fill.perDay)} {g} a day, fed by {t.fill.feeders} P0 → P1 feeder planets{t.fill.days != null ? `; its launchpad holds ${daysSaid(t.fill.days)} of what it takes in` : ''}.
+          <Tip title="A full factory planet" text={'The factory planet holding the most whole sets here, at the factory character’s level, fed by as few P0 → P1 feeder planets as make what its sets can.\n\n• A set is one factory of the good and the Advanced that make what it takes of each P2, so each factory planet is balanced on its own.\n• Worked out at the level most of your feeding characters are at, on the rates Plan uses.'} /></span>
       ) : <span className="pl-line note" data-planets="team-fill">How many feeder planets fill one factory planet here isn’t worked out.</span>}
       <span className="pl-line" data-planets="team-convert">{t.convertAt != null ? `Convert another planet when these run full: at about ${t.convertAt} more feeder planet${t.convertAt === 1 ? '' : 's'}.`
         : full ? 'These run full: convert another planet when the next feeders come.'

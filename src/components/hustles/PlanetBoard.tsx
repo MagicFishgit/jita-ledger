@@ -12,7 +12,7 @@ import { useNow } from '../../lib/hooks';
 import type { PiIndex } from '../../lib/piBundle';
 import { PI_READING, poorShare, type Rate } from '../../lib/piLearn';
 import type { PlanChar, Role, Sell, Setup } from '../../lib/piPlan';
-import { boardOf, buildSteps, cardKey, dropStale, FACILITY_SHORT, headsNeeded, headsNeedSaid, levelNeeded, roleSig, ticked, ticksDone, type Ticks } from '../../lib/planetBoard';
+import { boardOf, buildSteps, cardKey, dropStale, FACILITY_SHORT, factoryCounts, headsNeeded, headsNeedSaid, levelNeeded, roleSig, ticked, ticksDone, type Ticks } from '../../lib/planetBoard';
 import type { Tax } from '../../lib/planetsDoc';
 import { lostSaid } from '../../lib/pilot';
 import { checkSaid, mainReadWhy, setupCheck, type CheckItem, type FeedersChecked } from '../../lib/setupCheck';
@@ -351,6 +351,8 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
   const basics = r.makes.filter((m) => m.facility === 'basic');
   const above = r.makes.filter((m) => m.facility !== 'basic' && m.count > 0);
   const unfit = !!r.fit && !r.fit.fits;
+  // A factory planet's counts as the user builds them (Ruling F27): "6 Oxides, 6 Biocells, 6 Superconductors, 3 Gel-Matrix Biopaste: 21 of the 22 Advanced it holds".
+  const counts = s.kind === 'team' ? factoryCounts(r, ix, { t, cc, radiusKm: planet?.radiusKm ?? null }) : null;
   // What it sells, said where it isn't the card's last line already: a feeder's goods sold beside what it ships to the factory, or a
   // good left over below what the planet's factories make (a P0 → P2 planet's P1 to spare).
   const tierOf = (id: number) => ['P0', 'P1', 'P2', 'P3', 'P4'].indexOf(ix.byId.get(id)?.tier ?? 'P0');
@@ -393,6 +395,7 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
         </div>
         <span className={'pl-badge does ' + r.does} data-planets="does">{r.does === 'factory' ? 'Factory' : 'Extracts'}</span>
       </div>
+      {counts && <span className="pl-card-counts" data-planets="factory-counts">{counts}</span>}
       {unfit && <span className="pl-badge red" data-planets="unfit" data-tip={r.lacks ? `Train ${r.lacks} to fit it on this planet: the figures are what it would make if it did.` : 'No Command Center Upgrades level fits it on this planet: the figures are what it would make if it did.'}>Doesn’t fit at {whose ? `${whose}’s` : 'your'} level</span>}
       <div className="pl-card-body">
         {r.does === 'factory' && (r.imports ?? []).length > 0 && (
@@ -431,22 +434,24 @@ function PlanetCard({ r, s, at, ix, planet, planets, pname, name, whose, cc, wor
         <button type="button" className="pl-toggle" aria-expanded={build} onClick={() => setBuild(!build)} data-planets="build"><Hammer aria-hidden="true" />Build it</button>
         {ctx && <button type="button" className="btn sm" data-planets="check" onClick={() => { checked.set(key, Date.now()); bump(); for (const c of whoChecks(s, r, ctx)) startRead(c, ctx); }}><ClipboardCheck aria-hidden="true" />Check my setup</button>}
       </div>
-      {build && <BuildList r={r} ix={ix} planet={planet} cc={cc} programHours={programHours} tickKey={key} />}
+      {build && <BuildList r={r} team={s.kind === 'team'} ix={ix} planet={planet} cc={cc} programHours={programHours} tickKey={key} />}
       {ctx && checked.has(key) && <CheckResult r={r} s={s} ix={ix} planet={planet} planets={planets} ctx={ctx} keyOf={keyOf} />}
     </div>
   );
 }
 
 /** Build it: a numbered list, each step ticked off in this browser; the ticks clear once the planet's layout in the plan changes. */
-function BuildList({ r, ix, planet, cc, programHours, tickKey }: { r: Role; ix: PiIndex; planet: SystemPlanet | undefined; cc: number | null; programHours: number; tickKey: string }) {
+function BuildList({ r, team, ix, planet, cc, programHours, tickKey }: { r: Role; team: boolean; ix: PiIndex; planet: SystemPlanet | undefined; cc: number | null; programHours: number; tickKey: string }) {
   const sig = roleSig(r);
   const [done, tick] = useTicks(tickKey, sig);
   let need = levelNeeded(r, ix, planet?.type ?? null, planet?.radiusKm ?? null);
   // The planner fitted it at the character's level: never ask for more than that.
   if (r.fit?.fits && cc != null && (need.level == null || need.level > cc)) need = { level: cc, checked: true };
   const steps = buildSteps(r, ix, need, r.does === 'factory' ? null : programHours, { t: planet?.type ?? null, cc, radiusKm: planet?.radiusKm ?? null });
+  const counts = team ? factoryCounts(r, ix, { t: planet?.type ?? null, cc, radiusKm: planet?.radiusKm ?? null }) : null;
   return (
     <ol className="pl-build" data-planets="build-list">
+      {counts && <li className="pl-build-n" data-planets="build-counts"><span /><span>Its factories: {counts}.</span></li>}
       {steps.map((st, i) => (
         <li key={st.id} data-planets={`build-step:${st.id}`}>
           <span className="mono">{String(i + 1).padStart(2, '0')}</span>

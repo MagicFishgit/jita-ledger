@@ -18,13 +18,22 @@ import {
 /**
  * The recipe as the search sees it: `goods` are the P1s the good takes (straight in, or through its P2s), then the P2s it takes, by type
  * ID; `p1` how many of them are P1. `xDay`: the good a day one factory makes. `alpha`: by P1, what one unit of the good takes of it straight
- * (a P2 good's own inputs). `p2`: each P2 it takes, at `g` in `goods`, `beta` of it a unit of the good, `day` a day one factory makes, and
- * `per` by P1 what one unit of it takes.
+ * (a P2 good's own inputs). `p2`: each P2 it takes, at `g` in `goods`, `beta` of it a unit of the good, `day` a day one factory makes,
+ * `per` by P1 what one unit of it takes, and `set` the Advanced making it in one set. `setSize`: a set's Advanced in all (Ruling F27).
  */
 export type TeamRecipe = {
   goods: number[]; p1: number; xDay: number; alpha: number[];
-  p2: { g: number; beta: number; day: number; per: number[] }[];
+  p2: { g: number; beta: number; day: number; per: number[]; set: number }[];
+  setSize: number;
 };
+/**
+ * A factory planet's whole sets (Ruling F27, the user's own build, 27 October 2026: four factory planets each of 6 Oxides, 6 Biocells, 6
+ * Superconductors and 3 Gel-Matrix Biopaste): a set is one factory of the good and, for each P2 it takes, the Advanced that make what that
+ * factory uses (a P3 takes 10 of each P2 an hour, an Advanced makes 5: two a P2, so Gel-Matrix's set is 7; a P2 good's set is one Advanced).
+ * A factory planet holds as many as fit whole among the Advanced it holds, each self-contained: nothing carried between factory planets.
+ */
+export const setsIn = (rec: TeamRecipe, holds: number) => Math.max(0, Math.floor(holds / rec.setSize + EPS_SET));
+const EPS_SET = 1e-9;
 /** One way a planet can feed (a single-planet plan): its planet's place, what it ships a day of each of the recipe's goods, and its ISK proxy. */
 export type TeamOpt = { planet: number; v: Float64Array; worth: number };
 /**
@@ -102,37 +111,21 @@ export function supplyRate(rec: TeamRecipe, S: Float64Array): number {
   for (let k = 0; k < rec.p1; k++) R = Math.min(R, limitK(rec, k, S));
   return R;
 }
-/** The factories `R` a day takes: the good's own, and each P2's for what isn't shipped in. */
-export function factoriesAt(rec: TeamRecipe, S: Float64Array, R: number): { x: number; p2: number[] } {
-  return { x: ceilE(R / rec.xDay), p2: rec.p2.map((t) => ceilE(Math.max(0, t.beta * R - S[t.g]) / t.day)) };
-}
-const needAt = (rec: TeamRecipe, S: Float64Array, R: number) => {
-  let n = ceilE(R / rec.xDay);
-  for (const t of rec.p2) n += ceilE(Math.max(0, t.beta * R - S[t.g]) / t.day);
-  return n;
-};
 /**
- * The most of the good a day `A` factories make from these shipments, every factory whole: what the shipments allow, and no more than
- * the factories would make running in part (`smoothRate`), lowered to the last point at which the factories it takes fit (each count only
- * rises with the amount, so the steps down are exact, never searched, and from the smooth rate there are at most as many as kinds).
+ * The factories `R` a day takes, in whole sets (Ruling F27): the good's own one a set, each P2's its `set` a set, as many sets as `R`
+ * fills (the last may run fewer cycles).
+ */
+export function factoriesAt(rec: TeamRecipe, R: number): { x: number; p2: number[] } {
+  const n = ceilE(R / rec.xDay);
+  return { x: n, p2: rec.p2.map((t) => t.set * n) };
+}
+/**
+ * The most of the good a day `A` whole sets make from these shipments: what the shipments allow, and no more than the sets make
+ * (`A × xDay`). Each set makes what its own P2 factories feed, so a set's P2 never binds and the factories' only step is the set's.
  */
 export function teamRate(rec: TeamRecipe, A: number, S: Float64Array, rHi = Infinity): number {
-  let R = Math.min(rHi, supplyRate(rec, S), smoothRate(rec, A, S));
-  if (!(R > MIN_RATE) || !Number.isFinite(R)) return 0;
-  for (let guard = 0; guard < 10_000; guard++) {
-    if (needAt(rec, S, R) <= A) return R;
-    // The next point down where a count falls by one: the good's own factories, or a P2's.
-    let next = 0;
-    const mx = ceilE(R / rec.xDay);
-    if (mx >= 1) next = Math.max(next, (mx - 1) * rec.xDay);
-    for (const t of rec.p2) {
-      const m = ceilE(Math.max(0, t.beta * R - S[t.g]) / t.day);
-      if (m >= 1) next = Math.max(next, (S[t.g] + (m - 1) * t.day) / t.beta);
-    }
-    if (!(next > MIN_RATE)) return 0;
-    R = Math.min(next, R * (1 - 1e-12));
-  }
-  return 0;
+  const R = Math.min(rHi, supplyRate(rec, S), A * rec.xDay);
+  return R > MIN_RATE && Number.isFinite(R) ? R : 0;
 }
 
 // ---- An arrangement being searched, kept in step with every change ----
@@ -149,6 +142,7 @@ type State = {
   cnt: Int32Array[]; on: Uint8Array;
   /** Per group, its colonies on each planet; per group, in all; per planet, the factory planets there. */
   pp: Int32Array[]; tot: Int32Array; site: Uint8Array;
+  /** `A`: the whole sets the factory planets on hold (Ruling F27). */
   S: Float64Array; A: number; F: number; colonies: number; worth: number;
 };
 function stateOf(p: TeamProblem, sol?: TeamSol): State {
@@ -171,7 +165,7 @@ function colony(st: State, w: number, q: number, d: 1 | -1) {
 }
 function site(st: State, s: number, d: 1 | -1) {
   const x = st.p.sites[s];
-  st.on[s] += d; st.site[x.planet] += d; st.F += d; st.A += d * x.cap;
+  st.on[s] += d; st.site[x.planet] += d; st.F += d; st.A += d * setsIn(st.p.rec, x.cap);
 }
 /** Whether one more colony of this plan fits its group: a colony a planet a character (the factory character's beside its factory planets), and its cap. */
 function canColony(st: State, w: number, q: number): boolean {
@@ -188,33 +182,27 @@ const keyNow = (st: State): TeamKey => ({ R: teamRate(st.p.rec, st.A, st.S, st.p
 /** An arrangement's key, worked out on its own (`teamRate` on its shipments and factory planets). */
 export function keyOfSol(p: TeamProblem, sol: TeamSol): TeamKey { return keyNow(stateOf(p, sol)); }
 
-/** The most of the good a day `A` factories would make if a factory could run part of one: smooth where `teamRate` steps. */
-function smoothRate(rec: TeamRecipe, A: number, S: Float64Array): number {
-  let lo = 0;
-  for (;;) {
-    let slope = 1 / rec.xDay, at = lo / rec.xDay, hi = Infinity;
-    for (const t of rec.p2) {
-      const out = S[t.g] / t.beta;
-      if (out <= lo) { slope += t.beta / t.day; at += (t.beta * lo - S[t.g]) / t.day; } else if (out < hi) hi = out;
-    }
-    const R = lo + (A - at) / slope;
-    if (R <= hi) return Math.max(lo, R);
-    lo = hi;
-  }
+/**
+ * Each P1's own limit on the good a day, each no more than the sets make, on average: it rises with a P1 that isn't the shortest yet,
+ * so a move toward the next one short counts in the annealing's figure while the good a day itself waits on the shortest.
+ */
+function spreadRate(rec: TeamRecipe, A: number, S: Float64Array, rHi = Infinity): number {
+  if (!rec.p1) return 0;
+  let t = 0;
+  for (let k = 0; k < rec.p1; k++) t += Math.min(rHi, A * rec.xDay, limitK(rec, k, S));
+  return Number.isFinite(t) ? t / rec.p1 : 0;
 }
 
 /**
- * The local search's order, as figures to compare left to right: the good a day; while `channels`, what the shipments and the factory
- * planets would allow with factories run in part (smooth where the good a day steps a factory at a time, so a move that frees part of a
- * factory counts), then what each P1 alone would allow, lowest first (so a move lifting one of two equally short P1s counts, as the next
- * can lift the other: the research's `polish`); then the fewest factory planets, the fewest colonies, the most ISK.
+ * The local search's order, as figures to compare left to right: the good a day; while `channels`, what each P1 alone would allow, lowest
+ * first (so a move lifting one of two equally short P1s counts, as the next can lift the other: the research's `polish`); then the fewest
+ * factory planets, the fewest colonies, the most ISK.
  */
 function scoreOf(st: State, channels: boolean): number[] {
   const { rec, rHi } = st.p;
   const R = teamRate(rec, st.A, st.S, rHi);
   const out = [R];
   if (channels) {
-    out.push(Math.min(rHi ?? Infinity, supplyRate(rec, st.S), smoothRate(rec, st.A, st.S)));
     const ls: number[] = [];
     for (let k = 0; k < rec.p1; k++) ls.push(Math.min(rHi ?? Infinity, limitK(rec, k, st.S)));
     ls.sort((a, b) => a - b);
@@ -294,18 +282,17 @@ function* polish(st: State, channels: boolean, budget: TeamBudget, items: Item[]
 
 // ---- The linear programme and its branch and bound ----
 
-export type Lp = { c: number[]; hi: number[]; rows: LpRow[]; iR: number; iY: number[]; iX: number[][]; xs: number[]; ns: number[]; fixed: Uint8Array | null };
+export type Lp = { c: number[]; hi: number[]; rows: LpRow[]; iR: number; iY: number[]; iX: number[][]; xs: number[]; fixed: Uint8Array | null };
 /**
  * The search as an integer programme: maximise the good a day less a factory planet's weight and a colony's, plus the colonies' ISK at its
- * weight (`weightsOf`). Integer: the colonies on each plan in each group, the factories, and (unless `fixed` names them) the factory planets;
- * continuous: the good a day and each P2 made. Rows: the good no more than its factories make; each P2 made no more than its factories; each
- * P2 the good takes no more than made and shipped in; each P1 no more than shipped; the factories no more than the factory planets hold; a
+ * weight (`weightsOf`). Integer: the colonies on each plan in each group, and (unless `fixed` names them) the factory planets; continuous:
+ * the good a day and each P2 made. Rows: the good no more than the factory planets' whole sets make (Ruling F27: a set's own P2 factories
+ * feed it, so no factory count is a variable); each P2 the good takes no more than made and shipped in; each P1 no more than shipped; a
  * colony a planet a character (the factory character's beside its factory planets) and each group's cap; `maxSites`, at most that many
  * factory planets. Every row holds at zero (lp.ts' rule).
  *
  * With the factory planets `fixed`, every integer variable sits in its rows with a negative coefficient or in a row of positive ones only,
- * so a branch x ≥ k is a substitution or plainly infeasible: the branch and bound runs on that programme alone. With them free (the bound
- * and the starts) a factory count sits beside the factory planets' negative capacity, so it is never branched on there.
+ * so a branch x ≥ k is a substitution or plainly infeasible: the branch and bound runs on that programme alone.
  */
 export function lpOf(p: TeamProblem, o: { maxSites?: number; fixed?: Uint8Array } = {}): Lp {
   const { rec } = p;
@@ -314,11 +301,9 @@ export function lpOf(p: TeamProblem, o: { maxSites?: number; fixed?: Uint8Array 
   const v = (h: number, cost: number) => { hi.push(h); c.push(cost); return hi.length - 1; };
   const onAt = new Uint8Array(p.planets);
   let A = 0, F = 0;
-  if (fixed) p.sites.forEach((x, s) => { if (fixed[s]) { onAt[x.planet] = 1; A += x.cap; F++; } });
+  if (fixed) p.sites.forEach((x, s) => { if (fixed[s]) { onAt[x.planet] = 1; A += setsIn(rec, x.cap); F++; } });
   const iR = v(p.rHi ?? Infinity, 1);
   const iMade = rec.p2.map(() => v(Infinity, 0));
-  const iN = rec.p2.map(() => v(Infinity, 0));
-  const iNX = v(Infinity, 0);
   const wt = weightsOf(p);
   const iY = fixed ? [] : p.sites.map(() => v(1, -wt.site));
   const iX = p.groups.map((g, w) => g.opts.map((x) => v(w === 0 ? (onAt[x.planet] ? 0 : 1) : g.chars, -wt.colony + wt.isk * x.worth)));
@@ -326,15 +311,13 @@ export function lpOf(p: TeamProblem, o: { maxSites?: number; fixed?: Uint8Array 
   const rows: LpRow[] = [];
   const row = (pairs: [number, number][], b: number) => { const a = new Array<number>(n).fill(0); for (const [i, x] of pairs) a[i] += x; rows.push({ a, b }); };
   const allX = p.groups.flatMap((g, w) => g.opts.map((x, q) => ({ x, i: iX[w][q] })));
-  row([[iR, 1], [iNX, -rec.xDay]], 0);
+  row([[iR, 1], ...(fixed ? [] : p.sites.map((x, s): [number, number] => [iY[s], -rec.xDay * setsIn(rec, x.cap)]))], fixed ? rec.xDay * A : 0);
   rec.p2.forEach((t, j) => {
-    row([[iMade[j], 1], [iN[j], -t.day]], 0);
     row([[iR, t.beta], [iMade[j], -1], ...allX.filter(({ x }) => x.v[t.g] > 0).map(({ x, i }): [number, number] => [i, -x.v[t.g]])], 0);
   });
   for (let k = 0; k < rec.p1; k++) {
     row([[iR, rec.alpha[k]], ...rec.p2.map((t, j): [number, number] => [iMade[j], t.per[k]]), ...allX.filter(({ x }) => x.v[k] > 0).map(({ x, i }): [number, number] => [i, -x.v[k]])], 0);
   }
-  row([[iNX, 1], ...iN.map((i): [number, number] => [i, 1]), ...(fixed ? [] : p.sites.map((x, s): [number, number] => [iY[s], -x.cap]))], fixed ? A : 0);
   for (let at = 0; at < p.planets; at++) {
     const m: [number, number][] = [...p.groups[0].opts.map((x, q): [number, number] => [iX[0][q], x.planet === at ? 1 : 0]), ...(fixed ? [] : p.sites.map((x, s): [number, number] => [iY[s], x.planet === at ? 1 : 0]))].filter(([, x]) => x);
     if (m.length > 1) row(m, 1);
@@ -349,7 +332,7 @@ export function lpOf(p: TeamProblem, o: { maxSites?: number; fixed?: Uint8Array 
     }
     row(iX[w].map((i): [number, number] => [i, 1]), g.chars * g.cap);
   });
-  return { c, hi, rows, iR, iY, iX, xs: iX.flat(), ns: [...iN, iNX], fixed };
+  return { c, hi, rows, iR, iY, iX, xs: iX.flat(), fixed };
 }
 /** A branch: its variables' bounds, and the bounds its parent's programme put on it (the weighted figure, and the good a day). */
 export type Node = { lo: number[]; hi: number[]; bound: number; boundR: number };
@@ -455,11 +438,11 @@ const onOf = (n: number, mask: number) => Uint8Array.from({ length: n }, (_, i) 
  * 2. The sets of factory planets to search: every set in a small system (`ALL_SETS`), else each count's likeliest, their neighbours (one
  *    swapped, one more, one fewer) and the best's; each with its own programme's bound.
  * 3. The `REFINE_SETS` sets with the highest bounds on the good a day (the fewest factory planets among equal ones), and each count's
- *    highest, annealed within (`anneal`), then the `AGAIN_SETS` that came out best again (`AGAIN_RUNS` each), each answer polished (`polish`: on the smooth rate and each P1's own limit first, then trimmed of what adds nothing); the best then
+ *    highest, annealed within (`anneal`), then the `AGAIN_SETS` that came out best again (`AGAIN_RUNS` each), each answer polished (`polish`: on each P1's own limit first, then trimmed of what adds nothing); the best then
  *    polished with its factory planets free to move.
- * 4. A branch and bound on each set, the highest bound first, sharing `TEAM_NODES`: depth first, the nearer child first, the factories
- *    branched on before the colonies, every arrangement it reaches whose colonies are whole taken as a candidate (its factories worked out
- *    exactly, `teamRate`) and each new best polished.
+ * 4. A branch and bound on each set, the highest bound first, sharing `TEAM_NODES`: depth first, the nearer child first, branched on
+ *    the colonies, every arrangement it reaches whose colonies are whole taken as a candidate (worked out exactly, `teamRate`) and each
+ *    new best polished.
  * Null when nothing can be fed.
  */
 export function* searchTeam(p: TeamProblem, budget: TeamBudget, maxNodes = TEAM_NODES, o: { anneal?: boolean } = {}): Generator<void, TeamFound | null, void> {
@@ -583,9 +566,8 @@ export function* searchTeam(p: TeamProblem, budget: TeamBudget, maxNodes = TEAM_
       at = null;
       if (!s || s.value <= bestW() + 1e-7) continue;
       if (lpS.xs.every((i) => integral(s.x[i])) && offer(solFrom(p, lpS, s.x, Math.round))) yield* improve(bestOf()!.sol, colonyItems);
-      // The factories first (few, and the bound falls most when they're whole), then the colonies.
-      let pick = pickIn(s.x, lpS.ns);
-      if (pick < 0) pick = pickIn(s.x, lpS.xs);
+      // The colonies (the factories are whole sets of the factory planets fixed here, never a variable).
+      const pick = pickIn(s.x, lpS.xs);
       if (pick < 0) continue;
       const fl = Math.floor(s.x[pick] + 1e-9);
       const down: Node = { lo: nd.lo.slice(), hi: nd.hi.slice(), bound: s.value, boundR: s.x[lpS.iR] }; down.hi[pick] = fl;
@@ -627,7 +609,7 @@ export function polished(p: TeamProblem, sol: TeamSol, moveSites = true, budget:
 /**
  * Annealing from an arrangement: `steps` random moves (a colony swapped for another plan of its group, or for its planet's other plan,
  * added or dropped; with `moveSites`, a factory planet moved), each taken when it doesn't lower the figure (the good a day, plus a share of
- * the smooth rate so a step toward the next whole factory counts, less a hair a colony), or now and then when it does, less often as it
+ * the P1s' limits on average so a step toward the next P1 short counts, less a hair a colony), or now and then when it does, less often as it
  * cools. Keeps the best arrangement it passed, by the judging order. Seeded, so the same every run. Annealing is what finds the answers a
  * steepest ascent can't reach (7M4C-F, four alts, factory planets VI and III: the local search alone stops at 770.6 a day, the research's
  * branch and bound found 777.0, annealing 776.9 to 789.2 by seed).
@@ -636,7 +618,7 @@ function* anneal(st: State, budget: TeamBudget, steps: number, seed: number, mov
   const { p } = st;
   const rand = rng(seed);
   const wColony = weightsOf(p).colony;
-  const fig = () => teamRate(p.rec, st.A, st.S, p.rHi) + SMOOTH_SHARE * Math.min(p.rHi ?? Infinity, supplyRate(p.rec, st.S), smoothRate(p.rec, st.A, st.S)) - wColony * st.colonies;
+  const fig = () => teamRate(p.rec, st.A, st.S, p.rHi) + SMOOTH_SHARE * spreadRate(p.rec, st.A, st.S, p.rHi) - wColony * st.colonies;
   let cur = fig();
   let best = { sol: solOf(st), k: scoreOf(st, false) };
   // Every plan as [group, plan], each planet's plans by group, and the plans in use (kept as they change).
@@ -691,7 +673,7 @@ function* anneal(st: State, budget: TeamBudget, steps: number, seed: number, mov
 }
 /** The annealing's temperatures, in units of the good a day: from where a step of a few units down is often taken, to where none is. */
 export const ANNEAL_T0 = 6, ANNEAL_T1 = 0.05;
-/** How much of the smooth rate the annealing's figure carries beside the good a day. */
+/** How much of the P1s' limits on average (`spreadRate`) the annealing's figure carries beside the good a day. */
 const SMOOTH_SHARE = 0.3;
 /** Annealing alone from an arrangement, drained: for the probes and the tests. */
 export function annealed(p: TeamProblem, sol: TeamSol, steps: number, seed = 1, moveSites = false): TeamSol {
@@ -705,8 +687,8 @@ export function annealed(p: TeamProblem, sol: TeamSol, steps: number, seed = 1, 
  * A factory character's own figures, for the page. `factoryChar`: the character shown, whose factory planets they are. `parts`: each
  * character in it (the factory character first), its colonies (factory planets among them), what its colonies hand the factory planets a
  * day by good, that as the good a day it stands for (by the P1 in it: a P2 counted by what it's made of), and its m³ a day. `factories`:
- * each factory planet, the Advanced it holds at the factory character's level and runs, what comes in a day in m³ and how many days its
- * launchpad holds of that (null with nothing coming in). `fill`: how many P0 → P1 feeder planets fill one factory planet here (at the
+ * each factory planet, the Advanced it holds at the factory character's level and runs, the whole sets it runs and holds (Ruling F27), the
+ * good a day it makes, what comes in a day in m³ and how many days its launchpad holds of that (null with nothing coming in). `fill`: how many P0 → P1 feeder planets fill one factory planet here (at the
  * feeders' level), what it then makes a day, the factories it runs of those it holds, and the days its launchpad holds of its intake;
  * null when not worked out. `handedM3`: what the other characters hand the factory character a day, m³. `convertAt`: about how many more
  * P0 → P1 feeder planets these factory planets take before they run full and another planet is worth converting (null when they run
@@ -715,9 +697,11 @@ export function annealed(p: TeamProblem, sol: TeamSol, steps: number, seed = 1, 
 export type TeamFigures = {
   factoryChar: number;
   parts: { charId: number; colonies: number; perDay: number; sends: { id: number; perDay: number }[]; m3: number }[];
-  factories: { planetId: number; holds: number; runs: number; intakeM3: number; days: number | null }[];
+  factories: { planetId: number; holds: number; runs: number; sets: number; setsHeld: number; perDay: number; intakeM3: number; days: number | null }[];
   fill: { feeders: number; perDay: number; runs: number; holds: number; days: number | null } | null;
   handedM3: number; convertAt: number | null; boundR: number; done: boolean;
+  /** A set (Ruling F27): its Advanced in all, and the good a day it makes. */
+  setSize: number; setDay: number;
 };
 
 /** What the team search may spend (`TeamBudget`), and the fill count's. About 1.5 seconds and 0.1 on 7M4C-F's team of six (25 October 2026). */
@@ -742,14 +726,20 @@ function teamOf(input: PlanInput): Member[] {
     .map((c) => ({ c, cc: c.ccLevel!, cap: c.planets! }));
 }
 
-/** The recipe as the search sees it, from the planner's tree: the P1s, then the P2s it takes. */
+/**
+ * The recipe as the search sees it, from the planner's tree: the P1s, then the P2s it takes; and its set (Ruling F27): one factory of
+ * the good and, for each P2, the Advanced that make what that factory takes (rounded up, so a set never waits on its own P2).
+ */
 export function recipeOf(tree: Tree): TeamRecipe {
   const p2s = [...tree.p2.keys()];
   const goods = [...tree.kinds, ...p2s];
-  return {
-    goods, p1: tree.kinds.length, xDay: tree.perFactory * 24, alpha: tree.kinds.map((k) => tree.alpha.get(k) ?? 0),
-    p2: p2s.map((g) => { const e = tree.p2.get(g)!; return { g: goods.indexOf(g), beta: e.beta, day: e.perFactory * 24, per: tree.kinds.map((k) => e.inputs.get(k) ?? 0) }; }),
-  };
+  const xDay = tree.perFactory * 24;
+  const p2 = p2s.map((g) => {
+    const e = tree.p2.get(g)!;
+    const day = e.perFactory * 24;
+    return { g: goods.indexOf(g), beta: e.beta, day, per: tree.kinds.map((k) => e.inputs.get(k) ?? 0), set: ceilE((e.beta * xDay) / day) };
+  });
+  return { goods, p1: tree.kinds.length, xDay, alpha: tree.kinds.map((k) => tree.alpha.get(k) ?? 0), p2, setSize: 1 + p2.reduce((n, t) => n + t.set, 0) };
 }
 
 /** What a plan's ships come to at each good's first unit's net after its planet's export tax, a good that doesn't pay to ship at nothing. */
@@ -761,16 +751,18 @@ function worthOf(input: PlanInput, sold: Seller, p: Plan): number {
 }
 
 /**
- * Every single-planet plan a character at `cc` could run on each planet as a feeder: the planner's own (`plansFor`, F9's ways of running at
- * that level on the planet's own radius), P0 → P1 and, for a P3, P0 → P2 making a P2 it takes. Plans shipping none of the recipe's goods are
- * dropped, and so is a plan another on the same planet matches or beats on every one of them and on ISK.
+ * Every single-planet plan a character at `cc` could run on each planet as a feeder: the planner's own P0 → P1 plans (`plansFor`, F9's
+ * ways of running at that level on the planet's own radius). P0 → P1 only (Ruling F26, 27 October 2026, reversing F22): the user, having
+ * built it, "i don't want p2 on the p1 factory planets", and the P2 that feeders made beside their P1 left the factory planets' counts
+ * off balance. Plans shipping none of the recipe's goods are dropped, and so is a plan another on the same planet matches or beats on
+ * every one of them and on ISK.
  */
-function* optionsAt(input: PlanInput, tree: Tree, rec: TeamRecipe, cc: number, sold: Seller): Generator<void, Opt[], void> {
+export function* optionsAt(input: PlanInput, tree: Tree, rec: TeamRecipe, cc: number, sold: Seller): Generator<void, Opt[], void> {
   const out: Opt[] = [];
   for (const [at, planet] of input.planets.entries()) {
     if (!planet.type) continue;
     const fits = fitFor(planet, cc);
-    const plans = [...plansFor(input, planet, at, 'p1', false, fits), ...(tree.p2.size ? plansFor(input, planet, at, 'p2', false, fits).filter((p) => tree.p2.has(p.product)) : [])];
+    const plans = plansFor(input, planet, at, 'p1', false, fits).filter((p) => !p.advanced);
     const here: Opt[] = [];
     for (const plan of plans) {
       const v = new Float64Array(rec.goods.length);
@@ -785,7 +777,7 @@ function* optionsAt(input: PlanInput, tree: Tree, rec: TeamRecipe, cc: number, s
   return out;
 }
 
-/** The sites: every planet the factory character could make a factory planet, with the Advanced it holds at its level beside one launchpad. */
+/** The sites: every planet the factory character could make a factory planet, with the Advanced it holds at its level beside one launchpad and room for a whole set at least. */
 function sitesOf(input: PlanInput, tree: Tree, main: Member): TeamSite[] {
   const { ix } = input;
   const ids = [tree.x, ...tree.p2.keys()];
@@ -793,7 +785,7 @@ function sitesOf(input: PlanInput, tree: Tree, main: Member): TeamSite[] {
     const t = pl.type;
     if (!t || pl.radiusKm == null || !(pl.radiusKm > 0) || !ids.every((id) => ix.makes.get(id)?.planetTypes.includes(t))) return [];
     const holds = maxFactories(ix, t, main.cc, 'advanced', 1, pl.radiusKm);
-    return holds > 0 ? [{ planet: at, cap: holds }] : [];
+    return setsIn(recipeOf(tree), holds) >= 1 ? [{ planet: at, cap: holds }] : [];
   });
 }
 
@@ -832,39 +824,19 @@ function realised(input: PlanInput, groups: Grp[], members: Member[][], sites: T
   return { colonies, factories };
 }
 
-/**
- * Each kind of factory dealt over the factory planets in proportion to what each holds (the largest remainders first), then moved off a
- * planet past what it holds onto the one with the most room: so each factory planet makes its share of the good from its own P2 as far as
- * whole factories let, and the rest is carried between them.
- */
-function dealt(counts: number[], holds: number[]): number[][] {
-  const H = holds.reduce((a, b) => a + b, 0);
-  const out = holds.map(() => counts.map(() => 0));
-  counts.forEach((n, k) => {
-    const exact = holds.map((h) => (H > 0 ? (n * h) / H : 0));
-    const fl = exact.map(Math.floor);
-    let left = n - fl.reduce((a, b) => a + b, 0);
-    const order = exact.map((x, j) => ({ j, r: x - Math.floor(x) })).sort((a, b) => b.r - a.r || a.j - b.j);
-    for (const { j } of order) { if (left <= 0) break; fl[j]++; left--; }
-    fl.forEach((v, j) => (out[j][k] = v));
-  });
-  for (let guard = 0; guard < 1000; guard++) {
-    const over = out.findIndex((row, j) => row.reduce((a, b) => a + b, 0) > holds[j]);
-    if (over < 0) break;
-    const room = out.map((row, j) => holds[j] - row.reduce((a, b) => a + b, 0));
-    const to = room.indexOf(Math.max(...room));
-    if (!(room[to] > 0)) break;
-    const k = out[over].indexOf(Math.max(...out[over]));
-    out[over][k]--; out[to][k]++;
-  }
-  return out;
+/** The whole sets a kept factory planet's counts make (a plan kept before Ruling F27 can hold counts off balance: its whole sets are what run). */
+function keptSets(rec: TeamRecipe, kinds: number[], fixed: Map<number, number>): number {
+  let n = fixed.get(kinds[kinds.length - 1]) ?? 0;
+  rec.p2.forEach((t, j) => { n = Math.min(n, Math.floor((fixed.get(kinds[j]) ?? 0) / t.set)); });
+  return Math.max(0, n);
 }
 
 /**
- * The setup an arrangement makes. The good's factories run at `R` a day across the factory planets (each its dealt share); each P2 the
- * good takes is shipped in first, the rest made; every P1 they take is drawn from the feeders the lowest customs rate first (then the
- * planet listed first, then roster order), each feeder sending what it draws to the factory planets in order of their need; P2 a factory
- * planet makes past its own need goes to one short of it. What's left of each good is offered to market where a unit pays to ship
+ * The setup an arrangement makes. The good's factories run at `R` a day across the factory planets, each its whole sets (Ruling F27,
+ * filled in turn); each P2 the good takes is shipped in first (only a plan kept before Ruling F26 ships any), the rest made where it's
+ * used; every P1 they take is drawn from the feeders the lowest customs rate first (then the planet listed first, then roster order), each
+ * feeder sending what it draws to the factory planets in order of their need; P2 a factory planet makes past its own need goes to one
+ * short of it (none, with every planet in whole sets of its own). What's left of each good is offered to market where a unit pays to ship
  * (Ruling T15-5) and sold once. Customs: export at each feeder on all it ships, import at half on each factory planet, export there on
  * the good and on P2 sent between them. `fixedN`: a kept plan's factories, by planet.
  */
@@ -882,15 +854,17 @@ function teamSetup(input: PlanInput, tree: Tree, rec: TeamRecipe, team: Member[]
   const used2 = rec.p2.map((t) => Math.min(S[t.g], t.beta * R));
   const made = rec.p2.map((t, j) => Math.max(0, t.beta * R - used2[j]));
   const used1 = Array.from({ length: rec.p1 }, (_, k) => rec.alpha[k] * R + rec.p2.reduce((n, t, j) => n + t.per[k] * made[j], 0));
-  // The factories, and each planet's share of them: a kept plan's as kept, else the fewest that make R, dealt over the factory planets.
-  const nAll = factoriesAt(rec, S, R);
+  // The factories in whole sets (Ruling F27): each factory planet holds the sets that fit among its Advanced (a kept plan's, the sets its
+  // kept counts make), filled in turn with as many sets as R takes, the last running fewer cycles; each makes its own sets' share of the
+  // good from its own P2, so nothing is carried between them. A kept plan's counts stay as kept.
   const kinds = [...rec.p2.map((t) => rec.goods[t.g]), tree.x];
-  const per: number[][] = factories.some((f) => f.fixed)
-    ? factories.map((f) => kinds.map((id) => f.fixed?.get(id) ?? 0))
-    : dealt([...nAll.p2, nAll.x], factories.map((f) => f.holds));
-  const sumK = (k: number) => per.reduce((n, row) => n + row[k], 0);
-  const Rj = per.map((row) => (sumK(P2) > 0 ? (R * row[P2]) / sumK(P2) : 0));
-  const madeJ = per.map((row) => rec.p2.map((_, j) => (sumK(j) > 0 ? (made[j] * row[j]) / sumK(j) : 0)));
+  const setsHeld = factories.map((f) => (f.fixed ? keptSets(rec, kinds, f.fixed) : setsIn(rec, f.holds)));
+  let setsLeft = factoriesAt(rec, R).x;
+  const setsRun = setsHeld.map((h) => { const n = Math.min(h, setsLeft); setsLeft -= n; return n; });
+  const per: number[][] = factories.map((f, fi) => (f.fixed ? kinds.map((id) => f.fixed?.get(id) ?? 0) : [...rec.p2.map((t) => t.set * setsRun[fi]), setsRun[fi]]));
+  let rLeft = R;
+  const Rj = setsRun.map((n) => { const r = Math.max(0, Math.min(n * rec.xDay, rLeft)); rLeft -= r; return r; });
+  const madeJ = Rj.map((r) => rec.p2.map((_, j) => (R > 0 ? (made[j] * r) / R : 0)));
   const need1 = per.map((_, f) => Array.from({ length: rec.p1 }, (__, k) => rec.alpha[k] * Rj[f] + rec.p2.reduce((n, t, j) => n + t.per[k] * madeJ[f][j], 0)));
   // P2 each factory planet is short of (its share of the good's need less what it makes); what it makes past its need, sent to another.
   const short2 = per.map((_, f) => rec.p2.map((t, j) => t.beta * Rj[f] - madeJ[f][j]));
@@ -918,6 +892,7 @@ function teamSetup(input: PlanInput, tree: Tree, rec: TeamRecipe, team: Member[]
       }
     }
   }
+  // Kept for a pre-F26 kept plan only: with P1-only feeders and self-contained sets this is always empty.
   // P2 sent between factory planets: from those making past their need to those still short after the feeders'.
   const between: { from: number; to: number; g: number; perDay: number }[] = [];
   rec.p2.forEach((t, j) => {
@@ -1081,15 +1056,17 @@ function teamSetup(input: PlanInput, tree: Tree, rec: TeamRecipe, team: Member[]
     factoryChar: main.c.charId, parts,
     factories: factories.map((f, fi) => {
       const m3 = [...intake[fi]].reduce((t, [id, x]) => t + x * vol(id), 0);
-      return { planetId: f.planet.planetId, holds: f.holds, runs: per[fi].reduce((a, b) => a + b, 0), intakeM3: m3, days: m3 > 1e-9 ? ix.planetTypes[f.planet.type!].pins.launchpad.capacity / m3 : null };
+      return { planetId: f.planet.planetId, holds: f.holds, runs: per[fi].reduce((a, b) => a + b, 0), sets: setsRun[fi], setsHeld: setsHeld[fi], perDay: Rj[fi],
+        intakeM3: m3, days: m3 > 1e-9 ? ix.planetTypes[f.planet.type!].pins.launchpad.capacity / m3 : null };
     }),
     fill: extra.fill ?? null, handedM3: parts.filter((x) => x.charId !== main.c.charId).reduce((t, x) => t + x.m3, 0),
-    convertAt: null, boundR: extra.found?.boundR ?? R, done: extra.found?.done ?? false,
+    convertAt: null, boundR: extra.found?.boundR ?? R, done: extra.found?.done ?? false, setSize: rec.setSize, setDay: rec.xDay,
   };
-  // When to convert the next planet: the factories these planets have spare, over what a P0 → P1 feeder takes of them when one is full.
+  // When to convert the next planet: what these planets' whole sets could make past what they make now, over what a P0 → P1 feeder adds
+  // when one is full.
   if (figures.fill && figures.fill.feeders > 0) {
-    const spare = figures.factories.reduce((n, f) => n + f.holds - f.runs, 0);
-    const each = figures.fill.runs / figures.fill.feeders;
+    const spare = figures.factories.reduce((n, f) => n + f.setsHeld * rec.xDay - f.perDay, 0);
+    const each = figures.fill.perDay / figures.fill.feeders;
     const n = each > 0 ? Math.round(spare / each) : 0;
     figures.convertAt = n >= 1 ? n : null;
   }
@@ -1109,7 +1086,7 @@ function teamSetup(input: PlanInput, tree: Tree, rec: TeamRecipe, team: Member[]
 }
 
 /**
- * How few P0 → P1 feeder planets fill one factory planet here (`TeamFigures.fill`): the factory planet holding the most Advanced at the
+ * How few P0 → P1 feeder planets fill one factory planet here (`TeamFigures.fill`): the factory planet holding the most whole sets at the
  * factory character's level, fed by colonies at `cc` (any number of characters), held to what that planet makes from P1 alone, with the
  * fewest colonies. Null when nothing fills it.
  */
@@ -1122,13 +1099,13 @@ function teamSetup(input: PlanInput, tree: Tree, rec: TeamRecipe, team: Member[]
 export function fillProblem(rec: TeamRecipe, site: TeamSite, p1: TeamOpt[], planets: number): { p: TeamProblem; top: number } | null {
   const full = new Float64Array(rec.goods.length);
   for (let k = 0; k < rec.p1; k++) full[k] = 1e12;
-  const top = teamRate(rec, site.cap, full);
+  const top = teamRate(rec, setsIn(rec, site.cap), full);
   if (!(top > MIN_RATE)) return null;
   return { p: { rec, groups: [{ chars: 1, cap: 1, opts: [] }, { chars: FILL_CHARS, cap: planets, opts: p1 }], sites: [site], planets, rHi: top }, top };
 }
 function* fillOf(input: PlanInput, rec: TeamRecipe, sites: TeamSite[], opts: Opt[]): Generator<void, TeamFigures['fill'], void> {
   if (!sites.length) return null;
-  const at = sites.reduce((a, b) => (b.cap > a.cap ? b : a));
+  const at = sites.reduce((a, b) => (setsIn(rec, b.cap) > setsIn(rec, a.cap) || (setsIn(rec, b.cap) === setsIn(rec, a.cap) && b.cap > a.cap) ? b : a));
   const p1 = opts.filter((o) => !o.plan.advanced);
   const q = fillProblem(rec, at, p1, input.planets.length);
   if (!q) return null;
@@ -1137,7 +1114,7 @@ function* fillOf(input: PlanInput, rec: TeamRecipe, sites: TeamSite[], opts: Opt
   if (!f || f.key.R < top - 1e-6) return null;
   const S = new Float64Array(rec.goods.length);
   f.sol.cnt[1].forEach((n, q) => { for (let g = 0; g < S.length; g++) S[g] += n * p1[q].v[g]; });
-  const n = factoriesAt(rec, S, f.key.R);
+  const n = factoriesAt(rec, f.key.R);
   const made = rec.p2.map((t) => Math.max(0, t.beta * f.key.R - Math.min(S[t.g], t.beta * f.key.R)));
   let m3 = 0;
   for (let k = 0; k < rec.p1; k++) m3 += (rec.alpha[k] * f.key.R + rec.p2.reduce((x, t, j) => x + t.per[k] * made[j], 0)) * (input.ix.byId.get(rec.goods[k])?.volume ?? 0);
@@ -1264,9 +1241,20 @@ export function keptTeam(input: PlanInput, kept: KeptPlan): Setup {
   if (!factories.length) return withKept(blocked(input, 'team', KEPT_NOT_HERE, []), kept, []);
   const S = new Float64Array(rec.goods.length);
   for (const c of colonies) for (const sh of c.plan.ships) { const g = rec.goods.indexOf(sh.id); if (g >= 0) S[g] += sh.perDay; }
-  const n = (id: number) => factories.reduce((t, f) => t + (f.fixed?.get(id) ?? 0), 0);
-  let R = Math.min(supplyRate(rec, S), n(tree.x) * rec.xDay);
-  rec.p2.forEach((t) => { R = Math.min(R, (S[t.g] + n(rec.goods[t.g]) * t.day) / t.beta); });
+  // What the kept factory planets' whole sets make (Ruling F27), and the shipments allow.
+  const kinds = [...rec.p2.map((t) => rec.goods[t.g]), tree.x];
+  const R = Math.min(supplyRate(rec, S), factories.reduce((t, f) => t + keptSets(rec, kinds, f.fixed!), 0) * rec.xDay);
   if (!(R > MIN_RATE) || !Number.isFinite(R)) return withKept(blocked(input, 'team', `Your kept planets don’t ship every P1 ${goodName(ix, tree.x)} takes`, []), kept, []);
-  return withKept(teamSetup(input, tree, rec, team, colonies, factories, R, {}), kept, keptNotes(kept, team.map((w) => w.c)));
+  // Ruling F27-1: a plan kept before feeders made P1 only (F26) and factory planets ran whole sets (F27) is drawn as kept, never altered,
+  // with a note, and today's layout is offered beside it whatever the margin (`newerThan`).
+  const p2Feeder = kept.planets.some((p) => p.does !== 'factory' && p.makes.length > 0);
+  const unwhole = factories.some((f) => {
+    const n = keptSets(rec, kinds, f.fixed!);
+    return kinds.some((id, j) => (f.fixed!.get(id) ?? 0) !== n * (j < rec.p2.length ? rec.p2[j].set : 1)) || [...f.fixed!.keys()].some((id) => !kinds.includes(id));
+  });
+  const legacy = p2Feeder || unwhole;
+  const notes = keptNotes(kept, team.map((w) => w.c));
+  if (legacy) notes.push('Kept before feeders made P1 only and factory planets ran whole sets: its feeders’ P2 and its factory counts are as you kept them. Use the new one for today’s layout');
+  const out = withKept(teamSetup(input, tree, rec, team, colonies, factories, R, {}), kept, notes);
+  return legacy ? { ...out, kept: { ...out.kept!, legacy: true } } : out;
 }

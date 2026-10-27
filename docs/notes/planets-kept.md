@@ -66,6 +66,13 @@ planets.md, the ranking in planets-planner.md.
   - **Bounded at 45 s** (`LIVE_READ_BOUND_MS`; fix round 1's M7): neither `esi()` nor the cloud's reads set a timeout, and a read that hangs
     without failing would have held "Working it out…" for good. Past the bound the rows are worked out on what came in, saying how many reads
     hadn't ("… so these are worked out on what had: those goods are on this morning's books"), and worked out again when they land.
+- **The rows stay while the morning's market is read again, not for a lasting reason** (Ruling F27-2, `usePlanned`'s `keep`, `PlanetMarket.pending`;
+  team-p1). Keeping the last rows whenever the input was null (so nothing folds on a refresh) also kept them when it was null for good: a scan emptied
+  in this browser left rows priced on it, "Working them out again…" over them for ever (Show for on a character whose skills aren't read hides the rows
+  through `blockedWhy` anyway, so the page case can't use it). `usePlanning`'s `lastO` fallback is gated the same way. `pending` is
+  true only while the market scan, the cloud's home-markets list or the hub's prices are being read; otherwise the rows go and the reason
+  shows. A hub whose read fails leaves the market ready, so that isn't a case. The page case's fold test empties the scan with rows drawn
+  and asserts none, the reason and no "Working them out again", then restores it (planted with keep always, 6 rows stayed and it failed); the refresh events still keep every fold.
 - **Causes 3 and 4** (the hub region's history emptied on a change of goods; the hub's own read ageing out with the page open) are fixed
   where they live: industry-home.md.
 

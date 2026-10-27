@@ -381,7 +381,7 @@ export type Setup = {
    * A plan you kept (planner fix 2, `planKept`): when it was kept, and what's to be said of it that no line does (its planets more than
    * the character shown has, say). Absent for a setup the planner worked out.
    */
-  kept?: { at: string; notes: string[] };
+  kept?: { at: string; notes: string[]; legacy?: boolean };
   /** A factory character's own figures (piTeam.ts): each character's part, each factory planet's load, the fill count and the hand-over. */
   team?: TeamFigures;
 };
