@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/hangarCheck.ts"
+  - "src/components/{HangarCheck,Positions}.tsx"
+---
+
 # Positions, fees and results: Check my hangar
 
 Split from positions-results.md on 19 October 2026. Decisions worth not undoing. Check my hangar: which of what you hold

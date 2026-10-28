@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{prospects,evaluate,planner,relist,orderCheck,positions}.ts"
+  - "src/components/{Prospects,Planner,Orders,Positions}.tsx"
+---
+
 # Honest limits in the model
 
 State these rather than letting them be discovered.

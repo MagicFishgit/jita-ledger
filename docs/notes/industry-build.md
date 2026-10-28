@@ -1,3 +1,12 @@
+---
+paths:
+  - "src/lib/{industryRank,industrySites,industryLadder,nameReader}.ts"
+  - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,industryFinder.ts}"
+  - "src/components/FindStructure.tsx"
+  - "scripts/industry-bundle.mjs"
+  - "worker/src/goonmetrics.ts"
+---
+
 # Industry: build sites, the finder, the ladder and Tech II
 
 Split from industry.md on 19 October 2026: stage 1's decisions on where to build and what pays. Decisions worth not

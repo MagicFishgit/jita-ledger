@@ -1,9 +1,21 @@
+---
+paths:
+  - "src/lib/{colonies,colony,colonyStore,colonyChain,colonyTotals}.ts"
+  - "src/components/hustles/Colonies.tsx"
+  - "worker/src/planets.ts"
+  - "src/components/hustles/Planets.tsx"
+---
+
 # Planets: the colonies
 
 Decisions worth not undoing. Your colonies as the app keeps them: the synced `colonies` document, the cloud's hourly read of
 the main's, and the Planets tab's Colonies section. Stage 1 keeps the main's, so the planner can learn extraction from them
 (planets.md); stage 2 (Tasks 14–17) adds every character's, read by the cloud with each alt's own login. The rest of Planets is
 in planets.md and planets-planner.md.
+
+The rest of Planets (the bundle, the readings, customs tax, the page) is in `docs/notes/planets.md`, the planner in
+`docs/notes/planets-planner.md` and the prices it values at in `docs/notes/planets-market.md`: Read them before changing what the
+planner learns from a colony.
 
 - **The `colonies` document** (`colonies.ts`, pure, the Worker imports it; Task 4): ESI's colony in the app's names, every pin
   with its install, expiry, last cycle, schematic, extractor (cycle, product, `qty`, heads) and contents, and the links and

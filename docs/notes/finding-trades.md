@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{prospects,evaluate,scan,share,arbitrage,planner,snipe}.ts"
+  - "src/components/{Prospects,Planner,Sniper,Arbitrage,ScanFreshness,ShareCheck,Watchlist,NearMisses}.tsx"
+  - "worker/src/{scan,hist,scanTimes,snipe}.ts"
+---
+
 # Finding trades
 
 Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-market scan, the Sniper and Place and leave: how candidates are found, sized and priced.

@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/colonyChain.ts"
+  - "src/components/hustles/Colonies.tsx"
+---
+
 # Planets: a colony's chain
 
 Decisions worth not undoing. A real colony's chain, worked out from its kept document (`colonyChain.ts`, pure): which pin feeds
@@ -6,6 +12,11 @@ that planet (`versusBest`). Split from planets-colonies.md on 19 October 2026 (T
 loaded 139,263 of 140,000), which keeps the `colonies` document, the cloud's reads and the Colonies section; what the chain shares
 with the planner (`keptWhy` and the export rule, I1, `soldOf`, F11's Jita figure) is in planets-market.md, the rest of the planner
 in planets-planner.md.
+
+The `colonies` document, the cloud's reads and the Colonies section are in `docs/notes/planets-colonies.md`; what the chain shares
+with the planner (`keptWhy` and the export rule, an unvalued good, `soldOf`, F11's Jita figure and `fallbackGoods`) in
+`docs/notes/planets-market.md`, the rest of the planner in `docs/notes/planets-planner.md`: Read them before changing what the
+chain shares with them.
 
 - **A colony's real chain** (Task 15 and its fix rounds, `colonyChain`, `versusBest` in `colonyChain.ts`, pure; drawn by Colonies since Task 16, each colony at its own character's fees: planets-colonies.md).
   From a kept colony and the planet's customs tax (`customsRate`'s, passed in: the document carries no security or skills):

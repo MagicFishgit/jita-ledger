@@ -151,8 +151,14 @@ The heaviest file to open was then `Orders.tsx`, at about 120,000. The Planets n
 `Orders.tsx` 201,842) and 94,461 loaded at the start. So limits.md left the start, and industry, finding-trades,
 market-reading, orders-alerts and positions-results were split by area (no fact cut): now 58,865 at the start and none
 past 136,310 (`Todo.tsx`). Run it after adding to a note: it fails at 140,000, and the fix is the same split by area.
+On 28 October 2026 Claude Code (2.1.312) warned of 51 instruction files and 734,400 characters at the start: it had
+begun loading a path-scoped rule's `@` imports at once, while still holding the rule's own text back until a matching
+file is read (probed in a scratch project). So no rule imports its note any more: each `.claude/rules/<topic>.md` is a
+symlink to `docs/notes/<topic>.md`, and the `paths:` frontmatter sits at the top of the note. Back to 61,037 at the start;
+`npm run notes-budget` now fails if a rule imports anything.
 
-Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
+Loaded when you read a file it covers (`.claude/rules/<topic>.md`, a symlink to the note, whose frontmatter lists the
+`paths:`). A
 session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
 answering in its area**. A file loads only the parts about it: a page or shell that touches other areas (Orders, To do,
 a tab's shell) doesn't load theirs, so Read them too:
@@ -217,9 +223,10 @@ note ends with a `## Limits` for the decisions it holds (Industry's are in its p
 orders-alerts-todo, the Wallet's and Results' in positions-results-wallet), and limits.md keeps the three that hold for
 all trading. `grep -n '^## Limits' docs/notes/*.md` lists them.
 
-Keeping it that way: a new source file goes in its topic's `paths:`; a new note gets a rule of its own rather than an
-import here, and its honest limits a `## Limits` section at its end; and a rule's frontmatter has to stay valid YAML,
-since one that doesn't parse is loaded at the start like an import. `/context` lists what a session has loaded.
+Keeping it that way: a new source file goes in the `paths:` at the top of its topic's note; a new note gets that
+frontmatter and a rule of its own (`ln -s ../../docs/notes/<topic>.md .claude/rules/<topic>.md`), never an import here
+or in a rule, and its honest limits a `## Limits` section at its end; and the frontmatter has to stay valid YAML, since
+one that doesn't parse is loaded at the start like an import. `/context` lists what a session has loaded.
 
 @docs/notes/cloud.md
 @docs/notes/app-conventions.md

@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{alerts,alertsRunner,mailAlerts,notifyArt,lootList,lootMarket,assetSafety,actions,openLink,marketLink,sync,esiRecords,hangarCheck}.ts"
+  - "src/open.ts"
+  - "src/components/{Loot,ListStock,SellWindowBanner,AssetSafety,HangarCheck}.tsx"
+  - "worker/src/{alerts,safety,watchdog,checks,archive}.ts"
+---
+
 # EVE facts: mail, the client and asset safety
 
 What EVE mail, notifications, the Sell window, inventory filters and asset safety do, checked in the user's client. Split

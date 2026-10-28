@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{lootList,lootMarket}.ts"
+  - "src/components/{Loot,SellWindowBanner}.tsx"
+---
+
 # Orders, To do and alerts: List loot
 
 Split from orders-alerts.md on 19 October 2026. Decisions worth not undoing. List loot: a hangar of loot priced for the

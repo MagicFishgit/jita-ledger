@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{setupCheck,planetBoard}.ts"
+  - "src/components/hustles/PlanetBoard.tsx"
+---
+
 # Planets: the plan board and Check my setup
 
 Decisions worth not undoing. How Plan draws a setup (a row until opened, then the plan at a glance and a card a planet), each planet's
@@ -6,6 +12,9 @@ itself suffers from information overload. if we can use better ui to help you un
 great", then "a button i could press per planet to have it check if i have done the setup right. just be sure it doesn't moan if i was
 able to fit 3 factories if it recommends 2 for example because that is better". Nothing here works a setup out: piPlan.ts is untouched,
 the board draws its roles. The ranking is in planets-planner.md, a kept plan in planets-kept.md, a colony's chain in planets-chain.md.
+
+The ranking is in `docs/notes/planets-planner.md`, a kept plan in `docs/notes/planets-kept.md`, a colony's chain in
+`docs/notes/planets-chain.md`: Read them before changing what the board draws from or what the check reads.
 
 - **A setup is a row until it's opened** (`SetupRow` in PlanetsPlan.tsx, its head's `data-planets="open"`): its kind, its figure (units
   a day under Plan it, else ISK a day), the planets it uses and its tags, each tag's sentence in its tip (May be short, Doesn't fit, No

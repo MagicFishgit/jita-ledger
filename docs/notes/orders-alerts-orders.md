@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/todo.ts"
+  - "src/components/{Orders,Todo}.tsx"
+  - "worker/src/alerts.ts"
+---
+
 # Orders, To do and alerts: the Orders page
 
 Split from orders-alerts.md on 19 October 2026. Decisions worth not undoing. What the Orders page says and does beside

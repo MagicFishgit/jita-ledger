@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/copyMarket.ts"
+  - "worker/src/copies.ts"
+  - "worker/migrations/0020_copies.sql"
+---
+
 # Industry: the cloud's copy round
 
 Split from industry.md on 19 October 2026: stage 3's cloud side. Decisions worth not undoing. What copies sell, counted

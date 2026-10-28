@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{copyFinder,copyContracts,copyMarket}.ts"
+  - "src/components/hustles/{IndustryCopies.tsx,industryMarket.ts}"
+---
+
 # Industry: the Copies section and your copy contracts
 
 Split from industry.md on 19 October 2026: stage 3's browser side. Decisions worth not undoing. What's worth copying for

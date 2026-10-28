@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{loyalty,lpStore,freelance,freelanceStore,jumps,reprocess,skills,skillStatus}.ts"
+  - "src/components/{Loyalty,SideHustles,Reprocess,SkillStrip}.tsx"
+  - "src/components/hustles/{Freelance,SkillPanel}.tsx"
+---
+
 # Loyalty and side hustles
 
 Decisions worth not undoing. Loyalty points, freelance jobs, reprocessing and skills. Mining is in

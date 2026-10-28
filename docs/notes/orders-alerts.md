@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{alerts,alertsRunner,mailAlerts,notifyArt,track,watchdog,signals,watch,marketLink,openLink}.ts"
+  - "src/open.ts"
+  - "worker/src/{alerts,checks,watchdog}.ts"
+---
+
 # Orders, To do and alerts
 
 Decisions worth not undoing. What the app tells you to do about your orders and colonies, and how it reaches you: the To do list, browser notifications and in-game mail.

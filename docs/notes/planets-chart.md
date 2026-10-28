@@ -1,8 +1,16 @@
+---
+paths:
+  - "src/components/hustles/PlanetsChart.tsx"
+  - "src/lib/piChart.ts"
+---
+
 # Planets: the Chart
 
 Decisions worth not undoing. The Chart (`hustles/planets/chart`): every planetary good by tier, a picked good's recipe drawn down to P0,
 and which setups can make it in the system Plan plans. Split from planets.md on 25 October 2026, word for word (the notes budget:
 `planetsPlanning.ts` loaded 139,601 of 140,000); the rest of the page is there, the prices it shows in planets-market.md.
+
+The rest of the Planets page is in `docs/notes/planets.md`, the prices it shows in `docs/notes/planets-market.md`.
 
 - **Chart** (`PlanetsChart.tsx`, `piChart.ts`): the 83 goods by tier from the bundle (never evehelper's data), each tier most ISK a
   unit first, a good not valued last (24 October 2026, the user: "so i can easily see the highest earners first"), each valued a unit

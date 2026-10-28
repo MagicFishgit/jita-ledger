@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{positions,feeMatch,fees,heldCost,emptyData}.ts"
+  - "src/components/{Positions,PositionDetail,ListStock}.tsx"
+---
+
 # Positions, fees and results
 
 Decisions worth not undoing. How a position, a fee and a period's results are worked out, and what the Wallet, goals and standings pages count.

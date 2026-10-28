@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{todo,contracts,actions}.ts"
+  - "src/components/Todo.tsx"
+---
+
 # Orders, To do and alerts: To do
 
 Split from orders-alerts.md on 19 October 2026. Decisions worth not undoing. How To do lists, judges and ticks off each

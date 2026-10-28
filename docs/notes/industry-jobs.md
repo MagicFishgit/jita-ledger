@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{industryTrack,industryOwned,industryReads}.ts"
+  - "src/components/hustles/{IndustryOwned.tsx,IndustryStart.tsx,IndustrySites.tsx,industryChars.ts}"
+  - "src/data/industryEiv.json"
+  - "worker/src/industryJobs.ts"
+---
+
 # Industry: blueprints and jobs
 
 Split from industry.md on 19 October 2026: stage 2 whole. Decisions worth not undoing. Jobs and blueprints as the app

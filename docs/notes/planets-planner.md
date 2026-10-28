@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{piPlan,sameValue}.ts"
+  - "src/components/hustles/{PlanetsPlan.tsx,planetsMarket.ts}"
+  - "src/components/hustles/Planets.tsx"
+---
+
 # Planets: the planner
 
 Decisions worth not undoing. How Plan ranks a system's setups (`src/lib/piPlan.ts`); the prices it sells and buys at, the bought
@@ -6,6 +13,10 @@ setup's exact sizing (`lp.ts`) and the upkeep are in `planets-market.md`, the fe
 `planets-colonies.md`. Each ruling's number is the ledger's
 (`.superpowers/sdd/2026-10-17-planets/progress.md`); the evidence is in that folder's task reports and reviews, the probes in
 `.playwright-mcp/planets-build/` (gitignored).
+
+The prices it sells and buys at, the bought setup's sizing and the upkeep are in `docs/notes/planets-market.md`, the feed, the
+chain and the searches' budget in `docs/notes/planets-searches.md`. The page, the `planets` document, the readings and customs tax
+are in `docs/notes/planets.md`: Read it before changing the Plan section's inputs or wording.
 
 - **What every setup counts.** Rates come from the schematics, never typed: a Basic takes 6,000 P0 an hour for 40 P1, an Advanced
   40 of each of two P1s for 5 P2, a P3 20 or 30 P2s for 3, a P4 on a High-Tech plant (Barren and Temperate only). Extraction is the

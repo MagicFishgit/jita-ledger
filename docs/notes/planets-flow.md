@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{piFlow,piChar}.ts"
+  - "src/components/hustles/PlanetsSetup.tsx"
+---
+
 # Planets in four steps: product, who and how, system, plan
 
 Decisions worth not undoing. The Planets tab walked as four steps (`Planets.tsx`, `PlanetsSetup.tsx`, `src/lib/piFlow.ts`, `src/lib/piChar.ts`;
@@ -7,6 +13,9 @@ to the system finder and after I have selected that show me the planner so I can
 and calculating as long as when you click "next" to go to the next step you UI telling you it's busy working with progress." Find ranked every
 system for one character, so on their rates almost every Tenerifis system tied at 113.24, 109.91 or 108.00 a day and went by jumps (DT-PXH
 first, 7M4C-F about 18th), where a team's best is the systems with two or more planets of the scarce P0 (`factory-main/systems.md`).
+
+The page is in `docs/notes/planets.md`, Find in `docs/notes/planets-finder.md`, the factory character in
+`docs/notes/planets-team.md`: Read them before changing who a plan is made for.
 
 - **The steps** (`SECTIONS`): **1 Product** (the Chart, `chart`), **2 Who and how** (`setup`), **3 System** (Find, `find`), **4 Plan** (`plan`), then
   Colonies apart, numbered in the section switch. The addresses and the kept section stay, so every deep link lands where it did (an old

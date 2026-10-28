@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{pi,piBundle,piExtraction,piFit,piLearn,piChart,planetsDoc}.ts"
+  - "src/components/hustles/{Planets.tsx,PlanetsChart.tsx,planetsBundle.ts,planetsPlanning.ts}"
+  - "src/data/{planets,planetRadii}.json"
+  - "scripts/planets-bundle.mjs"
+---
+
 # Planets
 
 Decisions worth not undoing. The Planets side hustle (Side hustles → Planets): the static-data bundle, what fits on a planet,
@@ -12,6 +20,10 @@ planet to save on management time. I don't know if this is the most profitable."
 `.playwright-mcp/research/planets/` (gitignored: `mechanics.md` gives each fact's source and how sure it is). Stage 1 (plan a
 system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`; stage 2 (every character's colonies) is Tasks
 14–17.
+
+The planner's own rules are in `docs/notes/planets-planner.md` (the setups), `docs/notes/planets-market.md` (the prices it buys
+and sells at, the exact sizing) and `docs/notes/planets-searches.md` (the feed, the chain, the searches), the colonies in
+`docs/notes/planets-colonies.md`: Read them before changing what a setup counts or what a colony keeps.
 
 - **The bundle is CCP's static data, not ESI** (`scripts/planets-bundle.mjs`, build 3569502, `SDE_ZIP=` reuses a download; a
   rebuild of the same build is byte-identical). ESI's schematic route gives only a name and a cycle time, and nothing of pin

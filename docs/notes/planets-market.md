@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{piPlan,lp,colonyChain}.ts"
+  - "src/components/hustles/{planetsMarket.ts,PlanetsPlan.tsx,PlanetsChart.tsx}"
+---
+
 # Planets: what Plan sells and buys at
 
 Decisions worth not undoing. The prices the planner values goods at and buys inputs at (`planetsMarket.ts`, `soldOf`, `boughtOf`,
@@ -5,6 +11,9 @@ Decisions worth not undoing. The prices the planner values goods at and buys inp
 (`planBought`, `lp.ts`) and the upkeep. Moved from planets-planner.md on 19 October 2026, every fact kept (Task 15c; the notes
 budget: Planets.tsx loaded 138,720 of 140,000); how Plan ranks the rest is there, the feed, the chain and the searches in
 planets-searches.md. Each ruling's number is the ledger's (`.superpowers/sdd/2026-10-17-planets/progress.md`).
+
+How Plan ranks the rest is in `docs/notes/planets-planner.md`, the feed, the chain and the searches in
+`docs/notes/planets-searches.md`: Read them before changing what a setup counts.
 
 - **An unvalued good is neither credited nor taxed** (the final review's I1; `assess`, `valueFed`). It is still shipped (nothing says
   how much would build up), but its export tax goes with its sale: with no hub picked, P0 → P1 and P0 → P2 ranked first on a loss

@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,training,income,everyItem,emptyData,industryTrack}.ts"
+  - "src/components/{Results,Wallet,Goals,AssetSafety,Omega}.tsx"
+  - "src/components/{activityEvents,payback}.ts"
+  - "worker/src/safety.ts"
+---
+
 # Positions, fees and results: Results, the Wallet and income
 
 Split from positions-results.md on 19 October 2026. Decisions worth not undoing. What Results, the Wallet, Omega and

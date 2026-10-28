@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{fills,prospects,evaluate,relist}.ts"
+  - "src/components/{Calculator,Prospects}.tsx"
+---
+
 # Reading the market
 
 Decisions worth not undoing. How the app judges a book, a price and a pace: where trading reaches, who buys and who sells, when an order is worth moving. Most of it was measured on the user's own orders before it was built.

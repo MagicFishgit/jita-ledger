@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/**/*"
+  - "worker/**/*"
+  - "scripts/**/*"
+---
+
 # EVE facts that cost real research
 
 Things about EVE and ESI that took real research or a real mistake to learn: ESI itself, logins and accounts, the wallet

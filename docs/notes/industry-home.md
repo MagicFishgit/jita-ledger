@@ -1,3 +1,13 @@
+---
+paths:
+  - "src/lib/{homeMarket,bookFold,industrySites,industryRank}.ts"
+  - "src/components/hustles/{IndustryHome.tsx,IndustryBuild.tsx,IndustryDetail.tsx,industryMarket.ts,industryFinder.ts}"
+  - "src/components/FindStructure.tsx"
+  - "worker/src/{goonmetrics,structures,homeMarkets}.ts"
+  - "src/data/industryTypes.json"
+  - "worker/migrations/{0019_home_prices,0021_home_markets}.sql"
+---
+
 # Industry: home markets
 
 Split from industry.md on 19 October 2026: stage 1's prices from Goonmetrics, then stage 4 whole. Decisions worth not

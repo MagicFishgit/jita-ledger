@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{altStore,altLedger,roster,income,accounts}.ts"
+  - "src/components/{Characters.tsx,charIncome.ts,Wallet.tsx,Todo.tsx}"
+  - "src/components/hustles/{Mining.tsx,miningFleet.ts}"
+  - "scripts/{income,ledgers}.mjs"
+---
+
 # Several characters
 
 Decisions worth not undoing. How alts (characters on the owner's other accounts) are kept apart from the main, on the

@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{flow,flowStore,split,rhythm,orderCheck,market,relist}.ts"
+  - "src/components/{Orders,Calculator}.tsx"
+  - "worker/src/market.ts"
+---
+
 # Reading the market: who trades, and how fast
 
 Split from market-reading.md on 19 October 2026. Decisions worth not undoing. The buyer/seller split, Clears in, the

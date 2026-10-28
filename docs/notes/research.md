@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{research,researchStart,researchTrack}.ts"
+  - "src/components/hustles/{Research.tsx,ResearchSteps.tsx,ResearchCards.tsx,ResearchTotals.tsx,researchChars.ts,researchMarket.ts,researchWorth.ts,researchBundle.ts}"
+  - "src/data/researchAgents.json"
+  - "scripts/research-agents.mjs"
+---
+
 # Research (R&D agents)
 
 Decisions worth not undoing. The Research tab under Side hustles: R&D agents, which turn a field skill into research

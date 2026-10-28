@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/planner.ts"
+  - "src/components/Planner.tsx"
+---
+
 # Finding trades: the Capital planner's mix
 
 Split from finding-trades.md on 19 October 2026. Decisions worth not undoing. How the Capital planner builds its mix

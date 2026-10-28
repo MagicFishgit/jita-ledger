@@ -1,3 +1,13 @@
+---
+paths:
+  - "src/lib/{industry,altFees}.ts"
+  - "src/components/hustles/{Industry.tsx,industryChars.ts,industryBundle.ts,industryMarket.ts}"
+  - "src/data/{industry,industryEiv,industryTypes}.json"
+  - "scripts/industry-bundle.mjs"
+  - "worker/src/industryNpc.ts"
+  - "worker/migrations/0018_industry_npc.sql"
+---
+
 # Industry
 
 Decisions worth not undoing. The Industry side hustle (Side hustles → Industry): what to build, where, and what it pays;

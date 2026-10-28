@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{altLedger,income,accounts}.ts"
+  - "src/components/{Characters.tsx,charIncome.ts,Wallet.tsx}"
+  - "scripts/{income,ledgers}.mjs"
+---
+
 # Several characters: the Characters page, accounts and what each earned
 
 Split from characters.md on 24 October 2026 (the notes budget: Todo.tsx loaded 139,125 of 140,000), every fact kept. Decisions worth not undoing. Which account each character is on, the Characters page's cards (not known is never a zero), what each character earned and mined, `check-income`, and the limits of these. How alts are kept apart and transfers are in characters.md.

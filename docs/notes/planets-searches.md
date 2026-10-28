@@ -1,9 +1,18 @@
+---
+paths:
+  - "src/lib/piPlan.ts"
+  - "src/components/hustles/{planetsPlanning.ts,PlanetsPlan.tsx}"
+---
+
 # Planets: the feed, the chain and the searches
 
 Decisions worth not undoing. Plan's multi-planet setups (`planFeed`, `planChain` in `piPlan.ts`) and the budget and steps their
 searches run in (`searchPools`, `planSteps`; the page drives them, `planetsPlanning.ts`). Moved from planets-planner.md on 19 October
 2026, every fact kept (Task 15c; the notes budget); the single-planet setups, F9 and the ranking are there, the prices and the bought
 setup in planets-market.md. Each ruling's number is the ledger's (`.superpowers/sdd/2026-10-17-planets/progress.md`).
+
+The single-planet setups, F9 and the ranking are in `docs/notes/planets-planner.md`, the prices and the bought setup in
+`docs/notes/planets-market.md`: Read them before changing what a setup counts or sells at.
 
 - **Feed** (`planFeed`): extraction planets make P1 (or a P2 alone) and ship to one factory planet making a P2 or P3, the three P2s
   no planet makes alone among them; export tax at each feeder, import at half and export at the factory.

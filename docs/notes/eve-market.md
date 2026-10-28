@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{relist,fills,flow,flowStore,split,tick,rhythm,orderCheck,market,heldCost,evaluate,prospects,scan,planner,plans,snipe,sniped,share,arbitrage,signals,watch,lootList,lootMarket,loyalty,lpStore,orePricing,reprocess,esi,cacheHeaders}.ts"
+  - "src/components/{Orders,Calculator,Prospects,Planner,PlanStart,Sniper,Arbitrage,Watchlist,NearMisses,Loot,Loyalty,Reprocess}.tsx"
+  - "worker/src/{market,scan,hist,snipe,alerts,rate}.ts"
+---
+
 # EVE facts: the market
 
 What ESI's market data says and doesn't: books, history, prices, rate limits. Split from eve-facts.md on 1 October 2026.

@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/piTeam.ts"
+  - "src/components/hustles/PlanetsTeam.tsx"
+---
+
 # Planets: a factory character
 
 Decisions worth not undoing. Plan's sixth setup kind, `team`, "A factory character" (`src/lib/piTeam.ts`; its lines in
@@ -10,6 +16,9 @@ gitignored; its solver `team2.mjs`, a branch and bound over `lp.ts`) found pooli
 planets makes about 10% more than each repeating its own fed factory, and a factory-only main loses (it gives up its own feeders). The
 brief is `.superpowers/sdd/2026-10-17-planets/team-dispatch.md`. The rest of Plan is in planets.md, planets-planner.md and
 planets-searches.md, the board in planets-board.md, a kept plan in planets-kept.md.
+
+The rest of Plan is in `docs/notes/planets.md`, `docs/notes/planets-planner.md` and `docs/notes/planets-searches.md`, the board in
+`docs/notes/planets-board.md`.
 
 - **When it's offered** (`planTeamSteps`): under Plan it alone, held to a P2 or P3 (`NO_ONLY`, "A factory character plans one good: hold
   Plan to a P2 or a P3 (Plan it, on the Chart)"; a P4, "its factory planets make P2 and P3 only (a P4 is the chain’s)", `SELLS.team`),

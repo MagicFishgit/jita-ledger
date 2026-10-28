@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{relist,orderCheck,heldCost,tick,fills,split,flow}.ts"
+  - "src/components/Orders.tsx"
+---
+
 # Reading the market: what Orders advises
 
 Split from market-reading.md on 19 October 2026. Decisions worth not undoing. The verdict on each of your orders (move,

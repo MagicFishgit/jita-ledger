@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/piFinder.ts"
+  - "src/components/hustles/PlanetsFind.tsx"
+  - "src/data/planetRegions.json"
+---
+
 # Planets: the system finder
 
 Decisions worth not undoing. Find (`hustles/planets/find?good=<id>&region=<id>`): every system of a region planned for one good, so
@@ -6,6 +13,9 @@ something like a feature to find which system to build in for the chosen good wo
 (`.playwright-mcp/research/planet-richness/report.md`) found a planet's richness in no API or static data (eve-planets.md); the user
 chose this finder on what is certain, plus each planet's own learned rate where they have colonies ("option 2"), and no typed scan
 ratings ("not option 3"). The rest of Planets is in planets.md, the planner in planets-planner.md and planets-searches.md.
+
+The bundle and the page are in `docs/notes/planets.md`, the planner in `docs/notes/planets-planner.md` and
+`docs/notes/planets-searches.md`: Read them before changing what a system is planned on.
 
 - **Its data is the bundle's, never ESI's** (`scripts/planets-bundle.mjs`, build 3569502). `planetRadii.json` carries each planet's type as
   its value's last digit (radius in km × 10 + an index into `PI_TYPE_IDS`, the same list in the script and `piBundle.ts`; `decodeRadii`

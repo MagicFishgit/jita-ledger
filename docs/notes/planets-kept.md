@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{planKeep,piLearn,planetsDoc,piPlan}.ts"
+  - "src/components/hustles/{planetsPlanning.ts,PlanetsPlan.tsx}"
+---
+
 # Planets: a plan kept, and rates that outlast a colony
 
 Decisions worth not undoing. Planner fix 2 (24 October 2026): Keep this plan, the learned rates' record, and Plan it's rows drawn from
@@ -7,6 +13,9 @@ they build over hours and switch Show for between their characters while plannin
 (`.superpowers/sdd/2026-10-17-planets/planner-bugs-report.md`, Bug 2) drew six layouts and 23 changes in 200 s in a browser, from six
 causes; fix 1's units objective took the pace out of the held search (planets.md), this takes out the rest. The rest of Planets is in
 planets.md, the ranking in planets-planner.md.
+
+The rest of Planets is in `docs/notes/planets.md`, the ranking in `docs/notes/planets-planner.md`: Read them before changing what
+a kept plan rests on.
 
 - **Keep this plan** (`planKeep.ts`, pure: `keptOf`, `keptPlanetsOf`, `layoutKey`, `basisOf`, `newerThan`, `changedSince`; piPlan's
   `planKept`, `keptFed`, `keptSingle`, `keptPlanOf`; `KeptPlanBlock` in PlanetsPlan.tsx; the `planets` doc's `systems[<system>].kept[<good>]`).

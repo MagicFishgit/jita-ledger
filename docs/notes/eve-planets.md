@@ -1,3 +1,12 @@
+---
+paths:
+  - "src/lib/{colony,colonyStore,colonies,pi,piBundle,piExtraction,piFit,piLearn,piChart,piPlan,planetsDoc}.ts"
+  - "src/components/hustles/{Planets.tsx,PlanetsPlan.tsx,PlanetsChart.tsx,Colonies.tsx,planetsBundle.ts,planetsMarket.ts,planetsPlanning.ts}"
+  - "src/data/{planets,planetRadii}.json"
+  - "scripts/planets-bundle.mjs"
+  - "worker/src/planets.ts"
+---
+
 # EVE facts: planetary industry
 
 What ESI and CCP's static data say and don't about planets, colonies and their goods. Split from eve-facts.md on 1 October

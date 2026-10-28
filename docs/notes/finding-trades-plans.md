@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{plans,todo}.ts"
+  - "src/components/{PlanStart,Todo}.tsx"
+  - "src/components/planListing.ts"
+---
+
 # Finding trades: a plan started
 
 Split from finding-trades.md on 19 October 2026. Decisions worth not undoing. What "Start this plan" makes and what

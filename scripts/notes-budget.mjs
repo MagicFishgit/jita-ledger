@@ -3,8 +3,12 @@
 // - CLAUDE.md, with its `@` imports resolved recursively (relative to the file holding them, up to five hops, never
 //   inside a code span or a fenced block, only paths that exist);
 // - a `.claude/rules/*.md` without `paths:` is loaded at the start too;
-// - reading a file adds every rule whose `paths:` globs match it (braces expanded, `**` any depth), with its imports.
-// A file loaded twice counts once. Characters are JavaScript string length.
+// - a rule with `paths:` has its own text loaded only on reading a file its globs match (braces expanded, `**` any
+//   depth), but its `@` imports at the start (Claude Code 2.1.312, probed 28 October 2026: a rule's inline text stayed
+//   out until a matching file was read, the note it imported was in from the first prompt). That is why each rule is a
+//   symlink to its note, frontmatter and all, never an import of it; this script exits 1 if a rule imports anything.
+// A file loaded twice counts once (by its real path, so a rule and the note it links to are one). Characters are
+// JavaScript string length.
 //
 // Why: Claude Code warns past 150,000 characters of instruction files, and these notes only grow (CLAUDE.md, "Notes by
 // topic"). It prints the always-loaded total and the heaviest 15 of every tracked file under src/, worker/ and scripts/,
@@ -29,14 +33,18 @@ function proseOf(text) {
   return text.replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`\n]*`/g, '');
 }
 
+function importsOf(file) {
+  return [...proseOf(read(file)).matchAll(/(?:^|\s)@([^\s)]+)/g)]
+    .map((m) => (m[1].startsWith('~/') ? path.join(process.env.HOME ?? '', m[1].slice(2)) : path.resolve(path.dirname(file), m[1])))
+    .filter((target) => fs.existsSync(target) && fs.statSync(target).isFile());
+}
+
 function load(file, seen, hops = 0) {
+  file = fs.realpathSync(file);
   if (seen.has(file)) return;
   seen.add(file);
   if (hops >= MAX_HOPS) return;
-  for (const m of proseOf(read(file)).matchAll(/(?:^|\s)@([^\s)]+)/g)) {
-    const target = m[1].startsWith('~/') ? path.join(process.env.HOME ?? '', m[1].slice(2)) : path.resolve(path.dirname(file), m[1]);
-    if (fs.existsSync(target) && fs.statSync(target).isFile()) load(target, seen, hops + 1);
-  }
+  for (const target of importsOf(file)) load(target, seen, hops + 1);
 }
 
 function expand(glob) {
@@ -86,6 +94,8 @@ const rules = fs.readdirSync(rulesDir).filter((f) => f.endsWith('.md')).sort().m
 const always = new Set();
 load(path.join(root, 'CLAUDE.md'), always);
 for (const r of rules) if (!r.res) load(r.file, always);
+const importing = rules.filter((r) => r.res && importsOf(r.file).length);
+for (const r of importing) for (const target of importsOf(r.file)) load(target, always, 1);
 
 const size = (set) => [...set].reduce((a, p) => a + read(p).length, 0);
 function measure(target) {
@@ -115,6 +125,11 @@ const over = all.filter((m) => m.total >= LIMIT);
 
 console.log(`Always loaded: ${fmt(size(always))} characters (${[...always].map(rel).join(', ')})`);
 if (unconditional.length) console.log(`Rules loaded at the start (no paths:): ${unconditional.join(', ')}`);
+if (importing.length) {
+  console.log(`\nRules whose @ imports load at the start whatever their paths: say: ${importing.map((r) => r.name).join(', ')}`);
+  console.log('Make each such rule a symlink to its note, with the paths: frontmatter at the top of the note (CLAUDE.md, "Notes by topic").');
+  process.exit(1);
+}
 console.log(`\nHeaviest 15 of ${all.length} tracked files under src/, worker/ and scripts/:`);
 for (const m of all.slice(0, 15)) console.log(`${fmt(m.total).padStart(9)}  ${m.target}  (${m.hit.join(', ')})`);
 if (over.length) {

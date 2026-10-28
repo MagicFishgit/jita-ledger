@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/lib/{prospects,planner,plans,scan}.ts"
+  - "src/components/{Planner,PlanStart}.tsx"
+---
+
 # Finding trades: Place and leave
 
 Split from finding-trades.md on 19 October 2026. Decisions worth not undoing. Place and leave: priced behind the front

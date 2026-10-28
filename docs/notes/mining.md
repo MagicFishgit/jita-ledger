@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/{mining,miningFits,miningMastery,miningTree,miningYield,orePricing,oreWhere,fitCpu,pilot}.ts"
+  - "src/components/pilot.tsx"
+  - "src/components/hustles/{Mining.tsx,MiningTree.tsx,MasteryTiers.tsx,BestOre.tsx,miningFleet.ts,rightNow.ts}"
+  - "worker/src/mining.ts"
+---
+
 # Mining
 
 Decisions worth not undoing. The Mining side hustle: the ledger and sessions, Scaling up's tree and fits, and mining

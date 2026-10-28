@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/{snipe,sniped,blueprints,bpContracts}.ts"
+  - "src/components/{Sniper,Blueprints,Arbitrage}.tsx"
+  - "worker/src/{snipe,kinds,blueprints}.ts"
+---
+
 # Finding trades: the Sniper, Multibuy and blueprint contracts
 
 Split from finding-trades.md on 19 October 2026. Decisions worth not undoing. The Sniper's mistake listings and high
