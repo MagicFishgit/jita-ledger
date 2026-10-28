@@ -1026,7 +1026,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .htabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .htabs > .htab:last-child:nth-child(odd) { grid-column: auto; }
 }
-@container (min-width: 1040px) { .htabs { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+/* Eight tabs side by side only where each keeps room for its blurb; four by two below (HyperNet made eight, 28 October 2026). */
+@container (min-width: 1400px) { .htabs { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .htab { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; padding: 11px 10px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line); text-align: left; color: var(--dim); }
 .htab svg { width: 18px; height: 18px; color: #8a9fb3; }
 .htab .hl { font-family: var(--f-head); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }

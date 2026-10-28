@@ -85,8 +85,9 @@ and industry-copies.md (the Copies section and your copy contracts).
   industry share (10%), never haul ships to Jita (on), the ME/TE assumed (0/0, 8/0 or 10/20). An NPC station's site keeps
   no rigs and takes 0.25%; a structure's tax not typed stays null, never 0. A Worker a version behind refuses the doc and
   `refusedDoc` holds it back.
-- **Seven Side hustles tabs**: the row is a container, seven columns from 1,040 px, four below, two on a phone with an odd
-  last tab across the row, so none sits alone. 172 px a tab (the old minimum) fitted six at 1,440.
+- **Side hustles tabs**: the row is a container, four columns from 560 px, two on a phone with an odd last tab across the row,
+  so none sits alone. Seven sat in a row from 1,040 px; since HyperNet made eight (28 October 2026), eight sit in a row only
+  from 1,400 px of container and four by two below it. 172 px a tab (the old minimum) fitted six at 1,440.
 - **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 2,959 types: every Tech I and Tech II
   product, their materials, the datacores and every planetary good (1,858 before Tech II, 2,916 before Planets)). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
   the finder has a Jita book and history for them; one with no Jita order still gets no row, and the finder says "No Jita

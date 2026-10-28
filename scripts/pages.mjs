@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/setup', 'hustles/planets/colonies', 'hustles/planets/find', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/setup', 'hustles/planets/colonies', 'hustles/planets/find', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/hypernet', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -1385,6 +1385,144 @@ try {
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'freelance', page: 'hustles/freelance', problems: unique });
     process.stdout.write(unique.length ? `  FAIL freelance #hustles/freelance\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   freelance #hustles/freelance (every job you did, rebuilt from the journal)\n');
+    await page.close();
+  }
+  // The HyperNet tab (28 October 2026, docs/superpowers/specs/2026-10-28-hypernet-trader-design.md): the design's worked
+  // case on the calculator (a Large Skill Injector at Jita's 735,600,000, a pot of 1.5×, HyperCores at 170,000, PLEX at
+  // 4,998,000: 110 cores, 18.7 M), and the main's record of three offers kept from EVE's notices: one sold out with two of
+  // its own nodes (who won not known, then marked), one expired with its nodes refunded, one still running. The main's
+  // own listing under Jita's cheapest must be left off the book. Desktop only (no phone design for this tab).
+  if (!PHONE && SHOWN.includes('hustles/hypernet') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('hypernet'))) {
+    const now = Date.now();
+    const iso = (t) => new Date(t).toISOString();
+    const DAY = 86400_000;
+    const note = (id, type, t, n, price) => ({ id: String(id), type, timestamp: iso(t), typeId: 40520, ticketCount: n, ticketPrice: price, locationId: 60003760, raffleId: null, winnerId: null, text: null });
+    const raffles = Object.fromEntries([
+      note(1001, 'RaffleCreated', now - 5 * DAY, 8, 137925000), note(1002, 'RaffleFinished', now - 4 * DAY, 8, 137925000),
+      note(2001, 'RaffleCreated', now - 12 * DAY, 16, 68962500), note(2002, 'RaffleExpired', now - 9 * DAY, 16, 68962500),
+      note(3001, 'RaffleCreated', now - DAY, 48, 22987500),
+    ].map((r) => [r.id, r]));
+    const UNKNOWN = '(unknown reference 143, 95210486, 1000299, None)';
+    const je = (id, t, refType, amount) => ({ id: String(id), date: iso(t), refType, amount, balance: 5e9, firstPartyId: 95210486, secondPartyId: 1000299, description: UNKNOWN });
+    const journal = Object.fromEntries([
+      je(9101, now - 5 * DAY + 60_000, 'flux_ticket_sale', -137925000), je(9102, now - 5 * DAY + 60_000, 'flux_ticket_sale', -137925000),
+      je(9103, now - 4 * DAY + 5000, 'flux_payout', 1103400000), je(9104, now - 4 * DAY + 5000, 'flux_tax', -55170000),
+      je(9111, now - 12 * DAY + 60_000, 'flux_ticket_sale', -68962500), je(9112, now - 12 * DAY + 60_000, 'flux_ticket_sale', -68962500), je(9113, now - 12 * DAY + 60_000, 'flux_ticket_sale', -68962500),
+      je(9114, now - 9 * DAY + 30_000, 'flux_ticket_repayment', 68962500), je(9115, now - 9 * DAY + 30_000, 'flux_ticket_repayment', 68962500), je(9116, now - 9 * DAY + 30_000, 'flux_ticket_repayment', 68962500),
+      je(9121, now - DAY + 120_000, 'flux_ticket_sale', -22987500),
+      je(9131, now - 2 * DAY, 'flux_ticket_sale', -4_000_000), // a ticket in someone else's offer: play, never hosting
+    ].map((j) => [j.id, j]));
+    const tx = (id, t, typeId, qty, unitPrice) => ({ id: String(id), source: 'esi', typeId, date: iso(t), isBuy: true, qty, unitPrice, locationId: 60003760 });
+    const txs = Object.fromEntries([
+      tx('h1', now - 13 * DAY, 40520, 1, 735600000), tx('h2', now - 6 * DAY, 40520, 1, 735600000), tx('h3', now - 2 * DAY, 40520, 1, 735600000),
+      tx('c1', now - 14 * DAY, 52568, 400, 170000),
+    ].map((x) => [x.id, x]));
+    const ledger = {
+      txs, journal, raffles, names: { 40520: 'Large Skill Injector', 52568: 'HyperCore', 44992: 'PLEX' },
+      // One listing of the main's own, under Jita's cheapest: the calculator must price at others' cheapest.
+      orders: { 77001: { orderId: 77001, typeId: 40520, isBuy: false, price: 700000000, volumeTotal: 1, volumeRemain: 1, issued: iso(now - DAY), state: 'open', locationId: 60003760 } },
+      meta: { walletBalance: 5e9, lastSync: iso(now - 600_000), plex: { price: 4998000, buy: 4900000, at: iso(now - 60_000) } },
+    };
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.hostname !== 'esi.evetech.net') return route.abort();
+      const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1' }, body: JSON.stringify(body) });
+      const type = Number(url.searchParams.get('type_id'));
+      const sell = (id, price, n = 10) => ({ order_id: id, type_id: type, location_id: 60003760, is_buy_order: false, price, volume_remain: n, volume_total: n, issued: iso(now - DAY), duration: 90, min_volume: 1, range: 'region' });
+      if (url.pathname === '/markets/10000002/orders/' && type === 40520) return json([sell(77001, 700000000, 1), sell(77101, 735600000), sell(77102, 740000000)]);
+      if (url.pathname === '/markets/10000002/orders/' && type === 52568) return json([sell(77201, 170000, 5000), sell(77202, 171000, 5000)]);
+      if (url.pathname === '/markets/19000001/orders/' && type === 44992) return json([sell(77301, 4998000, 100000)]);
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, { ...ownerAuth(), scopes: ['esi-characters.read_notifications.v1'] }]);
+    await page.goto(`${BASE}#hustles/hypernet`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForSelector('[data-hypernet="table"]', { timeout: 20_000 }).catch(() => problems.push('not drawn: no calculator table'));
+    await page.waitForTimeout(1200);
+    const cell = async (k) => (await page.locator(`[data-hypernet="${k}"]`).first().innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+    // The design's worked figures (scripts/check.mjs pins them in hypernet.ts): 8 nodes, keep 2, +18.08 M / −18.7 M.
+    if (!(await cell('keep:8')).startsWith('2')) problems.push(`8 nodes: keep at most reads “${await cell('keep:8')}”, not 2`);
+    if (await cell('other:8') !== '+18.08 M ISK') problems.push(`8 nodes, someone else wins: “${await cell('other:8')}”, not +18.08 M ISK`);
+    if (await cell('expires:8') !== '−18.7 M ISK') problems.push(`8 nodes, expires: “${await cell('expires:8')}”, not −18.7 M ISK`);
+    if (!(await cell('win:8')).startsWith('+753.68 M ISK')) problems.push(`8 nodes, you win: “${await cell('win:8')}”`);
+    if (!(await cell('pot-said')).includes('1.5× Jita’s cheapest listing') && !(await cell('pot-said')).includes('1.50× Jita’s cheapest listing')) problems.push(`the pot isn’t said against Jita’s price (“${await cell('pot-said')}”): was the main’s own listing taken for Jita’s cheapest?`);
+    if (!(await cell('cores-said')).includes('18.7 M ISK')) problems.push(`the cores: “${await cell('cores-said')}”`);
+    // A row opens to the keep chooser and Copy node price.
+    await page.locator('[data-hypernet="row:8"]').click();
+    await page.waitForSelector('[data-hypernet="detail:8"]', { timeout: 5000 }).catch(() => problems.push('the 8-node row doesn’t open'));
+    if (await cell('keep-choice') !== '2 of 8') problems.push(`the keep chooser starts at “${await cell('keep-choice')}”, not the safe 2 of 8`);
+    if (!(await cell('sellout-said')).includes('one high-volume host reported')) problems.push(`the sell-out chance doesn’t say its source (“${await cell('sellout-said')}”)`);
+    if (!(await page.locator('[data-hypernet="copy"]').count())) problems.push('no Copy node price');
+    // A pot too small for any share to be safe says what to raise it to, the cores counted again at that pot.
+    await page.locator('[data-hypernet="calculator"] .seg button', { hasText: 'ISK' }).click();
+    await page.getByLabel('Pot', { exact: true }).fill('760m');
+    await page.waitForTimeout(300);
+    const unsafe = await cell('unsafe:8');
+    if (!/^No share is safe at this pot: raise it to 7\d\d(\.\d+)? M ISK \(1\.\d\d× what you pay\)/.test(unsafe)) problems.push(`a pot of 760 M: “${unsafe}”`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-hypernet-unsafe.png` });
+    await page.locator('[data-hypernet="calculator"] .seg button', { hasText: '1.5×' }).click();
+    const fits = async (when) => {
+      for (const k of ['table', 'offers-table']) {
+        const box = await page.evaluate((sel) => { const t = document.querySelector(sel); const b = t?.closest('.tbl-scroll'); return b ? b.scrollWidth - b.clientWidth : null; }, `[data-hypernet="${k}"]`);
+        if (box != null && box > 0) problems.push(`the ${k} scrolls sideways at 1440 (${when}): ${box} px`);
+      }
+    };
+    await fits('a row open, nobody marked');
+    // The record: sold out (both results until marked), expired (the cores lost), open.
+    if (!(await cell('state:1001')).startsWith('Sold out')) problems.push(`offer 1001: “${await cell('state:1001')}”`);
+    const r1 = await cell('result:1001');
+    if (!r1.includes('+753.68 M ISK') || !r1.includes('+18.08 M ISK')) problems.push(`offer 1001 before it’s marked shows both results: “${r1}”`);
+    if (!(await cell('state:2001')).startsWith('Expired')) problems.push(`offer 2001: “${await cell('state:2001')}”`);
+    if (!(await cell('result:2001')).startsWith('−18.7 M ISK')) problems.push(`offer 2001, expired: “${await cell('result:2001')}”, not −18.7 M ISK`);
+    if (!(await cell('state:3001')).startsWith('Open')) problems.push(`offer 3001: “${await cell('state:3001')}”`);
+    await page.locator('[data-hypernet="won:1001"] [data-hypernet="mark-other"]').click().catch(() => problems.push('no “Someone else won” on the sold-out offer'));
+    await page.waitForTimeout(800);
+    if (!(await cell('result:1001')).startsWith('+18.08 M ISK') || (await cell('result:1001')).includes('753.68')) problems.push(`offer 1001 marked “someone else won”: “${await cell('result:1001')}”`);
+    const prefs = await page.evaluate(async () => {
+      const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); });
+      return new Promise((res) => { const r = h.transaction('kv').objectStore('kv').get('prefs'); r.onsuccess = () => { res(r.result); h.close(); }; });
+    });
+    if (prefs?.hypernet?.won?.['1001'] !== false) problems.push(`the mark wasn’t written to prefs: ${JSON.stringify(prefs?.hypernet)}`);
+    const text = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (/NaN/.test(text)) problems.push('NaN on the page');
+    if (/Item #\d/.test(text)) problems.push(`“Item #” on the page: ${text.match(/.{30}Item #\d+.{10}/)?.[0]}`);
+    await fits('marked');
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (SHOTS) {
+      await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; });
+      await page.screenshot({ path: `${SHOTS}-hypernet.png` });
+      await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = c.scrollHeight; });
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `${SHOTS}-hypernet-bottom.png` });
+    }
+    // The Wallet files the main's own nodes, the payout and the fee as hosting, and the ticket in someone else's offer as play.
+    await page.goto(`${BASE}#wallet`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const wallet = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!wallet.includes('HyperNet hosting')) problems.push('the Wallet has no HyperNet hosting line');
+    if (!/HyperNet tickets[^]*?4 M ISK/.test(wallet)) problems.push('the Wallet’s HyperNet tickets line isn’t the 4 M ticket in someone else’s offer alone');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'hypernet', page: 'hustles/hypernet', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL hypernet #hustles/hypernet\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hypernet #hustles/hypernet (the worked case on the calculator, a row opened; the record: sold out and marked, expired, open; the Wallet’s hosting line)\n');
     await page.close();
   }
   // The Research tab's walkthrough (stage 1 of R&D agents, 3 October 2026) for the main with its standings read as the

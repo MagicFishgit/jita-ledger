@@ -161,6 +161,14 @@ Don't re-derive or contradict these without new evidence.
   item from the HyperNet window's History, into the hangar at the station the offer was made in, so it reaches the assets
   only once claimed. How long an offer runs before it refunds isn't in CCP's current article (3 days in the 2019 patch
   notes). Record the first refund's shape when it comes.
+  **A host's side** (research of 28 October 2026, `.playwright-mcp/research/hypernet-host/report.md`; E exact, R reported, I
+  inferred; hypernet.md): HyperCores (52568) are paid at creation and never refunded (E), about one per two PLEX of pot (I, fitted
+  on three players' measurements 2019–2025; CCP says only "the current estimated market value of PLEX"); the relay keeps 5% of the
+  pot, from the payout, only when every node sells (E); the host may buy its own nodes, no cap found (R); 8, 16, 48 or 512 nodes
+  (R); three days, no cancelling, expiry refunds every buyer and returns the item (E); NPC stations only, one repackaged item (E);
+  journal types 143 `flux_ticket_sale`, 144 `flux_payout`, 145 `flux_tax`, 146 `flux_ticket_repayment` (E, hoboleaks); the
+  notices carry `typeID`, `ticket_count`, `ticket_price`, `location_id` (R, SeAT's code). ESI has no offer route (E). Not seen:
+  the notices' text, whether one names the winner, whether `flux_payout` is gross or net of `flux_tax`.
 
 - **A character's contracts carry `availability`, and their items `raw_quantity`** (11 October 2026). **Observed** (the plan's research, on the public route): an unknown contract answers 404 "Contract not found",
   and one just expired may still answer 200 from cache; ESI's public contract items (`/contracts/public/items/{id}/`, no login, held about

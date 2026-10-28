@@ -1,4 +1,4 @@
-import { Briefcase, ChartLine, Factory, FlaskConical, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
+import { Briefcase, ChartLine, Factory, FlaskConical, Globe, Pickaxe, Ticket, Tornado, Truck } from 'lucide-react';
 import { navigate, type Route } from '../lib/hooks';
 import { Abyssal } from './hustles/Abyssal';
 import { Courier } from './hustles/Courier';
@@ -7,6 +7,7 @@ import { Mining } from './hustles/Mining';
 import { Freelance } from './hustles/Freelance';
 import { Research } from './hustles/Research';
 import { Industry } from './hustles/Industry';
+import { HyperNet } from './hustles/HyperNet';
 import { Guide, PageHead } from './ui';
 
 /**
@@ -15,7 +16,8 @@ import { Guide, PageHead } from './ui';
  * Each one earns in a different currency of effort: abyssals want your attention, hauling wants a
  * safe route and a big hold, planets want nothing at all once they are running, mining wants your time in a
  * belt and pays in ore, research agents, once started in person, want nothing at all and pay in datacores, and industry wants a
- * blueprint, a slot and somewhere to build, and pays in what the market takes.
+ * blueprint, a slot and somewhere to build, and pays in what the market takes; hosting on the HyperNet Relay wants an item
+ * and three days, and pays in the pot.
  */
 const TABS = [
   { key: 'abyssal', label: 'Abyssal', blurb: 'Filament costs and what your runs have really paid', icon: Tornado },
@@ -25,6 +27,7 @@ const TABS = [
   { key: 'freelance', label: 'Freelance', blurb: 'Jobs paying more for an item than Jita sells it for', icon: Briefcase },
   { key: 'research', label: 'Research', blurb: 'Agents that make datacores while you trade', icon: FlaskConical },
   { key: 'industry', label: 'Industry', blurb: 'What to build, where, and what it pays', icon: Factory },
+  { key: 'hypernet', label: 'HyperNet', blurb: 'Host an offer that pays even when someone else wins', icon: Ticket },
 ] as const;
 
 type Key = (typeof TABS)[number]['key'];
@@ -51,7 +54,7 @@ export function SideHustles({ route }: { route: Route }) {
       </nav>
       </div>
       <section className="panel" data-rv="" key={sub} style={{ padding: '18px 20px', gap: 16, animation: 'rise .38s cubic-bezier(.2,.8,.2,1)' }}>
-        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets route={route} /> : sub === 'freelance' ? <Freelance /> : sub === 'industry' ? <Industry route={route} /> : sub === 'research' ? <Research /> : <Mining />}
+        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets route={route} /> : sub === 'freelance' ? <Freelance /> : sub === 'industry' ? <Industry route={route} /> : sub === 'research' ? <Research /> : sub === 'hypernet' ? <HyperNet /> : <Mining />}
       </section>
       <Guide
         title="How to use Side hustles"
@@ -64,6 +67,7 @@ export function SideHustles({ route }: { route: Route }) {
           { icon: Briefcase, title: 'Freelance', body: 'Buy in Jita what a job pays more for, haul it, deliver it. Accept the job in game first.' },
           { icon: FlaskConical, title: 'Research', body: 'Train, reach an R&D agent, start it in person, then leave it: its points buy datacores whenever you pass.' },
           { icon: Factory, title: 'Industry', body: 'Pick where you build, find what pays there, research ME before you build much.' },
+          { icon: Ticket, title: 'HyperNet', body: 'Price an offer so someone else winning still pays, keep at most the nodes it says, and mark who won when it sells out.' },
         ]}
         habits={[{ icon: ChartLine, title: 'Compare in Results', body: 'Results shows each hustle’s ISK per hour next to trading.' }]}
       />

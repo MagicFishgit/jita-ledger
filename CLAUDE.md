@@ -6,7 +6,7 @@ Pages on every push to `main`; the Worker deploys from GitHub Actions too, when 
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
-(Abyssal / Hauling / Planets / Mining / Freelance / Research / Industry), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
+(Abyssal / Hauling / Planets / Mining / Freelance / Research / Industry / HyperNet), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets plans a system (`hustles/planets/<section>`): Plan ranks every way of setting its planets up by ISK a day and says
 which planet does what, Chart is every good from P0 to P4, Colonies your colonies, kept as a synced document, Find a region's best systems for a good.
@@ -186,6 +186,8 @@ a tab's shell) doesn't load theirs, so Read them too:
 - `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store,
   the roster, transfers); `-earned` the Characters page, accounts and what each earned (`check-income`).
 - `research.md`: the Research tab, R&D agents (points a day, access, the agents bundle) and its walkthrough.
+- `hypernet.md`: the HyperNet tab: hosting an offer on the HyperNet Relay (the host's rules and maths, the table, your offers
+  from EVE's notices, the Wallet's hosting line).
 - `industry.md`: the Industry side hustle: the static-data bundle, the job, research, copying and invention rules, the tab;
   `-build` build sites, the finder, the ladder, Tech II; `-jobs` blueprints and jobs; `-copy-round` what copies sell (the
   cloud's count); `-copies` the Copies section, your copy contracts; `-home` Goonmetrics and home markets.
