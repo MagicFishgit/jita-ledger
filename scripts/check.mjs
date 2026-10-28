@@ -2129,6 +2129,29 @@ eq('runway is wallet over burn', runwayDays(100, 10), 10);
   eq('  a refund alone is money in on its line', refundOnly.ins.map((l) => [l.key, l.amount]), [['hypernet', 2_000_000]]);
   eq('  and comes off play, never below nothing', [playOf(refundOnly), playOf({ ins: refundOnly.ins, outs: [] })], [1_000_000, 0]);
   eq('  an entry with its own words keeps them', flows([J('d', '2026-10-16T00:00:00Z', 'player_trading', 5, { description: 'Trade with Bob' })], [], () => ({ tracked: false, tag: 'other' }), 0).ins[0].parts[0].entries[0].text, 'Trade with Bob');
+
+  // Hosting (28 October 2026, hypernet.ts): a business line of its own, both ways. The relay's payout and fee always go
+  // there; a ticket only when it was one of your own nodes in an offer you hosted (`hosted`, from hostedEntries).
+  const hostJ = [
+    ticket('n1', '2026-10-20T12:01:00Z', -137_925_000), ticket('n2', '2026-10-20T12:01:00Z', -137_925_000),
+    ticket('t9', '2026-10-20T13:00:00Z', -5_000_000), // a ticket in someone else's offer
+    J('p', '2026-10-21T08:00:05Z', 'flux_payout', 1_103_400_000, { description: UNKNOWN }), J('f', '2026-10-21T08:00:05Z', 'flux_tax', -55_170_000, { description: UNKNOWN }),
+  ];
+  const cls = () => ({ tracked: false, tag: 'other' });
+  eq('  hosting: a payout and the relay\'s fee are hosting, a business, with or without the set', [categoryOf(hostJ[3]).label, categoryOf(hostJ[3]).kind, categoryOf(hostJ[4]).key, categoryOf(hostJ[4], undefined, new Set(['n1'])).key], ['HyperNet hosting', 'Business', 'hypernetHost', 'hypernetHost']);
+  eq('    a ticket is play without the set, hosting when it is one of your own nodes', [categoryOf(hostJ[0]).key, categoryOf(hostJ[0], undefined, new Set(['n1'])).key, categoryOf(hostJ[2], undefined, new Set(['n1'])).key], ['hypernet', 'hypernetHost', 'hypernet']);
+  const without = flows(hostJ, [], cls, Date.parse('2026-10-01T00:00:00Z'));
+  eq('    without the set: the payout less the fee is money in, every ticket play', [without.ins.map((l) => [l.key, l.amount]), without.outs.map((l) => [l.key, l.amount]), playOf(without)], [[['hypernetHost', 1_048_230_000]], [['hypernet', 280_850_000]], 280_850_000]);
+  const withSet = flows(hostJ, [], cls, Date.parse('2026-10-01T00:00:00Z'), Infinity, undefined, new Set(['n1', 'n2', 'p', 'f']));
+  const hostLine = withSet.ins.find((l) => l.key === 'hypernetHost');
+  eq('    with it: your own nodes move to hosting, one line both ways', [hostLine.amount, hostLine.count, hostLine.kind], [1_103_400_000 - 55_170_000 - 275_850_000, 4, 'Business']);
+  eq('    opened, its parts in plain words, your nodes said as yours', hostLine.parts.map((p) => [p.label, p.amount]), [['HyperNet payouts', 1_103_400_000], ['HyperNet relay fee', -55_170_000], ['Your own nodes', -275_850_000]]);
+  eq('    an own node\'s entry says it, not ESI\'s placeholder', hostLine.parts[2].entries[0].text, 'Your own nodes');
+  eq('    play and the burn no longer count your own nodes, only the ticket in someone else\'s offer', [playOf(withSet), burnOf(withSet)], [5_000_000, 5_000_000]);
+  const refundHost = flows([J('rr', '2026-10-13T12:00:30Z', 'flux_ticket_repayment', 68_962_500, { description: UNKNOWN }), ticket('nn', '2026-10-10T12:05:00Z', -68_962_500), ticket('nm', '2026-10-10T12:05:00Z', -68_962_500)],
+    [], cls, 0, Infinity, undefined, new Set(['rr', 'nn', 'nm']));
+  eq('    an own node refunded cancels one on the hosting line, said as yours', [refundHost.ins.length, refundHost.outs.map((l) => [l.key, l.amount, l.parts.map((p) => [p.label, p.amount])])],
+    [0, [['hypernetHost', 68_962_500, [['Your own nodes', 137_925_000], ['Your own nodes refunded', -68_962_500]]]]]);
 }
 const odd = unusual([
   J('1', '2026-09-01T00:00:00Z', 'player_donation', 5e6, { firstPartyId: 9 }),

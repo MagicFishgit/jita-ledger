@@ -78,9 +78,21 @@ const OUT: Record<string, Category> = {
  * HyperNet Relay's journal types, both sides on one line: a ticket bought (`flux_ticket_sale`, money out, despite the
  * name) and a ticket refunded when an offer doesn't sell out (`flux_ticket_repayment`, ESI's spec; none seen yet). The
  * main's 255 tickets to 16 October 2026 each name PKN Cryptographic (1000299), with no context and ESI's placeholder
- * description. `flux_payout` and `flux_tax` are a host's, so they stay where they fall.
+ * description. A host's own entries go to `HOSTING` instead.
  */
 const HYPERNET = new Set(['flux_ticket_sale', 'flux_ticket_repayment']);
+
+/**
+ * Hosting an offer on the HyperNet Relay (hypernet.ts, the HyperNet tab): a business, not play, on one line for both
+ * ways, decided before the in/out split as tickets are. The relay's payout (`flux_payout`) and its fee (`flux_tax`) are
+ * only ever a host's, so they always go here; a ticket bought or refunded (`flux_ticket_sale`, `flux_ticket_repayment`)
+ * goes here only when it was one of your own nodes in an offer you hosted (`hostedEntries`, by entry ID), else it stays
+ * a ticket bought for play. Without the set every ticket is play, as before 28 October 2026.
+ */
+export const HOSTING: Category = { key: 'hypernetHost', label: 'HyperNet hosting', kind: 'Business' };
+const HOSTING_REFS = new Set(['flux_payout', 'flux_tax']);
+/** The words for a host's own entries inside the hosting line. */
+const HOSTED_SAID: Record<string, string> = { flux_ticket_sale: 'Your own nodes', flux_ticket_repayment: 'Your own nodes refunded' };
 
 /** ISK moving between your own characters: neither income nor spending. */
 export const BETWEEN: Category = { key: 'between', label: 'Between your characters', kind: 'Transfer' };
@@ -100,12 +112,16 @@ export const REWARDS = new Set([
 /** The tax a corporation takes from a daily goal payout: a fee on the Wallet, netted from Rewards in Results. */
 export const REWARDS_TAX = 'daily_goal_payouts_tax';
 
-/** Which group a journal entry belongs in, or null when trades or your own transfers cover it. */
-export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'>, mine?: Set<number>): Category | null {
+/**
+ * Which group a journal entry belongs in, or null when trades or your own transfers cover it. `hosted`: the entry IDs
+ * your own HyperNet offers account for (`hostedEntries`), filed as hosting rather than tickets bought for play.
+ */
+export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'> & { id?: string }, mine?: Set<number>, hosted?: ReadonlySet<string>): Category | null {
   const r = e.refType;
   if (NEUTRAL.has(r) || e.amount === 0) return null;
   if (mine && ownTransfer(e, mine)) return BETWEEN;
-  if (HYPERNET.has(r)) return OUT.hypernet;
+  if (HOSTING_REFS.has(r)) return HOSTING;
+  if (HYPERNET.has(r)) return hosted && e.id != null && hosted.has(e.id) ? HOSTING : OUT.hypernet;
   if (e.amount > 0) {
     if (r === 'freelance_jobs_reward') return IN.freelance;
     if (REWARDS.has(r)) return IN.rewards;
@@ -174,6 +190,7 @@ const REF_SAID: Record<string, string> = {
   corporation_account_withdrawal: 'Corporation withdrawals', daily_goal_payouts: 'Daily goal payouts', skill_purchase: 'Skill books',
   air_career_program_reward: 'AIR career program rewards', daily_goal_payouts_tax: 'Tax on daily goal payouts', datacore_fee: 'Datacore fees',
   flux_ticket_sale: 'Tickets bought', flux_ticket_repayment: 'Tickets refunded',
+  flux_payout: 'HyperNet payouts', flux_tax: 'HyperNet relay fee',
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 
@@ -215,6 +232,8 @@ export function flows(
   since: number,
   until = Infinity,
   mine?: Set<number>,
+  /** The journal entries your own HyperNet offers account for (`hostedEntries`): hosting, not play. */
+  hosted?: ReadonlySet<string>,
 ): { ins: Line[]; outs: Line[]; inTotal: number; outTotal: number; between: Between } {
   const between: Between = { in: 0, out: 0, count: 0, parts: [] };
   const lines = new Map<string, Line & { byPart: Map<string, Part> }>();
@@ -232,7 +251,7 @@ export function flows(
   for (const e of journal) {
     const t = Date.parse(e.date);
     if (t < since || t >= until) continue;
-    const c = categoryOf(e, mine);
+    const c = categoryOf(e, mine, hosted);
     if (c === BETWEEN) {
       // Moving between your characters: never income or spending, so it stays out of the lines and totals.
       if (e.amount > 0) between.in += e.amount; else between.out += -e.amount;
@@ -249,7 +268,8 @@ export function flows(
     }
     // A contract's entries carry its ID, so the Wallet can name what it held (contracts.ts).
     const contract = e.contextIdType === 'contract_id' && e.contextId ? e.contextId : undefined;
-    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: entryText(e), ...(contract ? { contract } : {}) });
+    const label = c === HOSTING ? HOSTED_SAID[e.refType] ?? refSaid(e.refType) : refSaid(e.refType);
+    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label, refType: e.refType }, { id: e.id, date: e.date, text: c === HOSTING && HOSTED_SAID[e.refType] ? HOSTED_SAID[e.refType] : entryText(e), ...(contract ? { contract } : {}) });
   }
   for (const tx of txs) {
     const t = Date.parse(tx.date);

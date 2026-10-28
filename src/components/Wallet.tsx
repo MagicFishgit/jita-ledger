@@ -37,6 +37,7 @@ import { useAltCopies, useAltRoster } from '../lib/altStore';
 import { researchWhy, useResearchChars } from './hustles/researchChars';
 import { monthMissing, totalsOf, useRunningResearch, whyNot, worthMissing } from './hustles/researchWorth';
 import { countedSaid, TotalsView } from './hustles/ResearchTotals';
+import { hostedEntries, offersOf } from '../lib/hypernet';
 
 const DAY = 86400_000;
 /** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
@@ -52,11 +53,11 @@ const DAYS_KEY = 'jita-ledger:wallet-days';
 
 const IN_COLOR: Record<string, string> = {
   freelance: '#f5b86b', freelanceSales: '#f5b86b', trading: 'var(--acc)', contracts: 'var(--acc2)', loot: '#eed79a', bounties: '#ff8d9a', courier: '#a98bff', insurance: '#90a5b8', donation: '#6ee7a8',
-  hypernet: '#ff8d9a',
+  hypernet: '#ff8d9a', hypernetHost: '#a98bff',
 };
 const OUT_COLOR: Record<string, string> = {
   freelanceBuys: '#f5b86b', stock: 'var(--acc)', personal: '#ff8d9a', fees: 'var(--acc2)', couriers: '#a98bff', rent: '#90a5b8', clones: '#90a5b8', skills: '#ff8d9a', travel: '#ff8d9a', lp: '#a98bff',
-  datacores: '#6ee7a8', hypernet: '#ff8d9a',
+  datacores: '#6ee7a8', hypernet: '#ff8d9a', hypernetHost: '#a98bff',
 };
 const TAG_LOOK: Record<UntrackedTag, { sell: string; buy: string; c: string }> = {
   loot: { sell: 'Loot sale', buy: 'Loot', c: '#eed79a' },
@@ -224,9 +225,12 @@ export function Wallet() {
   // Your characters: this one and every one the cloud has read (removed ones too, so past transfers stay transfers).
   // ISK moving between two of them is neither money in nor money out anywhere on this page (roster.ts `ownTransfer`).
   const mine = useMemo(() => ownIds(auth?.characterId, d.chars), [auth?.characterId, d.chars]);
+  // The journal entries your own HyperNet offers account for (hypernet.ts): hosting, a business, not tickets bought for play.
+  const hosted = useMemo(() => hostedEntries(offersOf(d.raffles ?? {}, d.journal, d.txs, { now: Date.now(), me: auth?.characterId ?? null, won: d.prefs.hypernet?.won })),
+    [d.raffles, d.journal, d.txs, auth?.characterId, d.prefs.hypernet?.won]);
   const charName = (id: number) => (id === auth?.characterId ? auth?.characterName : d.chars[id]?.name) || `Character ${id}`;
-  const f = useMemo(() => flows(journal, txList, classOf, since, Infinity, mine), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since, mine]); // eslint-disable-line react-hooks/exhaustive-deps
-  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY, Infinity, mine), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000), mine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = useMemo(() => flows(journal, txList, classOf, since, Infinity, mine, hosted), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since, mine, hosted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY, Infinity, mine, hosted), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000), mine, hosted]); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo(() => balanceSeries(journal, since), [journal, since]);
   const wallet = d.meta.walletBalance ?? series[series.length - 1]?.balance ?? null;
   const startBal = useMemo(() => balanceAt(journal, since), [journal, since]);
@@ -354,7 +358,7 @@ export function Wallet() {
   // What a goal counts as earned: trading profit from positions, or net cash flow, between two moments.
   const earned = (source: 'trading' | 'cashflow', from: number, to: number) => {
     if (source === 'trading') return posSeries.reduce((t, x) => t + realizedBetween(x.series, from, to), 0);
-    const f = flows(journal, txList, classOf, from, to, mine);
+    const f = flows(journal, txList, classOf, from, to, mine, hosted);
     return f.inTotal - f.outTotal;
   };
 
@@ -385,7 +389,7 @@ export function Wallet() {
   const bySold = new Map<number, { v: number; n: number }>();
   for (const t of todaySales) { const c = bySold.get(t.typeId) ?? { v: 0, n: 0 }; c.v += t.qty * t.unitPrice; c.n++; bySold.set(t.typeId, c); }
   const topSold = [...bySold.entries()].sort((a, b) => b[1].v - a[1].v)[0];
-  const fToday = flows(journal, [], classOf, today0, Infinity, mine);
+  const fToday = flows(journal, [], classOf, today0, Infinity, mine, hosted);
   const topCost = fToday.outs[0];
   const prev = d.meta.prevVisitAt;
   const prevBal = prev ? balanceAt(journal, Date.parse(prev)) : null;
@@ -594,7 +598,7 @@ export function Wallet() {
         <Unusual d={d} journal={journal} now={now} mine={mine} />
       </div>
 
-      <Report journal={journal} txList={txList} classOf={classOf} mine={mine} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
+      <Report journal={journal} txList={txList} classOf={classOf} mine={mine} hosted={hosted} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
     </div>
   );
 }
@@ -1075,19 +1079,19 @@ function Unusual({ d, journal, now, mine }: { d: Data; journal: JournalEntry[]; 
 }
 
 function Report(props: {
-  journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; mine: Set<number>; m0: number; now: number; monthName: string;
+  journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; mine: Set<number>; hosted: Set<string>; m0: number; now: number; monthName: string;
   describe: (e: JournalEntry) => string; characterName: string | null;
   posSeries: { p: Position; series: SeriesPoint[] }[];
 }) {
-  const { journal, txList, classOf, mine, m0, now, monthName } = props;
+  const { journal, txList, classOf, mine, hosted, m0, now, monthName } = props;
   const name = useTypeName();
-  const fm = flows(journal, txList, classOf, m0, Infinity, mine);
+  const fm = flows(journal, txList, classOf, m0, Infinity, mine, hosted);
   const net = fm.inTotal - fm.outTotal;
   // Weeks of the month from the 1st, so the last one may be short.
   const weeks: { from: number; to: number; net: number }[] = [];
   for (let s = m0; s < now; s += 7 * DAY) {
     const to = Math.min(s + 7 * DAY, now);
-    const w = flows(journal, txList, classOf, s, to, mine);
+    const w = flows(journal, txList, classOf, s, to, mine, hosted);
     weeks.push({ from: s, to, net: w.inTotal - w.outTotal });
   }
   const best = weeks.length > 1 ? [...weeks].sort((a, b) => b.net - a.net)[0] : null;

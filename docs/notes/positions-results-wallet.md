@@ -158,7 +158,10 @@ against play, rewards, HyperNet, what you built and copied, transfers, net worth
     average price. A win writes nothing to the journal and a ship appearing with no purchase looks like loot or a gift, so
     nothing guesses.
   - An entry whose description is ESI's placeholder ("(unknown reference 143, …)") is said by its kind on the Wallet's lines.
-  - Left alone: the unusual-activity check (your own purchases), `flux_payout` and `flux_tax` (a host's; none seen).
+  - Left alone: the unusual-activity check (your own purchases).
+  - **Hosting is its own line** (28 October 2026, hypernet.md): "HyperNet hosting", Business, both ways, takes `flux_payout` and
+    `flux_tax` always and a ticket or refund only when `hostedEntries` names it as one of your own nodes in an offer you hosted
+    (`hosted`, the last argument of `categoryOf` and `flows`); every other ticket stays play. Not in Results or All income yet.
   - The page check's research case holds a 10 M ticket and a 2 M refund: "HyperNet tickets · Personal · −8 M ISK", opening to
     "Tickets bought 1× · −10 M ISK" and "Tickets refunded 1× · +2 M ISK", no placeholder, "Spent on play −8 M ISK"; planted
     without the line, it failed.
