@@ -270,8 +270,9 @@ function RowDetail({ row, cost, cores, itemName, sellOut, sellOutFrom, typedS, s
   row: TableRow; cost: number; cores: number; itemName: string; sellOut: number; sellOutFrom: string; typedS: number | null; setSellOut: (v: number | null) => void;
 }) {
   const safe = row.keep;
-  const [keep, setKeep] = useState<number>(safe ?? 0);
-  const k = Math.max(0, Math.min(row.nodes - 1, keep));
+  // Follows the safe share until you move it: a row opened while the prices were still coming would otherwise sit at 0.
+  const [keep, setKeep] = useState<number | null>(null);
+  const k = Math.max(0, Math.min(row.nodes - 1, keep ?? safe ?? 0));
   const o = outcomes({ pot: row.pot, nodes: row.nodes, keep: k, cost, cores });
   const avg = o ? average({ outcome: o, sellOut }) : null;
   const perNode = sellOut * (row.pot - cost) / row.nodes;
