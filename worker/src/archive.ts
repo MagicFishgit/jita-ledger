@@ -16,6 +16,7 @@ import {
 import { esiAll, esiGet, esiPost, readerLogin, stillKept, useLogin, type Reader } from './eve';
 import { readJobsFor, SCOPE_JOBS, SCOPE_STRUCTURES } from './industryJobs';
 import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack';
+import { parseRaffle, type RaffleRecord, type RawNotification } from '../../src/lib/hypernet';
 import { mailSafety, registerSafety, safetyFindings } from './safety';
 import { push, storedRecords } from './sync';
 
@@ -26,6 +27,7 @@ const S = {
   orders: 'esi-markets.read_character_orders.v1',
   assets: 'esi-assets.read_assets.v1',
   loyalty: 'esi-characters.read_loyalty.v1',
+  notifications: 'esi-characters.read_notifications.v1',
 };
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
@@ -36,6 +38,8 @@ export type ArchiveResult = {
   wallet?: number | null; lp?: { corporationId: number; points: number }[] | null;
   /** The main's industry jobs that changed (an alt's are its sheet's). */
   jobs?: number;
+  /** The main's HyperNet notices newly kept (hypernet.ts); absent without the notifications permission, or when the read failed. */
+  raffles?: number;
   /**
    * The character's own asset item IDs, from the assets read of this run, for an alt's sheet (sheet.ts) to tell a container or
    * ship from a structure among its blueprints' places (asset item IDs are 13 digits like structures': size tells nothing).
@@ -179,6 +183,20 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
       for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
       result.jobs = changed.length;
     } catch (e) { console.log('industry jobs read failed', charId, e instanceof Error ? e.message : String(e)); }
+  }
+
+  // The main's HyperNet notices (hypernet.ts): every offer it hosts, created, sold out or expired, kept as records since
+  // EVE keeps a notification only a while. Never changed once written, so only IDs not held go up. The main only: alts
+  // don't host here. A failed read leaves what's held and doesn't stop the copy.
+  if (!alt && has(scopes, S.notifications)) {
+    try {
+      const { data } = await esiGet<RawNotification[]>(`/characters/${charId}/notifications/`, { token });
+      const found = data.map(parseRaffle).filter((r): r is RaffleRecord => r != null);
+      const held = found.length ? await ids(db, charId, 'raffles') : new Set<string>();
+      const fresh = found.filter((r) => !held.has(r.id));
+      for (const r of fresh) records.push({ k: 'raffles', i: r.id, d: r });
+      result.raffles = fresh.length;
+    } catch (e) { console.log('hypernet notifications read failed', charId, e instanceof Error ? e.message : String(e)); }
   }
 
   // Assets: a snapshot, replaced whole; pushed only when the counts moved.

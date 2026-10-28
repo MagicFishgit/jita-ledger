@@ -12321,5 +12321,129 @@ console.log('\n--- Planets: Check my setup (setupCheck.ts) and the planet board 
   eq('build it: a tick is kept under the planet’s layout, which a change of heads or factories moves', [roleSig(p2) === roleSig({ ...p2 }), roleSig(p2) === roleSig({ ...p2, extracts: [{ ...p2.extracts[0], heads: 6 }, p2.extracts[1]] }), roleSig(p2) === roleSig({ ...p2, makes: [{ ...p2.makes[0], count: 3 }, ...p2.makes.slice(1)] })], [true, false, false]);
 }
 
+console.log('\n--- HyperNet: hosting an offer that pays when someone else wins (hypernet.ts) ---');
+{
+  const H = await import('../src/lib/hypernet.ts');
+  const isk = (x) => (x == null ? null : Math.round(x));
+  // The design's worked case: a Large Skill Injector bought at 735.6 M, the pot at 1.5×, 110 cores at 170,000 (18.7 M).
+  const V = 735_600_000, pot = 1.5 * V, cores = 110 * 170_000;
+  eq('  constants', [H.NODE_COUNTS, H.RELAY_FEE, H.OFFER_DAYS, H.HYPERCORE, H.LSI], [[8, 16, 48, 512], 0.05, 3, 52568, 40520]);
+  eq('  cores: a core per two PLEX of the pot, at least one; not known without figures', [H.coresFor(pot, 5_000_000), H.coresFor(1, 5_000_000), H.coresFor(0, 5e6), H.coresFor(pot, NaN), H.coresFor(pot, -1)], [110, 1, null, null, null]);
+  eq('  a node\'s price is a whole ISK, rounded up, and the pot is that × the nodes', [H.nodePrice(pot, 8), H.potAt(pot, 8), H.nodePrice(pot, 512), H.potAt(pot, 512)], [137_925_000, 1_103_400_000, 2_155_079, 1_103_400_448]);
+  const o8 = H.outcomes({ pot: H.potAt(pot, 8), nodes: 8, keep: 2, cost: V, cores });
+  eq('  8 nodes keeping 2: +18.08 M if someone else wins, +753.68 M if you do, −18.7 M if it expires; a 1 in 4 chance',
+    [isk(o8.other), isk(o8.win), isk(o8.expires), o8.chance], [18_080_000, 753_680_000, -18_700_000, 0.25]);
+  const p512 = H.potAt(pot, 512);
+  const o512 = H.outcomes({ pot: p512, nodes: 512, keep: 136, cost: V, cores });
+  eq('  512 nodes keeping 136, on the pot its whole node price makes: +0.84 M if someone else wins', isk(o512.other), 839_682);
+  eq('  the most to keep and never lose: 2 of 8, 136 of 512', [H.safeKeep({ pot: H.potAt(pot, 8), nodes: 8, cost: V, cores }), H.safeKeep({ pot: p512, nodes: 512, cost: V, cores })], [2, 136]);
+  eq('    one more of 512 loses', H.outcomes({ pot: p512, nodes: 512, keep: 137, cost: V, cores }).other < 0, true);
+  // At its edge: (0.95 − k/N) × pot = cost + cores exactly breaks even, and keeps; a hundredth of an ISK more cost doesn't.
+  eq('  the safe share at its edge: exactly even keeps it, a cent over gives one up; none safe is null; never all the nodes',
+    [H.safeKeep({ pot: 1000, nodes: 10, cost: 450, cores: 0 }), H.safeKeep({ pot: 1000, nodes: 10, cost: 450.01, cores: 0 }), H.safeKeep({ pot: 1000, nodes: 10, cost: 951, cores: 0 }), H.safeKeep({ pot: 1000, nodes: 8, cost: 0, cores: 0 })],
+    [5, 4, null, 7]);
+  // Where the closed form's quotient of doubles lands a hair under the edge (15.999…), the walk finds the 16 that breaks even.
+  eq('    a share that breaks even to the ISK isn\'t lost to a double\'s rounding', H.safeKeep({ pot: 7000, nodes: 48, cost: 4316.666666666667, cores: 0 }), 16);
+  eq('  the pot where keeping none breaks even (raise it to): (cost + cores) / 95%, as a whole node price × the nodes',
+    [H.safePot({ nodes: 8, cost: V, cores }), H.outcomes({ pot: H.safePot({ nodes: 8, cost: V, cores }), nodes: 8, keep: 0, cost: V, cores }).other >= 0], [794_000_000, true]);
+  // With the cores counted again at the higher pot (a core per two PLEX), it asks a little more.
+  // At 3.5 M a PLEX that pot asks for 113 cores, not 110: the pot has to rise to cover them, and stops at the first that does.
+  const scaled = H.safePot({ nodes: 8, cost: V, cores, scale: { plexPrice: 3_500_000, corePrice: 170_000 } });
+  const evenAt = (p) => H.outcomes({ pot: p, nodes: 8, keep: 0, cost: V, cores: H.coresFor(p, 3.5e6) * 170_000 }).other >= 0;
+  eq('    with the cores counted at the pot tried: more, even there, and a node price an ISK lower isn\'t', [scaled > 794_000_000, evenAt(scaled), evenAt(scaled - 8)], [true, true, false]);
+  eq('    keeping 95% of the nodes or more, nothing makes it safe', H.safePot({ nodes: 8, cost: V, cores, keep: 8 * 0.95 }), null);
+  eq('  outcomes refuse what isn\'t a choice: keeping every node, a fraction of one, a pot of nothing',
+    [H.outcomes({ pot, nodes: 8, keep: 8, cost: V, cores }), H.outcomes({ pot, nodes: 8, keep: 1.5, cost: V, cores }), H.outcomes({ pot: 0, nodes: 8, keep: 0, cost: V, cores })], [null, null, null]);
+  eq('  on average at a 50% sell-out: half of (¼ × win + ¾ × other) less half the cores', isk(H.average({ outcome: o8, sellOut: 0.5 })), 91_640_000);
+  const o83 = H.outcomes({ pot: H.potAt(pot, 8), nodes: 8, keep: 3, cost: V, cores });
+  eq('    each node kept lowers it by s × (pot − cost) / N', isk(H.average({ outcome: o8, sellOut: 0.5 }) - H.average({ outcome: o83, sellOut: 0.5 })), Math.round(0.5 * (1_103_400_000 - V) / 8));
+  eq('    a chance outside 0 to 1 is none', [H.average({ outcome: o8, sellOut: 1.2 }), H.average({ outcome: o8, sellOut: -0.1 })], [null, null]);
+  const rows = H.tableRows({ pot, cost: V, cores });
+  eq('  the table: a row per node count, its node price, the most to keep', rows.map((r) => [r.nodes, r.nodePrice, r.keep]), [[8, 137_925_000, 2], [16, 68_962_500, 4], [48, 22_987_500, 12], [512, 2_155_079, 136]]);
+  eq('    a row no share makes safe says the pot to raise it to', H.tableRows({ pot: V, cost: V, cores }, [8]).map((r) => [r.keep, r.outcome, r.raiseTo]), [[null, null, 794_000_000]]);
+
+  // The notices, as SeAT reads them: YAML with a key a line.
+  const created = { notification_id: 1001, type: 'RaffleCreated', timestamp: '2026-10-20T12:00:00Z', text: 'location_id: 60003760\nticket_count: 8\nticket_price: 137925000.0\ntypeID: 40520\n' };
+  eq('  a creation notice read: item, nodes, node price, station; no offer ID or winner in it', H.parseRaffle(created),
+    { id: '1001', type: 'RaffleCreated', timestamp: '2026-10-20T12:00:00Z', typeId: 40520, ticketCount: 8, ticketPrice: 137925000, locationId: 60003760, raffleId: null, winnerId: null, text: created.text });
+  const fin = H.parseRaffle({ notification_id: 1002, type: 'RaffleFinished', timestamp: '2026-10-21T08:00:00Z', text: 'hypernet_id: &id001 77\nlocation_id: 60003760\nticket_count: 8\nticket_price: 137925000.0\ntypeID: 40520\nwinner_id: 95210486\n' });
+  eq('  a finished notice naming a winner and its offer (an anchor dropped)', [fin.type, fin.winnerId, fin.raffleId, fin.ticketCount], ['RaffleFinished', 95210486, '77', 8]);
+  eq('  junk text: every field null, never a throw; no text at all likewise', [H.parseRaffle({ notification_id: 5, type: 'RaffleExpired', timestamp: '2026-10-21T08:00:00Z', text: '{{{ :: \n - [x' }), H.parseRaffle({ notification_id: 6, type: 'RaffleExpired', timestamp: '2026-10-21T08:00:00Z', text: null })?.typeId],
+    [{ id: '5', type: 'RaffleExpired', timestamp: '2026-10-21T08:00:00Z', typeId: null, ticketCount: null, ticketPrice: null, locationId: null, raffleId: null, winnerId: null, text: '{{{ :: \n - [x' }, null]);
+  eq('  anything else is no raffle: another type, no ID, no time, not an object', [H.parseRaffle({ notification_id: 7, type: 'StructureItemsMovedToSafety', timestamp: '2026-10-21T08:00:00Z', text: 'typeID: 1' }), H.parseRaffle({ type: 'RaffleCreated', timestamp: '2026-10-21T08:00:00Z' }), H.parseRaffle({ notification_id: 8, type: 'RaffleCreated', timestamp: 'soon' }), H.parseRaffle(null)], [null, null, null, null]);
+
+  // offersOf on a synthetic journal. Five offers: sold out with two of your own nodes (payout gross with its fee), expired
+  // with three refunded, one still open, one sold out read from a net payout alone, and one past its three days unaccounted for.
+  const NOW_H = Date.parse('2026-10-28T12:00:00Z');
+  const note = (id, type, ts, count, price, extra = '') => H.parseRaffle({ notification_id: id, type, timestamp: ts, text: `location_id: 60003760\nticket_count: ${count}\nticket_price: ${price}.0\ntypeID: 40520\n${extra}` });
+  const raffles = Object.fromEntries([
+    note(1001, 'RaffleCreated', '2026-10-20T12:00:00Z', 8, 137925000), note(1002, 'RaffleFinished', '2026-10-21T08:00:00Z', 8, 137925000),
+    note(2001, 'RaffleCreated', '2026-10-10T12:00:00Z', 16, 68962500), note(2002, 'RaffleExpired', '2026-10-13T12:00:10Z', 16, 68962500),
+    note(3001, 'RaffleCreated', '2026-10-27T12:00:00Z', 48, 22987500),
+    note(4001, 'RaffleCreated', '2026-10-01T00:00:00Z', 8, 10000000),
+    note(5001, 'RaffleCreated', '2026-10-24T00:00:00Z', 8, 20000000),
+    H.parseRaffle({ notification_id: 9001, type: 'RaffleCreated', timestamp: '2026-10-25T00:00:00Z', text: 'nothing: here' }),
+  ].map((r) => [r.id, r]));
+  const je = (id, date, refType, amount) => ({ id: String(id), date, refType, amount });
+  const journal = Object.fromEntries([
+    je(1, '2026-10-20T12:01:00Z', 'flux_ticket_sale', -137925000), je(2, '2026-10-20T12:01:00Z', 'flux_ticket_sale', -137925000),
+    je(3, '2026-10-20T13:00:00Z', 'flux_ticket_sale', -5000000), // a ticket in someone else's offer: another price
+    je(4, '2026-10-21T08:00:05Z', 'flux_payout', 1103400000), je(5, '2026-10-21T08:00:05Z', 'flux_tax', -55170000),
+    je(11, '2026-10-10T12:05:00Z', 'flux_ticket_sale', -68962500), je(12, '2026-10-10T12:05:00Z', 'flux_ticket_sale', -68962500), je(13, '2026-10-11T09:00:00Z', 'flux_ticket_sale', -68962500),
+    je(14, '2026-10-13T12:00:30Z', 'flux_ticket_repayment', 68962500), je(15, '2026-10-13T12:00:30Z', 'flux_ticket_repayment', 68962500), je(16, '2026-10-13T12:00:30Z', 'flux_ticket_repayment', 68962500),
+    je(17, '2026-10-13T12:00:31Z', 'flux_ticket_repayment', 68962500), // a fourth at that price: another offer's node, not yours
+    je(21, '2026-10-27T12:02:00Z', 'flux_ticket_sale', -22987500),
+    je(31, '2026-10-02T00:00:00Z', 'flux_payout', 76000000),
+    je(41, '2026-10-20T12:30:00Z', 'market_transaction', -1),
+  ].map((j) => [j.id, j]));
+  const tx = (id, date, typeId, qty, unitPrice, isBuy = true, locationId = 60003760) => ({ id: String(id), source: 'esi', typeId, date, isBuy, qty, unitPrice, locationId });
+  const txs = Object.fromEntries([
+    tx('a', '2026-10-19T10:00:00Z', 40520, 1, 735600000), tx('a0', '2026-10-05T10:00:00Z', 40520, 1, 700000000),
+    tx('b', '2026-10-20T11:50:00Z', 52568, 110, 170000), tx('c', '2026-10-09T11:00:00Z', 52568, 200, 160000),
+    tx('d', '2026-10-19T11:00:00Z', 40520, 1, 600000000, true, 60008494), // bought in Amarr, later: not a Jita cost
+    tx('old', '2026-08-20T09:00:00Z', 40520, 1, 650000000), // 42 days before the offer of 1 October: too old to be its cost
+  ].map((x) => [x.id, x]));
+  const offers = H.offersOf(raffles, journal, txs, { now: NOW_H, me: 95210486, coreCount: 110, corePrice: 175000 });
+  const by = Object.fromEntries(offers.map((o) => [o.id, o]));
+  eq('  one offer a readable creation notice, newest first; one that couldn\'t be read isn\'t one', [offers.map((o) => o.id), H.unreadRaffles(raffles).map((r) => r.id)], [['3001', '5001', '1001', '2001', '4001'], ['9001']]);
+  eq('  their states', offers.map((o) => [o.id, o.state, o.endFrom]), [['3001', 'open', null], ['5001', 'unknown', null], ['1001', 'soldOut', 'notice'], ['2001', 'expired', 'notice'], ['4001', 'soldOut', 'payout']]);
+  const a = by['1001'];
+  eq('  sold out: your 2 nodes at its price, not the ticket at another; the payout gross and its fee', [a.own, a.payout, a.fee], [{ nodes: 2, isk: 275850000, entries: ['1', '2'] }, { isk: 1103400000, entry: '4', net: false }, { isk: 55170000, entry: '5' }]);
+  eq('    the item at your newest Jita purchase before it; the cores at your own, bought before it', [a.cost, a.cores], [{ unit: 735600000, txId: 'a', at: '2026-10-19T10:00:00Z' }, { count: 110, price: 170000, isk: 18700000, priceFrom: 'bought' }]);
+  eq('    who won unknown: both results, none chosen', [isk(a.ifWon), isk(a.ifOther), a.result, a.won, a.why.won], [753680000, 18080000, null, null, 'Who won isn’t known: mark it']);
+  eq('    the cores are an estimate; nothing else is here', a.estimates, ['cores']);
+  const marked = H.offersOf(raffles, journal, txs, { now: NOW_H, me: 95210486, coreCount: 110, won: { 1001: false } }).find((o) => o.id === '1001');
+  eq('    marked "someone else won": the result is theirs', [marked.won, marked.wonFrom, isk(marked.result)], [false, 'marked', 18080000]);
+  const named = H.offersOf({ ...raffles, 1002: note(1002, 'RaffleFinished', '2026-10-21T08:00:00Z', 8, 137925000, 'winner_id: 95210486\n') }, journal, txs, { now: NOW_H, me: 95210486, coreCount: 110, won: { 1001: false } }).find((o) => o.id === '1001');
+  eq('    a notice naming you as winner beats the mark', [named.won, named.wonFrom, isk(named.result)], [true, 'notice', 753680000]);
+  const b = by['2001'];
+  eq('  expired: 3 nodes of yours, 3 refunds (not a fourth at that price), the cores lost', [b.own.nodes, b.refunds.nodes, b.refunds.entries, b.refunds.assumed, b.cores.price, isk(b.result)], [3, 3, ['14', '15', '16'], 0, 160000, -17600000]);
+  const lag = H.offersOf(raffles, Object.fromEntries(Object.entries(journal).filter(([id]) => !['15', '16', '17'].includes(id))), txs, { now: NOW_H, coreCount: 110 }).find((o) => o.id === '2001');
+  eq('    refunds not in the journal yet are taken as refunded, and said as an estimate', [lag.refunds.nodes, lag.refunds.assumed, lag.estimates.includes('refunds'), isk(lag.result)], [1, 2, true, -17600000]);
+  eq('    the item comes back: its cost isn\'t taken, whoever "won"', isk(b.ifOther), -17600000);
+  eq('  open: ends three days on, its node bought, no result yet', [by['3001'].endsAt, by['3001'].own.nodes, by['3001'].result, by['3001'].why.result], ['2026-10-30T12:00:00.000Z', 1, null, 'Still running']);
+  eq('  past three days with no notice and no payout: not known yet', [by['5001'].result, by['5001'].why.result], [null, 'How it ended isn’t known yet']);
+  const d = by['4001'];
+  eq('  a net payout (95% of the pot) with no notice: sold out, the fee already taken', [d.payout, d.fee, d.endedAt], [{ isk: 76000000, entry: '31', net: true }, null, '2026-10-02T00:00:00.000Z']);
+  eq('    no Jita purchase in the 30 days before: no cost, so no result if someone else won; cores at the price given', [d.cost, d.why.cost, d.ifOther, d.cores.priceFrom, isk(d.ifWon)], [null, 'No purchase of it found in Jita 4-4 in the 30 days before', null, 'given', 76000000 - 110 * 175000]);
+  eq('  a gross payout with no fee entry: the fee assumed at 5%, said', (() => { const j = { ...journal }; delete j['5']; const x = H.offersOf(raffles, j, txs, { now: NOW_H, coreCount: 110 }).find((o) => o.id === '1001'); return [x.fee, x.estimates]; })(), [{ isk: 55170000, entry: null }, ['fee', 'cores']]);
+  eq('  no core count: the cores and the result not known, never 0', (() => { const x = H.offersOf(raffles, journal, txs, { now: NOW_H }).find((o) => o.id === '2001'); return [x.cores.isk, x.result, x.why.cores]; })(), [null, null, 'How many cores it asked for isn’t known']);
+  eq('  a core count worked out from each offer\'s pot', H.offersOf(raffles, journal, txs, { now: NOW_H, coreCount: (p) => H.coresFor(p, 5_000_000) }).map((o) => [o.id, o.cores.count]), [['3001', 110], ['5001', 16], ['1001', 110], ['2001', 110], ['4001', 8]]);
+  eq('  the entries hosting accounts for (own nodes, refunds, payouts, fees), nothing else', [...H.hostedEntries(offers)].sort((x, y) => Number(x) - Number(y)), ['1', '2', '4', '5', '11', '12', '13', '14', '15', '16', '21', '31']);
+  eq('  sell-out rate over the offers that ended', H.sellOutRate(offers), { sold: 2, finished: 3 });
+
+  // Who won and the sell-out chance, kept in prefs.
+  eq('  prefs: absent stays absent', 'hypernet' in sanitizePrefs({}), false);
+  eq('  prefs: won keeps booleans by offer, the chance only over 0 and at most 1', sanitizePrefs({ hypernet: { won: { 1001: true, 2001: 'yes', 3001: false }, sellOut: 0.4 } }).hypernet, { won: { 1001: true, 3001: false }, sellOut: 0.4 });
+  eq('  prefs: nothing left is absent; a bad chance dropped', [sanitizePrefs({ hypernet: { sellOut: 0 } }).hypernet, sanitizePrefs({ hypernet: 'x' }).hypernet, sanitizePrefs({ hypernet: { won: [], sellOut: 1.2 } }).hypernet, sanitizePrefs({ hypernet: { sellOut: 1 } }).hypernet], [undefined, undefined, undefined, { sellOut: 1 }]);
+
+  // A new record kind, as jobs joined.
+  const C = await import('../src/lib/cloudSync.ts');
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  eq('  raffles go record by record; a Worker a version behind refusing them is named', [C.RECORD_KEYS.raffles, C.refusedKind('Unknown record kind: raffles'), emptyData().raffles], ['map', 'raffles', {}]);
+  const r1 = H.parseRaffle(created);
+  eq('    one pulled lands by its ID', C.applyPulled(emptyData(), { records: [{ k: 'raffles', i: '1001', d: r1 }], docs: [] }).raffles, { 1001: r1 });
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

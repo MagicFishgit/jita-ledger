@@ -510,6 +510,11 @@ export type Prefs = {
    * keeps the amount.
    */
   researchCashIn?: { on: boolean; isk: number | null };
+  /**
+   * The HyperNet tab's choices (hypernet.ts): who won each offer you hosted, as you marked it (by offer ID: no notice is
+   * known to name the winner), and the sell-out chance you typed (0 to 1). Absent until set; an older build's save drops it.
+   */
+  hypernet?: { won?: Record<string, boolean>; sellOut?: number };
 };
 
 export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'highBid' | 'watchdog' | 'safety';

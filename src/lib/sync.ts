@@ -19,6 +19,7 @@ import { miningKey, readMining, type MiningRecord, type RawMining } from './mini
 import { readBlueprintsNow, readJobsNow } from './industryReads';
 import { mergeJob, readLands, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { researchMissionAt, toResearch, toStandings, type RawResearch, type RawStanding } from './research';
+import { parseRaffle, type RaffleRecord, type RawNotification } from './hypernet';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -377,21 +378,25 @@ export async function syncCharacter(): Promise<void> {
         read.push('research');
       } catch { /* read on a later sync */ }
     }
-    // EVE's notifications, with the notifications permission, read only while there's something in them to find (the
-    // route's rate group allows 15 requests a quarter hour, shared by every open browser; ESI holds it 10 minutes):
+    // EVE's notifications, with the notifications permission, read on every sync (one request a sync, about 20 minutes
+    // apart; the route's rate group allows 15 a quarter hour, shared by every open browser, and ESI holds it 10 minutes):
+    // - the HyperNet offers you host, created, sold out or expired (hypernet.ts): kept as records, since EVE keeps a
+    //   notification only a while, and each is new or already held;
     // - while an asset-safety wrap waits: when it went in, the dates to the second, the structure and the destination;
     // - while an R&D agent runs: when it last offered a research mission (the newest, kept: research.ts researchMissionAt).
     let notices: SafetyNotice[] = [];
     let missionAt: string | null = null;
+    let raffles: RaffleRecord[] = [];
     const wrapWaits = (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting');
     const agentsRun = !!(metaPatch.research ?? d.meta.research)?.agents.length;
-    if (hasScope(SCOPE.notifications) && (wrapWaits || agentsRun)) {
+    if (hasScope(SCOPE.notifications)) {
       try {
-        const { data } = await esi<{ type: string; timestamp: string; text?: string }[]>(`/characters/${cid}/notifications/`, { auth: true });
+        const { data } = await esi<(RawNotification & { text?: string })[]>(`/characters/${cid}/notifications/`, { auth: true });
+        raffles = data.map(parseRaffle).filter((r): r is RaffleRecord => r != null);
         if (wrapWaits) notices = data.map(parseSafetyNotice).filter((n): n is SafetyNotice => n != null);
         if (agentsRun) missionAt = researchMissionAt(data);
         read.push('notifications');
-      } catch { /* the countdown falls back to what's typed or seen; the mission line keeps the last one seen */ }
+      } catch { /* the countdown falls back to what's typed or seen; the mission line keeps the last one seen; the offers wait */ }
     }
 
     if (hasScope(LOYALTY)) {
@@ -475,6 +480,9 @@ export async function syncCharacter(): Promise<void> {
         for (const x of fetched.jobs) j[String(x.jobId)] = mergeJob(cur.jobs[String(x.jobId)], x);
         p.jobs = j;
       }
+      // HyperNet notices never change: only those the store doesn't hold now go in (a pull may have brought the cloud's).
+      const freshRaffles = raffles.filter((r) => !cur.raffles?.[r.id]);
+      if (freshRaffles.length) p.raffles = { ...cur.raffles, ...Object.fromEntries(freshRaffles.map((r) => [r.id, r])) };
       // Written only if no read that started later has landed (the page's Read, or a pull): else its doc and time stay.
       if (fetched.blueprints) {
         if (readLands(cur.meta.blueprintsAt, bpStart)) { if (JSON.stringify(fetched.blueprints) !== JSON.stringify(cur.blueprints)) p.blueprints = fetched.blueprints; }

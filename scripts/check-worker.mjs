@@ -2540,5 +2540,63 @@ console.log('\n--- an alt\'s colonies, read by its hourly sheet (Planets task 14
   }
 }
 
+console.log('\n--- the main\'s HyperNet notices, kept by the hourly archive (hypernet.ts) ---');
+{
+  const { archive } = await import('../worker/src/archive.ts');
+  const { readAlt } = await import('../worker/src/alts.ts');
+  const { altReader, ledgerReader } = await import('../worker/src/eve.ts');
+  const NOTE = 'esi-characters.read_notifications.v1';
+  const kinds = (db, char) => Object.fromEntries(db.rows('SELECT kind, COUNT(*) AS n FROM records WHERE char_id = ? GROUP BY kind', char).map((r) => [r.kind, r.n]));
+  const rev = (db) => db.rows('SELECT rev FROM revs WHERE char_id = ?', MAIN)[0]?.rev ?? 0;
+  const notes = (char) => [`/characters/${char}/notifications/`, [
+    { notification_id: 1001, type: 'RaffleCreated', timestamp: '2026-10-20T12:00:00Z', text: 'location_id: 60003760\nticket_count: 8\nticket_price: 137925000.0\ntypeID: 40520\n' },
+    { notification_id: 1002, type: 'StructureItemsMovedToSafety', timestamp: '2026-10-20T12:00:00Z', text: 'solarsystemID: 30000142\n' },
+  ]];
+  const withNotes = async (scopes) => {
+    const x = await ledgerWithAlt();
+    x.db.run('DELETE FROM keys WHERE purpose = ?', 'main');
+    await keepKey(x.db, MAIN, 'main', MAIN, 'Main', scopes);
+    return x;
+  };
+  {
+    const { db, env } = await withNotes([...SCOPES, NOTE]);
+    let f = stubFetch([notes(MAIN), ...esiFor(MAIN)]);
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    const row = db.rows(`SELECT data FROM records WHERE char_id = ? AND kind = 'raffles'`, MAIN).map((x) => JSON.parse(x.data));
+    eq('  with the permission: the raffle notice kept under the main, the other notice not', [r.raffles, row.map((x) => [x.id, x.type, x.typeId, x.ticketCount, x.ticketPrice])], [1, [['1001', 'RaffleCreated', 40520, 8, 137925000]]]);
+    eq('    the main\'s copy as before beside it', kinds(db, MAIN), { journal: 1, names: 2, netWorth: 1, orders: 1, raffles: 1, txs: 1 });
+    const r0 = rev(db);
+    f = stubFetch([notes(MAIN), ...esiFor(MAIN)]);
+    const r2 = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('    read again: a notice held isn\'t pushed again (no revision spent)', [r2.raffles, rev(db)], [0, r0]);
+  }
+  {
+    const { db, env } = await withNotes(SCOPES);
+    const f = stubFetch([notes(MAIN), ...esiFor(MAIN)]);
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('  a login without the notifications permission: not asked, nothing kept', [r.raffles, f.calls.some((c) => c.path.endsWith('/notifications/')), kinds(db, MAIN).raffles], [undefined, false, undefined]);
+  }
+  {
+    const { db, env } = await withNotes([...SCOPES, NOTE]);
+    const f = stubFetch([[`/characters/${MAIN}/notifications/`, new Response(JSON.stringify({ error: 'boom' }), { status: 500 })], ...esiFor(MAIN)]);
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('  a notifications read that fails: the copy goes on, its other rows as before, nothing of the notices', [r.trades, r.journal, r.orders, r.raffles, kinds(db, MAIN)],
+      [1, 1, 1, undefined, { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 }]);
+  }
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', [...SCOPES, NOTE]);
+    const f = stubFetch([notes(ALT), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s notifications aren\'t read for this (the main hosts; an alt\'s offers are out of scope)', [f.calls.some((c) => c.path === `/characters/${ALT}/notifications/`), kinds(db, ALT).raffles], [false, undefined]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -15,7 +15,7 @@ type Rec = Record<string, unknown>;
 
 /** Collections synced record by record, with how to find each record's ID and rebuild the collection. */
 export const RECORD_KEYS = {
-  txs: 'map', journal: 'map', orders: 'map', names: 'map', killmails: 'map', tags: 'map', mining: 'map', jobs: 'map',
+  txs: 'map', journal: 'map', orders: 'map', names: 'map', killmails: 'map', tags: 'map', mining: 'map', jobs: 'map', raffles: 'map',
   positions: 'id', goals: 'id', watchlist: 'typeId', netWorth: 'date',
 } as const;
 export type RecordKey = keyof typeof RECORD_KEYS;

@@ -108,7 +108,24 @@ export function sanitizePrefs(p: Partial<Prefs> | null | undefined): Prefs {
     omegaPacks: packs,
     omegaPack: (['1', '3', '6', '12'] as const).includes(x.omegaPack as '1') ? (x.omegaPack as Prefs['omegaPack']) : '1',
     ...cashIn(x.researchCashIn),
+    ...hypernet(x.hypernet),
   };
+}
+
+/**
+ * The HyperNet tab's choices as kept: who won each offer (string keys to plain booleans, at most 2,000) and the sell-out
+ * chance (over 0, at most 1). Absent stays absent, and so does a value with nothing left in it.
+ */
+function hypernet(v: unknown): { hypernet?: Prefs['hypernet'] } {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const x = v as { won?: unknown; sellOut?: unknown };
+  const out: NonNullable<Prefs['hypernet']> = {};
+  if (x.won && typeof x.won === 'object' && !Array.isArray(x.won)) {
+    const won = Object.fromEntries(Object.entries(x.won as Record<string, unknown>).filter(([k, b]) => k && k.length <= 64 && typeof b === 'boolean').slice(0, 2000)) as Record<string, boolean>;
+    if (Object.keys(won).length) out.won = won;
+  }
+  if (typeof x.sellOut === 'number' && Number.isFinite(x.sellOut) && x.sellOut > 0 && x.sellOut <= 1) out.sellOut = x.sellOut;
+  return Object.keys(out).length ? { hypernet: out } : {};
 }
 
 /**

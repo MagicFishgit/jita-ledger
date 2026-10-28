@@ -10,6 +10,7 @@ import { sanitizeColonies, type ColoniesDoc } from './colonies';
 import { sanitizePlanets, type PlanetsDoc } from './planetsDoc';
 import { sanitizeCopyContracts, type CopyContractsDoc } from './copyContracts';
 import { sanitizeAccounts, type AccountsDoc } from './accounts';
+import type { RaffleRecord } from './hypernet';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -72,6 +73,11 @@ export type Data = {
   industry: IndustryDoc;
   /** Your industry jobs, every status, kept past ESI's 90 days (industryTrack.ts): records of kind `jobs`, by job ID. */
   jobs: Record<string, JobRecord>;
+  /**
+   * The main's HyperNet notices (hypernet.ts RaffleRecord): records of kind `raffles`, by notification ID, never changed
+   * once written. EVE keeps notifications a while only, so these are what the record of hosted offers is read from.
+   */
+  raffles: Record<string, RaffleRecord>;
   /** Your blueprints as last read (industryTrack.ts BlueprintsDoc). Absent: not read yet. */
   blueprints?: BlueprintsDoc;
   /** Your copy contracts as last read (copyContracts.ts). Absent: not read yet. */
@@ -89,7 +95,7 @@ export type Data = {
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts', 'colonies', 'planets', 'accounts',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'raffles', 'blueprints', 'copyContracts', 'colonies', 'planets', 'accounts',
 ];
 
 const idb = createStore('jita-ledger', 'kv');

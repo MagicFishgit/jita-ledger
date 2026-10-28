@@ -10,5 +10,5 @@ export const emptyData = (): Data => ({
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
   killmails: {}, netWorth: [], unusualOk: [], leave: [], leaveFrom: {}, safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
-  industry: { ...DEFAULT_INDUSTRY }, jobs: {}, planets: { ...DEFAULT_PLANETS, systems: {} }, accounts: emptyAccounts(),
+  industry: { ...DEFAULT_INDUSTRY }, jobs: {}, raffles: {}, planets: { ...DEFAULT_PLANETS, systems: {} }, accounts: emptyAccounts(),
 });
