@@ -1937,10 +1937,12 @@ try {
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-start-${who.replace(/\W+/g, '_')}.png` });
     }
     await showFor('Owner');
-    // Seven tabs: one row at 1,440, no name cut off; on a phone, no tab alone on its row.
+    // Eight tabs since HyperNet: two rows of four at 1,440 (eight in a row only past 1,400 px of content, where their blurbs
+    // stay short), no name cut off; on a phone, no tab alone on its row.
     if (!PHONE) {
       const tops = await page.locator('.htabs .htab').evaluateAll((ts) => ts.map((t) => t.offsetTop));
-      if (tops.length !== 7 || new Set(tops).size !== 1) problems.push(`the seven Side hustles tabs aren’t one row at 1,440: ${JSON.stringify(tops)}`);
+      const rows = [...new Set(tops)];
+      if (tops.length !== 8 || rows.length !== 2 || rows.some((r) => tops.filter((t) => t === r).length !== 4)) problems.push(`the eight Side hustles tabs aren’t two rows of four at 1,440: ${JSON.stringify(tops)}`);
       // .hl is an inline span, whose scrollWidth is always 0: measure the grid item holding it.
       const cut = await page.locator('.htabs .htab .hl').evaluateAll((ls) => ls.filter((l) => l.parentElement.scrollWidth > l.parentElement.clientWidth + 1 || l.getBoundingClientRect().right > l.closest('.htab').getBoundingClientRect().right).map((l) => l.textContent));
       if (cut.length) problems.push(`a tab’s name is cut off at 1,440: ${cut.join(', ')}`);
