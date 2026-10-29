@@ -283,6 +283,9 @@ export async function importAll(json: string): Promise<void> {
   if (incoming.chars === undefined) delete p.chars; else p.chars = sanitizeChars(p.chars);
   // Likewise which account each is on: a backup from before accounts were kept leaves the ones set here.
   if (incoming.accounts === undefined) delete p.accounts; else p.accounts = sanitizeAccounts(p.accounts);
+  // The HyperNet notices are EVE's, never changed once written, and EVE keeps notifications only a while: a backup from
+  // before them, or older than some, would delete in the cloud what nothing can read back. So both are kept.
+  p.raffles = { ...(data.raffles ?? {}), ...(incoming.raffles && typeof incoming.raffles === 'object' ? incoming.raffles : {}) };
   if (p.settings) p.settings = sanitizeSettings(p.settings);
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);

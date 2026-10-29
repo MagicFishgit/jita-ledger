@@ -2152,6 +2152,8 @@ eq('runway is wallet over burn', runwayDays(100, 10), 10);
     [], cls, 0, Infinity, undefined, new Set(['rr', 'nn', 'nm']));
   eq('    an own node refunded cancels one on the hosting line, said as yours', [refundHost.ins.length, refundHost.outs.map((l) => [l.key, l.amount, l.parts.map((p) => [p.label, p.amount])])],
     [0, [['hypernetHost', 68_962_500, [['Your own nodes', 137_925_000], ['Your own nodes refunded', -68_962_500]]]]]);
+  // The balance chart's dots and the month's CSV name an entry as the lines file it (the review, 29 October 2026).
+  eq('    the chart and the CSV name your own node as hosting, someone else\'s ticket as tickets', [describeRef('flux_ticket_sale', hostJ[0], undefined, new Set(['n1'])), describeRef('flux_ticket_sale', hostJ[2], undefined, new Set(['n1']))], ['HyperNet hosting', 'HyperNet tickets']);
 }
 const odd = unusual([
   J('1', '2026-09-01T00:00:00Z', 'player_donation', 5e6, { firstPartyId: 9 }),
@@ -12378,6 +12380,10 @@ console.log('\n--- HyperNet: hosting an offer that pays when someone else wins (
   eq('  outcomes refuse what isn\'t a choice: keeping every node, a fraction of one, a pot of nothing',
     [H.outcomes({ pot, nodes: 8, keep: 8, cost: V, cores }), H.outcomes({ pot, nodes: 8, keep: 1.5, cost: V, cores }), H.outcomes({ pot: 0, nodes: 8, keep: 0, cost: V, cores })], [null, null, null]);
   eq('  on average at a 50% sell-out: half of (¼ × win + ¾ × other) less half the cores', isk(H.average({ outcome: o8, sellOut: 0.5 })), 91_640_000);
+  // The user (29 October 2026): with the slider at 0 it "still says I am going to make a profit as if I am winning the item back".
+  const o80 = H.outcomes({ pot: H.potAt(pot, 8), nodes: 8, keep: 0, cost: V, cores });
+  eq('  keeping none: no winning it back (null, not a profit), a 0 chance, the average all someone else\'s and the expiry',
+    [o80.win, o80.chance, isk(o80.other), isk(H.average({ outcome: o80, sellOut: 0.5 }))], [null, 0, isk(0.95 * 1_103_400_000 - cores - V), isk(0.5 * o80.other - 0.5 * cores)]);
   const o83 = H.outcomes({ pot: H.potAt(pot, 8), nodes: 8, keep: 3, cost: V, cores });
   eq('    each node kept lowers it by s × (pot − cost) / N', isk(H.average({ outcome: o8, sellOut: 0.5 }) - H.average({ outcome: o83, sellOut: 0.5 })), Math.round(0.5 * (1_103_400_000 - V) / 8));
   eq('    a chance outside 0 to 1 is none', [H.average({ outcome: o8, sellOut: 1.2 }), H.average({ outcome: o8, sellOut: -0.1 })], [null, null]);
@@ -12448,16 +12454,36 @@ console.log('\n--- HyperNet: hosting an offer that pays when someone else wins (
   eq('  past three days with no notice and no payout: not known yet', [by['5001'].result, by['5001'].why.result], [null, 'How it ended isn’t known yet']);
   const d = by['4001'];
   eq('  a net payout (95% of the pot) with no notice: sold out, the fee already taken', [d.payout, d.fee, d.endedAt], [{ isk: 76000000, entry: '31', net: true }, null, '2026-10-02T00:00:00.000Z']);
-  eq('    no Jita purchase in the 30 days before: no cost, so no result if someone else won; cores at the price given', [d.cost, d.why.cost, d.ifOther, d.cores.priceFrom, isk(d.ifWon)], [null, 'No purchase of it found in Jita 4-4 in the 30 days before', null, 'given', 76000000 - 110 * 175000]);
+  eq('    no Jita purchase in the 30 days before: no cost, so no result; cores at the price given', [d.cost, d.why.cost, d.ifOther, d.cores.priceFrom, d.result], [null, 'No purchase of it found in Jita 4-4 in the 30 days before', null, 'given', null]);
+  eq('    none of its nodes yours: someone else won, and there is no "if you did"', [d.own.nodes, d.won, d.wonFrom, d.ifWon, d.why.won], [0, false, 'noNodes', null, undefined]);
   eq('  a gross payout with no fee entry: the fee assumed at 5%, said', (() => { const j = { ...journal }; delete j['5']; const x = H.offersOf(raffles, j, txs, { now: NOW_H, coreCount: 110 }).find((o) => o.id === '1001'); return [x.fee, x.estimates]; })(), [{ isk: 55170000, entry: null }, ['fee', 'cores']]);
   eq('  no core count: the cores and the result not known, never 0', (() => { const x = H.offersOf(raffles, journal, txs, { now: NOW_H }).find((o) => o.id === '2001'); return [x.cores.isk, x.result, x.why.cores]; })(), [null, null, 'How many cores it asked for isn’t known']);
   eq('  a core count worked out from each offer\'s pot', H.offersOf(raffles, journal, txs, { now: NOW_H, coreCount: (p) => H.coresFor(p, 5_000_000) }).map((o) => [o.id, o.cores.count]), [['3001', 110], ['5001', 16], ['1001', 110], ['2001', 110], ['4001', 8]]);
   eq('  the entries hosting accounts for (own nodes, refunds, payouts, fees), nothing else', [...H.hostedEntries(offers)].sort((x, y) => Number(x) - Number(y)), ['1', '2', '4', '5', '11', '12', '13', '14', '15', '16', '21', '31']);
   eq('  sell-out rate over the offers that ended', H.sellOutRate(offers), { sold: 2, finished: 3 });
+  eq('  the Wallet\'s pass (no trades, no marks) claims the same entries; no notices, none', [[...H.hostedOf(raffles, journal)].sort(), H.hostedOf({}, journal).size], [[...H.hostedEntries(offers)].sort(), 0]);
+
+  // An end is read only within its offer's three days and an hour. An identical offer of 1 October whose end notice never
+  // came took the 20 October offer's (the review, 29 October 2026): it read sold out three weeks on, the payout lost to it.
+  const stale = { ...raffles, 6001: note(6001, 'RaffleCreated', '2026-10-01T12:00:00Z', 8, 137925000) };
+  const sb = Object.fromEntries(H.offersOf(stale, journal, txs, { now: NOW_H, coreCount: 110 }).map((o) => [o.id, o]));
+  eq('    an older identical offer without an end notice doesn\'t take a later one\'s', [sb['6001'].state, sb['1001'].state, sb['1001'].endFrom, sb['1001'].payout?.entry], ['unknown', 'soldOut', 'notice', '4']);
+
+  // Past its three days with no notice and no payout, your own nodes refunded at its end say it expired: the refunds go to
+  // hosting beside the nodes, not to play (the review: "Spent on play" and the burn were cut by them).
+  const lost = { ...raffles }; delete lost['2002'];
+  const lb = H.offersOf(lost, journal, txs, { now: NOW_H, coreCount: 110 }).find((o) => o.id === '2001');
+  eq('    no end notice, your nodes refunded at its end: expired, read from the refunds, each refund hosting', [lb.state, lb.endFrom, lb.endedAt, lb.refunds.entries, isk(lb.result), ['14', '15', '16'].every((id) => H.hostedOf(lost, journal).has(id))],
+    ['expired', 'refunds', '2026-10-13T12:00:30.000Z', ['14', '15', '16'], -17600000, true]);
+  const early = Object.fromEntries(Object.entries(journal).map(([id, j]) => [id, ['14', '15', '16', '17'].includes(id) ? { ...j, date: '2026-10-12T12:00:00Z' } : j]));
+  eq('    a refund at its price a day before its end is someone else\'s: still not known', H.offersOf(lost, early, txs, { now: NOW_H, coreCount: 110 }).find((o) => o.id === '2001').state, 'unknown');
 
   // Who won and the sell-out chance, kept in prefs.
   eq('  prefs: absent stays absent', 'hypernet' in sanitizePrefs({}), false);
   eq('  prefs: won keeps booleans by offer, the chance only over 0 and at most 1', sanitizePrefs({ hypernet: { won: { 1001: true, 2001: 'yes', 3001: false }, sellOut: 0.4 } }).hypernet, { won: { 1001: true, 3001: false }, sellOut: 0.4 });
+  const many = Object.fromEntries(Array.from({ length: 2001 }, (_, i) => [String(100000 + i), i % 2 === 0]));
+  const kept = sanitizePrefs({ hypernet: { won: many } }).hypernet.won;
+  eq('  prefs: past 2,000 marks the newest are kept (the oldest dropped), so a new mark always lands', [Object.keys(kept).length, '100000' in kept, kept['102000']], [2000, false, true]);
   eq('  prefs: nothing left is absent; a bad chance dropped', [sanitizePrefs({ hypernet: { sellOut: 0 } }).hypernet, sanitizePrefs({ hypernet: 'x' }).hypernet, sanitizePrefs({ hypernet: { won: [], sellOut: 1.2 } }).hypernet, sanitizePrefs({ hypernet: { sellOut: 1 } }).hypernet], [undefined, undefined, undefined, { sellOut: 1 }]);
 
   // A new record kind, as jobs joined.

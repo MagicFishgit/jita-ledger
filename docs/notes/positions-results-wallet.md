@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,training,income,everyItem,emptyData,industryTrack}.ts"
+  - "src/lib/{results,wallet,longRange,standings,goals,refunds,assetSafety,noticeText,skillQueue,attribution,training,income,everyItem,emptyData,industryTrack}.ts"
   - "src/components/{Results,Wallet,Goals,AssetSafety,Omega}.tsx"
   - "src/components/{activityEvents,payback}.ts"
   - "worker/src/safety.ts"

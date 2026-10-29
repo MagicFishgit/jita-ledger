@@ -443,8 +443,10 @@ export function unusual(journal: JournalEntry[], since: number, opts = { donatio
 }
 
 /** Plain words for a journal type, for the balance chart's dots and anything else that names one. */
-export function describeRef(refType: string, e?: JournalEntry, mine?: Set<number>): string {
+export function describeRef(refType: string, e?: JournalEntry, mine?: Set<number>, hosted?: ReadonlySet<string>): string {
   if (e && mine && ownTransfer(e, mine)) return BETWEEN.label;
+  // A node of your own offer is hosting, as the Wallet's lines file it (`categoryOf` with the set).
+  if (e && hosted?.has(e.id) && HYPERNET.has(refType)) return HOSTING.label;
   const c = categoryOf({ refType, amount: 1 }) ?? categoryOf({ refType, amount: -1 });
   const words = refType.replace(/_/g, ' ');
   if (refType === 'market_transaction') return 'Market trade';

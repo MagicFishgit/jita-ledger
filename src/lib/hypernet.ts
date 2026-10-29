@@ -11,6 +11,7 @@
  */
 import type { JournalEntry, Tx } from './types';
 import { JITA_44 } from './constants';
+import { noticeFields } from './noticeText';
 
 /** The node counts an offer can be split into, as players report them (2019 to October 2025). */
 export const NODE_COUNTS = [8, 16, 48, 512] as const;
@@ -62,8 +63,8 @@ export function potAt(pot: number, nodes: number): number {
 export type Outcome = {
   /** Someone else wins: the payout less the cores, your own nodes and the item. */
   other: number;
-  /** You win one of your own nodes: the same, and the item comes back to list again. */
-  win: number;
+  /** You win one of your own nodes: the same, and the item comes back to list again. Null keeping none: you can't win. */
+  win: number | null;
   /** Not every node sold: everyone is refunded and the item comes back, the cores are lost. */
   expires: number;
   /** Your share of the nodes, which is your chance of winning once it sells out. */
@@ -73,14 +74,16 @@ export type Outcome = {
 /**
  * The three ends of an offer of `pot` (the total of all its nodes, as the caller rounded it) in `nodes` nodes, the host
  * keeping `keep` of them, the item having cost `cost` and the cores `cores` ISK. Every node sold, the host's own
- * included, pays out less the relay's 5%, so each node kept costs the host its price, and 5% of it.
+ * included, pays out less the relay's 5%, so each node kept costs the host its price, and 5% of it. Keeping none, there is
+ * no winning it back (`win` null; the user, 29 October 2026: at 0 it "still says I am going to make a profit as if I am
+ * winning the item back even though I have no chance at winning it").
  * Null when an input isn't a figure or `keep` isn't a whole number of nodes from 0 to all but one.
  */
 export function outcomes(o: { pot: number; nodes: number; keep: number; cost: number; cores: number }): Outcome | null {
   const { pot, nodes, keep, cost, cores } = o;
   if (!pos(pot) || !Number.isInteger(nodes) || nodes < 1 || !Number.isInteger(keep) || keep < 0 || keep >= nodes || !ok(cost) || cost < 0 || !ok(cores) || cores < 0) return null;
-  const win = (1 - RELAY_FEE) * pot - cores - (keep * pot) / nodes;
-  return { other: win - cost, win, expires: -cores, chance: keep / nodes };
+  const paid = (1 - RELAY_FEE) * pot - cores - (keep * pot) / nodes;
+  return { other: paid - cost, win: keep > 0 ? paid : null, expires: -cores, chance: keep / nodes };
 }
 
 /**
@@ -140,7 +143,7 @@ export function average(o: { outcome: Outcome; sellOut: number }): number | null
   const s = o.sellOut;
   if (!ok(s) || s < 0 || s > 1) return null;
   const { win, other, expires, chance } = o.outcome;
-  return s * (chance * win + (1 - chance) * other) + (1 - s) * expires;
+  return s * (chance * (win ?? 0) + (1 - chance) * other) + (1 - s) * expires;
 }
 
 /** One row of the calculator's table: a node count, its whole node price, the most to keep and its three ends. */
@@ -196,17 +199,16 @@ export type RaffleRecord = {
 /** The notification as ESI sends it (`/characters/{id}/notifications/`), the fields read here. */
 export type RawNotification = { notification_id: number; type: string; timestamp: string; text?: string | null };
 
-/** `key: value` lines of the notice's YAML, keys flattened (lower case, no `_`), anchors dropped, numbers as numbers. */
+/**
+ * The notice's top-level fields (`noticeFields`, as asset safety reads its own), keys flattened (lower case, no `_`: SeAT
+ * reads `typeID` beside `ticket_count`), numbers as numbers, an alias (`*id001`), `~` or `null` as null.
+ */
 function yamlish(text: string): Map<string, number | string | null> {
   const out = new Map<string, number | string | null>();
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*(?:-\s+)?([A-Za-z_][\w]*)\s*:\s*(.*?)\s*$/.exec(line);
-    if (!m) continue;
-    const key = m[1].toLowerCase().replace(/_/g, '');
+  for (const [k, v] of noticeFields(text)) {
+    const key = k.toLowerCase().replace(/_/g, '');
     if (out.has(key)) continue;
-    let v = m[2].replace(/^&\w+\s*/, '');
     if (/^\*\w+$/.test(v) || v === '' || v === '~' || v === 'null') { out.set(key, null); continue; }
-    v = v.replace(/^(['"])(.*)\1$/, '$2');
     out.set(key, /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i.test(v) ? Number(v) : v);
   }
   return out;
@@ -255,8 +257,8 @@ export type Offer = {
   /** When it ends if not every node sells: three days on. */
   endsAt: string;
   state: OfferState;
-  /** When it ended, and how that's known: its own notice, or a payout of its pot. */
-  endedAt: string | null; endFrom: 'notice' | 'payout' | null;
+  /** When it ended, and how that's known: its own notice, a payout of its pot, or your own nodes refunded at its end. */
+  endedAt: string | null; endFrom: 'notice' | 'payout' | 'refunds' | null;
   /** Your own nodes: `flux_ticket_sale` entries of exactly its node price while it ran. */
   own: Entries;
   /** Refunds of a node's price after it expired; `assumed` own nodes whose refund wasn't found, taken as refunded. */
@@ -269,8 +271,8 @@ export type Offer = {
   cost: { unit: number; txId: string; at: string } | null;
   /** The cores, an estimate: their count from the pot, priced at your own purchases of them, else the price given. */
   cores: { count: number | null; price: number | null; isk: number | null; priceFrom: 'bought' | 'given' | null };
-  /** Who won, from the notice when it names the winner, else as you marked it. */
-  won: boolean | null; wonFrom: 'notice' | 'marked' | null;
+  /** Who won, from the notice when it names the winner, else someone else when you held no node of it, else as you marked it. */
+  won: boolean | null; wonFrom: 'notice' | 'noNodes' | 'marked' | null;
   /** The result if you won it, and if someone else did; `result` is the one that happened, once it's known. */
   ifWon: number | null; ifOther: number | null; result: number | null;
   estimates: ('cores' | 'fee' | 'refunds')[];
@@ -280,6 +282,8 @@ export type Offer = {
 /** Cents, for matching an entry to a node's price. */
 const cents = (x: number) => Math.round(x * 100);
 const t = (s: string) => Date.parse(s);
+/** How late past its three days an offer's end can be read (its notice, a payout, a refund): ESI's clock against the relay's. */
+const END_SLACK = HOUR_MS;
 
 /** The creation notices that couldn't be read well enough to be an offer (no item, nodes or node price in the text). */
 export function unreadRaffles(raffles: Record<string, RaffleRecord> | readonly RaffleRecord[]): RaffleRecord[] {
@@ -288,9 +292,11 @@ export function unreadRaffles(raffles: Record<string, RaffleRecord> | readonly R
 
 /**
  * Every offer the main hosted, newest first, as the design's "An offer" says:
- * - each readable `RaffleCreated` is one offer; its end the first `RaffleFinished` / `RaffleExpired` after it with the same
- *   item, nodes, node price and station (and offer ID, when both carry one), each end claimed once; with none, a
- *   `flux_payout` of the pot or 95% of it (within 1 ISK) within three days and an hour marks it sold out;
+ * - each readable `RaffleCreated` is one offer; its end the first `RaffleFinished` / `RaffleExpired` within its three days
+ *   and an hour with the same item, nodes, node price and station (and offer ID, when both carry one), each end claimed
+ *   once: an offer whose end notice is missing must not take a later identical offer's; with none, a `flux_payout` of the
+ *   pot or 95% of it (within 1 ISK) within three days and an hour marks it sold out; with neither, your own nodes
+ *   refunded at its node price in the hour after its three days mark it expired;
  * - its own nodes are `flux_ticket_sale` entries of exactly its node price, from 5 minutes before it to its end (three
  *   days and an hour on while it hasn't ended), each claimed by the newest offer it could be;
  * - refunds are `flux_ticket_repayment` entries of its node price in the hour after it expired;
@@ -330,7 +336,8 @@ export function offersOf(
   // Ends first, oldest offer first: each end is the first after its offer that matches it.
   const endOf = new Map<string, RaffleRecord>();
   for (const c of created) {
-    const e = ends.find((x) => !usedEnds.has(x.id) && t(x.timestamp) >= t(c.timestamp) && x.typeId === c.typeId && x.ticketCount === c.ticketCount
+    const at = t(c.timestamp);
+    const e = ends.find((x) => !usedEnds.has(x.id) && t(x.timestamp) >= at && t(x.timestamp) <= at + OFFER_DAYS * DAY_MS + END_SLACK && x.typeId === c.typeId && x.ticketCount === c.ticketCount
       && x.ticketPrice != null && cents(x.ticketPrice) === cents(c.ticketPrice!) && x.locationId === c.locationId
       && (x.raffleId == null || c.raffleId == null || x.raffleId === c.raffleId));
     if (e) { usedEnds.add(e.id); endOf.set(c.id, e); }
@@ -346,19 +353,30 @@ export function offersOf(
     const at = t(c.timestamp);
     const end = endOf.get(c.id) ?? null;
     if (end) return { c, pot, endedAt: t(end.timestamp), endFrom: 'notice', state: end.type === 'RaffleFinished' ? 'soldOut' : 'expired', payout: null, end };
-    const p = payoutFor(pot, at, at + OFFER_DAYS * DAY_MS + HOUR_MS);
+    const p = payoutFor(pot, at, at + OFFER_DAYS * DAY_MS + END_SLACK);
     if (p) { used.add(p.id); return { c, pot, endedAt: t(p.date), endFrom: 'payout', state: 'soldOut', payout: p, end: null }; }
     return { c, pot, endedAt: null, endFrom: null, state: opts.now < at + OFFER_DAYS * DAY_MS ? 'open' : 'unknown', payout: null, end: null };
   });
 
   // Own nodes: each ticket entry at a node price goes to the newest offer at that price whose window holds it.
   const own = new Map<string, JournalEntry[]>(drafts.map((d) => [d.c.id, []]));
+  const newestFirst = [...drafts].reverse();
   for (const j of flux) {
     if (j.refType !== 'flux_ticket_sale' || j.amount >= 0) continue;
     const at = t(j.date);
-    const home = [...drafts].reverse().find((d) => cents(-j.amount) === cents(d.c.ticketPrice!) && at >= t(d.c.timestamp) - 5 * MIN_MS
-      && at <= (d.endedAt ?? t(d.c.timestamp) + OFFER_DAYS * DAY_MS + HOUR_MS));
+    const home = newestFirst.find((d) => cents(-j.amount) === cents(d.c.ticketPrice!) && at >= t(d.c.timestamp) - 5 * MIN_MS
+      && at <= (d.endedAt ?? t(d.c.timestamp) + OFFER_DAYS * DAY_MS + END_SLACK));
     if (home) { own.get(home.c.id)!.push(j); used.add(j.id); }
+  }
+
+  // Past its three days with no notice and no payout, your own nodes refunded at its end say it expired: otherwise those
+  // refunds stayed play on the Wallet while the nodes were filed as hosting.
+  for (const d of drafts) {
+    if (d.state !== 'unknown' || !own.get(d.c.id)!.length) continue;
+    const end = t(d.c.timestamp) + OFFER_DAYS * DAY_MS;
+    const first = flux.find((j) => j.refType === 'flux_ticket_repayment' && !used.has(j.id) && cents(j.amount) === cents(d.c.ticketPrice!)
+      && t(j.date) >= end - 5 * MIN_MS && t(j.date) <= end + END_SLACK);
+    if (first) { d.state = 'expired'; d.endedAt = t(first.date); d.endFrom = 'refunds'; }
   }
 
   // Refunds, the payout and the fee for each ended offer.
@@ -423,9 +441,10 @@ export function offersOf(
     if (count == null) why.cores = 'How many cores it asked for isn’t known';
     else if (price == null) why.cores = 'No price for a HyperCore: none bought, and none given';
 
-    // Who won: the notice when it names a winner, else as marked.
+    // Who won: the notice when it names a winner, else someone else when you held none of its nodes, else as marked.
     let won: boolean | null = null, wonFrom: Offer['wonFrom'] = null;
     if (d.end?.winnerId != null && opts.me != null) { won = d.end.winnerId === opts.me; wonFrom = 'notice'; }
+    else if (d.state === 'soldOut' && ownE.nodes === 0) { won = false; wonFrom = 'noNodes'; }
     else if (typeof opts.won?.[c.id] === 'boolean') { won = opts.won[c.id]; wonFrom = 'marked'; }
     if (d.state === 'soldOut' && won == null) why.won = 'Who won isn’t known: mark it';
 
@@ -435,8 +454,10 @@ export function offersOf(
       result = ifWon = ifOther = refundE.isk + refundE.assumed * c.ticketPrice! - ownE.isk - coresIsk;
     } else if (d.state === 'soldOut') {
       if (payout) {
-        ifWon = payout.isk - (fee?.isk ?? 0) - ownE.isk - coresIsk;
-        ifOther = cost ? ifWon - cost.unit : null;
+        const paid = payout.isk - (fee?.isk ?? 0) - ownE.isk - coresIsk;
+        // Holding none of its nodes you couldn't have won it, unless EVE's notice says you did.
+        ifWon = ownE.nodes > 0 || won === true ? paid : null;
+        ifOther = cost ? paid - cost.unit : null;
         result = won === true ? ifWon : won === false ? ifOther : null;
         if (result == null) why.result = won === false ? why.cost : why.won;
       } else why.result = why.payout;
@@ -466,6 +487,15 @@ export function hostedEntries(offers: readonly Offer[]): Set<string> {
     if (o.fee?.entry) out.add(o.fee.entry);
   }
   return out;
+}
+
+/**
+ * `hostedEntries` straight from the notices and the journal, for the Wallet: no trades (an offer's cost and cores don't
+ * move an entry), nobody's mark (who won doesn't either), and nothing at all to do while no notice is kept.
+ */
+export function hostedOf(raffles: Record<string, RaffleRecord> | readonly RaffleRecord[], journal: Record<string, JournalEntry> | readonly JournalEntry[]): Set<string> {
+  if (!Object.keys(raffles).length) return new Set();
+  return hostedEntries(offersOf(raffles, journal, [], { now: Date.now() }));
 }
 
 /** How many of the offers that ended sold out: the main's own sell-out rate, once there are enough (`OWN_RATE_MIN`). */

@@ -1469,6 +1469,20 @@ try {
     if (await cell('keep-choice') !== '2 of 8') problems.push(`the keep chooser starts at “${await cell('keep-choice')}”, not the safe 2 of 8`);
     if (!(await cell('sellout-said')).includes('one high-volume host reported')) problems.push(`the sell-out chance doesn’t say its source (“${await cell('sellout-said')}”)`);
     if (!(await page.locator('[data-hypernet="copy"]').count())) problems.push('no Copy node price');
+    // Keeping none, there's no winning it back (the user, 29 October 2026: at 0 it still said you'd profit as if you won).
+    // React reads a range's input event with the value set through the native setter.
+    const slide = (v) => page.evaluate((v) => {
+      const el = document.querySelector('[data-hypernet="detail:8"] input[type="range"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(v));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, v);
+    await slide(0);
+    await page.waitForTimeout(200);
+    const tiles = (await page.locator('[data-hypernet="detail:8"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (await cell('keep-choice') !== '0 of 8') problems.push(`the keep slider didn’t move to 0 (“${await cell('keep-choice')}”)`);
+    if (!/You win (i )?– you can’t: you hold none of its nodes/i.test(tiles)) problems.push(`keeping none, “You win” still reads as a figure: “${tiles.slice(0, 300)}”`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-hypernet-keep0.png` });
+    await slide(2);
     // A pot too small for any share to be safe says what to raise it to, the cores counted again at that pot.
     await page.locator('[data-hypernet="calculator"] .seg button', { hasText: 'ISK' }).click();
     await page.getByLabel('Pot', { exact: true }).fill('760m');
@@ -1516,9 +1530,18 @@ try {
     await page.goto(`${BASE}#wallet`);
     await page.waitForSelector('.page', { timeout: 20_000 });
     await page.waitForTimeout(1500);
-    const wallet = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
-    if (!wallet.includes('HyperNet hosting')) problems.push('the Wallet has no HyperNet hosting line');
-    if (!/HyperNet tickets[^]*?4 M ISK/.test(wallet)) problems.push('the Wallet’s HyperNet tickets line isn’t the 4 M ticket in someone else’s offer alone');
+    // Read line by line: the hosting line exists from the payout and fee alone, so only its own nodes' part shows the split
+    // works, and the tickets line must be the 4 M ticket and nothing more.
+    const line = async (k) => (await page.locator(`[data-line="${k}"]`).first().innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+    const tickets = await line('hypernet');
+    if (!/^HyperNet tickets\s*Personal −4 M ISK$/i.test(tickets)) problems.push(`the Wallet’s HyperNet tickets line isn’t the 4 M ticket in someone else’s offer alone: “${tickets}”`);
+    const host = page.locator('[data-line="hypernetHost"]').first();
+    if (!(await host.count())) problems.push('the Wallet has no HyperNet hosting line');
+    else {
+      await host.locator('.panel-toggle').first().click().catch(() => {});
+      await page.waitForTimeout(300);
+      if (!(await line('hypernetHost')).includes('Your own nodes')) problems.push(`the hosting line holds no node of your own: “${await line('hypernetHost')}”`);
+    }
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'hypernet', page: 'hustles/hypernet', problems: unique });

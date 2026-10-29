@@ -37,7 +37,7 @@ import { useAltCopies, useAltRoster } from '../lib/altStore';
 import { researchWhy, useResearchChars } from './hustles/researchChars';
 import { monthMissing, totalsOf, useRunningResearch, whyNot, worthMissing } from './hustles/researchWorth';
 import { countedSaid, TotalsView } from './hustles/ResearchTotals';
-import { hostedEntries, offersOf } from '../lib/hypernet';
+import { hostedOf } from '../lib/hypernet';
 
 const DAY = 86400_000;
 /** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
@@ -93,7 +93,7 @@ function FlowLine({ l, sign, frac, color, kindColor, contractItems }: { l: Line;
     </button>
   ) : l.label;
   return (
-    <div>
+    <div data-line={l.key}>
       <BarLine label={label} value={`${sign}${iskBig(l.amount)}`} frac={frac} color={color} kind={l.kind} kindColor={kindColor} />
       {open && (
         <div className="flow-parts">
@@ -226,8 +226,7 @@ export function Wallet() {
   // ISK moving between two of them is neither money in nor money out anywhere on this page (roster.ts `ownTransfer`).
   const mine = useMemo(() => ownIds(auth?.characterId, d.chars), [auth?.characterId, d.chars]);
   // The journal entries your own HyperNet offers account for (hypernet.ts): hosting, a business, not tickets bought for play.
-  const hosted = useMemo(() => hostedEntries(offersOf(d.raffles ?? {}, d.journal, d.txs, { now: Date.now(), me: auth?.characterId ?? null, won: d.prefs.hypernet?.won })),
-    [d.raffles, d.journal, d.txs, auth?.characterId, d.prefs.hypernet?.won]);
+  const hosted = useMemo(() => hostedOf(d.raffles ?? {}, d.journal), [d.raffles, d.journal]);
   const charName = (id: number) => (id === auth?.characterId ? auth?.characterName : d.chars[id]?.name) || `Character ${id}`;
   const f = useMemo(() => flows(journal, txList, classOf, since, Infinity, mine, hosted), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since, mine, hosted]); // eslint-disable-line react-hooks/exhaustive-deps
   const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY, Infinity, mine, hosted), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000), mine, hosted]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -414,7 +413,7 @@ export function Wallet() {
       const tx = d.txs[String(e.contextId)];
       if (tx) return `${tx.isBuy ? 'Bought' : 'Sold'} ${units(tx.qty)} × ${name(tx.typeId)}`;
     }
-    return describeRef(e.refType, e, mine);
+    return describeRef(e.refType, e, mine, hosted);
   };
   const events = bigOnes.map((e) => ({
     t: Date.parse(e.date), v: e.balance as number, color: e.amount < 0 ? 'var(--neg)' : 'var(--pos)',

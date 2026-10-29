@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Clock, Coins, Copy, Gem, LogIn, RefreshCw, Ticket, TrendingDown } from 'lucide-react';
 import { SCOPE } from '../../lib/config';
 import { fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../../lib/format';
@@ -11,6 +11,7 @@ import { jitaOrders } from '../../lib/market';
 import { sanitizePrefs } from '../../lib/prefs';
 import { update, useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
+import type { Order } from '../../lib/types';
 import { Points } from '../Facts';
 import { ItemSearch, NameInGame, plainPrice, useEnsureNames, useTypeName } from '../common';
 import { usePlexPrice } from '../plexPrice';
@@ -37,16 +38,25 @@ type PotMode = (typeof MULTS)[number] | 'isk';
 /** Others' cheapest Jita 4-4 listing of an item, your own orders taken off the book. */
 type Cheapest = { state: 'loading' } | { state: 'read'; price: number | null; at: number } | { state: 'failed'; error: string };
 
-function useCheapest(typeId: number | null, own: number[]): [Cheapest, () => void] {
+/**
+ * Only your orders of this item take part, so a sync bringing in an order of another item doesn't read the book again; and
+ * a read again keeps the price shown until the new one lands, so an opened row (and the keep chosen in it) stays put. Only
+ * Try again reads past the cache.
+ */
+function useCheapest(typeId: number | null, orders: Record<string, Order>): [Cheapest, () => void] {
   const [s, setS] = useState<Cheapest>({ state: 'loading' });
   const [again, setAgain] = useState(0);
+  const own = Object.values(orders).filter((o) => o.typeId === typeId).map((o) => o.orderId).sort((a, b) => a - b);
   const key = own.join(',');
+  const shown = useRef<{ typeId: number | null; again: number }>({ typeId: null, again: 0 });
   useEffect(() => {
     if (typeId == null) return;
     let alive = true;
-    setS({ state: 'loading' });
+    const fresh = again !== shown.current.again;
+    if (typeId !== shown.current.typeId) setS({ state: 'loading' });
+    shown.current = { typeId, again };
     const mine = new Set(own);
-    jitaOrders(typeId, again > 0).then((r) => {
+    jitaOrders(typeId, fresh).then((r) => {
       if (!alive) return;
       const sells = r.orders.filter((o) => !o.isBuy && !mine.has(o.id)).map((o) => o.price);
       setS({ state: 'read', price: sells.length ? Math.min(...sells) : null, at: Date.now() });
@@ -79,19 +89,20 @@ export function HyperNet() {
   const now = useNow(30_000);
   const name = useTypeName();
   const plex = usePlexPrice();
-  const own = useMemo(() => Object.values(d.orders).map((o) => o.orderId).sort((a, b) => a - b), [d.orders]);
 
   const [typeId, setTypeId] = useState<number>(readItem);
   const pick = (id: number) => { setTypeId(id); keepItem(id); };
-  const [item, againItem] = useCheapest(typeId, own);
-  const [core, againCore] = useCheapest(HYPERCORE, own);
+  const [item, againItem] = useCheapest(typeId, d.orders);
+  const [core, againCore] = useCheapest(HYPERCORE, d.orders);
 
   // The record: every offer the main hosted, from the notices kept (records of kind `raffles`) and the journal.
   const corePrice = priceOf(core);
+  // The clock only moves an offer from open to not known as its three days pass: worked out again then, not every tick.
+  const passed = useMemo(() => Object.values(d.raffles ?? {}).filter((r) => r.type === 'RaffleCreated' && Date.parse(r.timestamp) + OFFER_DAYS * 86400_000 <= now).length, [d.raffles, now]);
   const offers = useMemo(() => offersOf(d.raffles ?? {}, d.journal, d.txs, {
-    now, me: auth?.characterId ?? null, won: d.prefs.hypernet?.won,
+    now: Date.now(), me: auth?.characterId ?? null, won: d.prefs.hypernet?.won,
     coreCount: plex.price ? (pot: number) => coresFor(pot, plex.price!) : null, corePrice,
-  }), [d.raffles, d.journal, d.txs, now, auth?.characterId, d.prefs.hypernet?.won, plex.price, corePrice]);
+  }), [d.raffles, d.journal, d.txs, passed, auth?.characterId, d.prefs.hypernet?.won, plex.price, corePrice]); // eslint-disable-line react-hooks/exhaustive-deps
   const unread = useMemo(() => unreadRaffles(d.raffles ?? {}).length, [d.raffles]);
   useEnsureNames(useMemo(() => [typeId, HYPERCORE, ...offers.map((o) => o.typeId)], [typeId, offers]));
 
@@ -245,7 +256,7 @@ function Calculator(props: {
                         <td data-hypernet={`keep:${r.nodes}`}>{units(r.keep)}<span className="sub">of {units(r.nodes)}</span></td>
                         <td>{pct(r.outcome.chance, 1)}</td>
                         <td data-hypernet={`other:${r.nodes}`}><Signed v={r.outcome.other} /></td>
-                        <td data-hypernet={`win:${r.nodes}`}><Signed v={r.outcome.win} /><span className="sub">and the {itemName} back</span></td>
+                        <td data-hypernet={`win:${r.nodes}`}>{r.outcome.win == null ? <><span className="faint">–</span><span className="sub">you hold no node</span></> : <><Signed v={r.outcome.win} /><span className="sub">and the {itemName} back</span></>}</td>
                         <td data-hypernet={`expires:${r.nodes}`}><Signed v={r.outcome.expires} /></td>
                       </>
                     )}
@@ -297,7 +308,9 @@ function RowDetail({ row, cost, cores, itemName, sellOut, sellOutFrom, typedS, s
       </div>
       {o && <Tiles min={170} inset items={[
         { l: 'Someone else wins', v: <Signed v={o.other} />, n: `${pct(1 - o.chance, 1)} of the time it sells out` },
-        { l: 'You win', v: <Signed v={o.win} />, n: `and the ${itemName} back; ${pct(o.chance, 1)} of the time` },
+        o.win == null
+          ? { l: 'You win', v: <span className="faint">–</span>, n: 'you can’t: you hold none of its nodes', tip: 'Keeping no node you have no chance of winning the item: someone else always wins it once every node sells.' }
+          : { l: 'You win', v: <Signed v={o.win} />, n: `and the ${itemName} back; ${pct(o.chance, 1)} of the time` },
         { l: 'Expires', v: <Signed v={o.expires} />, n: 'the cores lost; the item and your nodes come back' },
         { l: 'On average', v: <Signed v={avg} />, n: `at a ${pct(sellOut, 0)} chance it sells out`,
           tip: `Sold out (a ${pct(sellOut, 0)} chance), you win ${pct(o.chance, 1)} of the time and someone else the rest; otherwise it expires.\n\nEvery node you keep lowers this by ${iskBig(Math.max(0, perNode))}: keeping nodes only helps the offer sell out.` },
@@ -344,7 +357,9 @@ function YourOffers({ offers, unread, now, name, notesScope, loggedIn }: { offer
       <b style={{ color: 'var(--ink)' }}>Your offers <span className="faint" style={{ fontWeight: 400 }}>· the main’s</span></b>
       {!notesScope && (
         <p className="note" style={{ margin: 0 }} data-hypernet="no-scope">
-          {loggedIn ? 'Your login doesn’t include the notifications permission, so no offer of yours can be read: log in again to grant it.' : 'Log in to read your offers.'}{' '}
+          {!loggedIn ? 'Log in to read your offers.'
+            : offers.length ? 'This browser’s login doesn’t include the notifications permission: the offers below are the ones the cloud read. Log in again so this browser reads them too.'
+              : 'This browser’s login doesn’t include the notifications permission, so it can’t read your offers (the cloud can, if its own login has it): log in again to grant it.'}{' '}
           <button type="button" className="link-btn" onClick={() => navigate('settings/account')}><LogIn aria-hidden="true" />Log in again</button>
         </p>
       )}
@@ -385,7 +400,7 @@ function YourOffers({ offers, unread, now, name, notesScope, loggedIn }: { offer
                     <td className="l">{fmtDateTime(o.created)}</td>
                     <td className="l" data-hypernet={`state:${o.id}`}>
                       {STATE_SAID[o.state]}
-                      <span className="sub">{o.state === 'open' ? `ends ${until(o.endsAt, now) ?? ''}` : o.state === 'unknown' ? 'no notice or payout read past its 3 days' : o.endedAt ? fmtDateTime(o.endedAt) : ''}</span>
+                      <span className="sub">{o.state === 'open' ? `ends ${until(o.endsAt, now) ?? ''}` : o.state === 'unknown' ? 'no notice or payout read past its 3 days' : o.endedAt ? `${fmtDateTime(o.endedAt)}${o.endFrom === 'refunds' ? ', read from your refunds' : ''}` : ''}</span>
                     </td>
                     <td>{units(o.own.nodes)}<span className="sub">{o.own.nodes ? `${iskBig(o.own.isk)}${o.state === 'expired' ? ', refunded' : ''}` : 'none'}</span></td>
                     <td className="l" style={{ whiteSpace: 'normal' }} data-hypernet={`won:${o.id}`}><Winner o={o} /></td>
@@ -410,6 +425,7 @@ function YourOffers({ offers, unread, now, name, notesScope, loggedIn }: { offer
 
 function Winner({ o }: { o: Offer }) {
   if (o.wonFrom === 'notice') return <>{o.won ? 'You' : 'Someone else'}<span className="sub">from EVE’s notice</span></>;
+  if (o.wonFrom === 'noNodes') return <>Someone else<span className="sub">you held none of its nodes</span></>;
   if (o.state !== 'soldOut') return <span className="faint" data-tip={o.state === 'expired' ? 'Nobody: it expired' : o.state === 'open' ? 'Still running' : 'How it ended isn’t known yet'}>–</span>;
   if (o.wonFrom === 'marked') return (
     <>{o.won ? 'You' : 'Someone else'}<span className="sub">as you marked it · <button type="button" className="link-btn" onClick={() => setWon(o.id, null)}>Change</button></span></>

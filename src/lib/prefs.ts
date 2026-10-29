@@ -113,7 +113,7 @@ export function sanitizePrefs(p: Partial<Prefs> | null | undefined): Prefs {
 }
 
 /**
- * The HyperNet tab's choices as kept: who won each offer (string keys to plain booleans, at most 2,000) and the sell-out
+ * The HyperNet tab's choices as kept: who won each offer (string keys to plain booleans, the newest 2,000) and the sell-out
  * chance (over 0, at most 1). Absent stays absent, and so does a value with nothing left in it.
  */
 function hypernet(v: unknown): { hypernet?: Prefs['hypernet'] } {
@@ -121,7 +121,10 @@ function hypernet(v: unknown): { hypernet?: Prefs['hypernet'] } {
   const x = v as { won?: unknown; sellOut?: unknown };
   const out: NonNullable<Prefs['hypernet']> = {};
   if (x.won && typeof x.won === 'object' && !Array.isArray(x.won)) {
-    const won = Object.fromEntries(Object.entries(x.won as Record<string, unknown>).filter(([k, b]) => k && k.length <= 64 && typeof b === 'boolean').slice(0, 2000)) as Record<string, boolean>;
+    // The newest 2,000: an offer's ID is its notice's, and EVE numbers them in order. An object lists integer keys smallest
+    // first, so a plain slice kept the oldest and dropped every new mark once full.
+    const won = Object.fromEntries(Object.entries(x.won as Record<string, unknown>).filter(([k, b]) => k && k.length <= 64 && typeof b === 'boolean')
+      .sort(([a], [b]) => (Number(b) || 0) - (Number(a) || 0)).slice(0, 2000)) as Record<string, boolean>;
     if (Object.keys(won).length) out.won = won;
   }
   if (typeof x.sellOut === 'number' && Number.isFinite(x.sellOut) && x.sellOut > 0 && x.sellOut <= 1) out.sellOut = x.sellOut;

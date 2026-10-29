@@ -89,9 +89,10 @@ Written by:
   are kept as before, only when their conditions hold.
 
 **An offer** (`offersOf(raffles, journal, txs, now)`, pure): each `RaffleCreated` is one offer. Its end is the first
-`RaffleFinished` / `RaffleExpired` after it with the same typeId, ticketCount, ticketPrice and locationId (and a raffle ID if the
-text carries one); else, a `flux_payout` within 3 days + 1 hour of creation whose amount is the pot or 95% of it (within 1 ISK)
-marks it sold out. **Own nodes**: `flux_ticket_sale` entries of exactly −ticketPrice (to the cent, rounded) from 5 minutes before
+`RaffleFinished` / `RaffleExpired` after it, **within 3 days + 1 hour of creation** (added after the review of 29 October 2026:
+without the bound an offer with no end notice took a later identical offer's), with the same typeId, ticketCount, ticketPrice and
+locationId (and a raffle ID if the text carries one); else, a `flux_payout` within 3 days + 1 hour of creation whose amount is the pot or 95% of it (within 1 ISK)
+marks it sold out; else your own nodes refunded in the hour after its 3 days mark it expired. **Own nodes**: `flux_ticket_sale` entries of exactly −ticketPrice (to the cent, rounded) from 5 minutes before
 creation to its end (or creation + 3 days + 1 hour while open). **Refunds**: `flux_ticket_repayment` of +ticketPrice in the hour
 after an expiry. **Payout / fee**: `flux_payout` and `flux_tax` matched by amount (pot, 95% pot, 5% pot) within a day of the end.
 **The item's cost**: the main's newest Jita purchase of that type in the 30 days before creation (unit price); not found → "–",

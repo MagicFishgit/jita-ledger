@@ -2,6 +2,7 @@
 paths:
   - "src/lib/hypernet.ts"
   - "src/components/hustles/HyperNet.tsx"
+  - "src/lib/noticeText.ts"
 ---
 
 # HyperNet: hosting an offer
@@ -45,6 +46,15 @@ someone else's offer is play (positions-results-wallet.md); this note is the hos
     over it), the three outcomes and the average as tiles, **Copy node price** (plain digits, a 2.5 s toast), and the sell-out
     chance: typed (kept in `prefs.hypernet.sellOut`, "Forget it" drops it), else the main's own rate once `OWN_RATE_MIN` (5)
     offers finished, else the report, each said with its source.
+  - **Keeping none, there's no winning it back** (`outcomes`' `win` is null at k = 0): the user (29 October 2026), slider at 0,
+    "it still says I am going to make a profit as if I am winning the item back even though I have no chance at winning it".
+    The table's You win cell and the row's tile say "you hold no node" / "you can't" instead of a figure; the average counts
+    only someone else winning. Likewise in the record: a sold-out offer with none of your nodes is someone else's win
+    (`wonFrom: 'noNodes'`), with no "if you did".
+  - **You pay and the HyperCores' price aren't read again on every sync** (`useCheapest`): only your own orders *of that item*
+    are taken off the book, so an order of another item arriving doesn't re-read it, and a re-read keeps the price shown until
+    the new one lands. It used to drop to "Pricing…" on every change of the main's order IDs, unmounting the table and the keep
+    chosen in an opened row; and after one Try again every later read skipped the cache. Only Try again reads fresh now.
   - The item and its Jita price are kept per browser (`jita-ledger:hypernet-item`); quick picks are the Large Skill Injector
     and the items of past offers. What you typed you paid resets with the item.
 - **Your offers** (`offersOf` over `raffles` records, the main's journal and trades): tiles for offers, sold out of finished, and
@@ -54,14 +64,31 @@ someone else's offer is play (positions-results-wallet.md); this note is the hos
   notice when it names the winner, else **You won it / Someone else won**, written to `prefs.hypernet.won` through `update`,
   with Change), and the result, or both results until who won is known; a tip says what is an estimate (the cores, an assumed
   fee, refunds taken as made, the item's purchase). Notices that couldn't be read are counted. Without the notifications
-  permission it says to log in again; empty, it says what it will show and that the cloud reads EVE's notifications hourly and
-  the browser every sync.
-- **How an offer is matched** (part 1, hypernet.ts `offersOf`): by the creation notice; its end by a later notice with the same
-  item, nodes, **exact node price** and station, else a payout of the pot or 95% of it within 3 days and an hour; own nodes are
-  `flux_ticket_sale` entries of exactly the node price in its window; refunds, the payout and the fee by amount.
+  permission it says to log in again, and that the offers listed are the cloud's when there are any (the cloud reads with its
+  own login: the tab said "no offer can be read" over a table of them); empty, it says what it will show and that the cloud
+  reads EVE's notifications hourly and the browser every sync.
+- **How an offer is matched** (part 1, hypernet.ts `offersOf`): by the creation notice; its end by a notice **within its three days
+  and an hour** (`END_SLACK`) with the same item, nodes, **exact node price** and station, else a payout of the pot or 95% of it in
+  that window, else (29 October 2026) your own nodes refunded at its price in the hour after its three days, which reads it as
+  expired (`endFrom: 'refunds'`); own nodes are `flux_ticket_sale` entries of exactly the node price in its window; refunds, the
+  payout and the fee by amount. **The end's window was open-ended until the review of 29 October 2026**: an offer whose end notice
+  never came took the end of the next identical offer weeks later (reproduced: 1 October's read sold out on 21 October with its
+  payout, the 20 October offer lost its notice). **A "not known" offer's refunds were play** while its nodes were hosting, so
+  "Spent on play" and the burn were cut by them: reading the refunds as its end fixed that.
+- **The notices' text is read by `noticeFields`** (noticeText.ts, shared with asset safety since 29 October 2026): top-level
+  `key: value` lines only, the first of a key winning; the HyperNet side flattens the keys (`typeID` beside `ticket_count`). Before
+  it, hypernet.ts had a parser of its own that also read indented and listed lines.
+- **Restoring a backup keeps the notices** (`importAll`, store.ts): a backup replaces the ledger, but `raffles` is the union of the
+  backup's and this browser's. They're EVE's, never changed, and EVE keeps notifications only a while, so a backup from before
+  HyperNet would otherwise have emptied them here and the sync deleted them in the cloud, the only lasting copy.
+- **Who won is kept for the newest 2,000 offers** (`prefs.hypernet.won`): an object lists integer keys smallest first, so the
+  first cap kept the oldest and dropped every new mark once full.
+- **The Wallet works out its set without the trades** (`hostedOf`: no costs, cores or marks, which move no entry; nothing at all
+  while no notice is kept), and names an own node as hosting on the balance chart's dots and the month's CSV too (`describeRef`
+  takes the set; they said "HyperNet tickets" while the lines said hosting).
 - **The Wallet's "HyperNet hosting" line** (`HOSTING` in wallet.ts, Business, one line both ways, decided before the in/out split
   as tickets are): `flux_payout` ("HyperNet payouts") and `flux_tax` ("HyperNet relay fee") always; `flux_ticket_sale` /
-  `flux_ticket_repayment` only when their entry ID is in `hosted` (`hostedEntries(offersOf(...))`, passed by Wallet.tsx to every
+  `flux_ticket_repayment` only when their entry ID is in `hosted` (`hostedOf`, passed by Wallet.tsx to every
   `flows` call), said "Your own nodes" and "Your own nodes refunded". Without the set every ticket is play, as before, so
   `npm run check-income` didn't move (its ledgers hold no flux entries). Play and the runway's burn no longer count your own
   nodes.
@@ -69,9 +96,11 @@ someone else's offer is play (positions-results-wallet.md); this note is the hos
   1,040: eight there left each blurb five lines tall).
 - **The page check** (`hypernet` case, desktop only): the worked case with the main's own listing under Jita's cheapest (left off),
   a pot of 760 M saying "raise it to 788.27 M ISK (1.07× what you pay)", the 8-node row opened (keep 2 of 8, the source of the
-  chance, Copy), three offers (sold out with both results, marked "Someone else won" → +18.08 M and the mark in prefs; expired
-  −18.7 M; open), no NaN or "Item #", neither table sideways at 1440, and the Wallet's hosting line beside a 4 M ticket in
-  someone else's offer still play.
+  chance, Copy; slid to 0, You win says you can't), three offers (sold out with both results, marked "Someone else won" →
+  +18.08 M and the mark in prefs; expired −18.7 M; open), no NaN or "Item #", neither table sideways at 1440, and the Wallet read line by line (`data-line`): the tickets
+  line exactly the 4 M ticket in someone else's offer, the hosting line holding "Your own nodes". The first version matched a
+  regex across the whole page and passed with the split broken (the hosting line exists from the payout and fee alone); checked
+  on 29 October 2026 by emptying the set: both assertions failed.
 
 ## What isn't known yet: record on the first real offer
 
@@ -92,7 +121,8 @@ State these rather than letting them be discovered.
 - **The cores are an estimate** (the count fitted on players' measurements, priced at today's market or your own purchases), and
   so is every result that uses them; the fee is assumed at 5% when the journal holds no entry for it.
 - **The main only**: an alt's offers aren't read, and the alts' orders aren't taken off the book the calculator prices on.
-- **Offers are matched by exact node price** (and item, nodes, station): two offers of the same item at the same price in the
-  same window take the newest for each ticket, and a node bought at that price in someone else's identical offer would count as
-  yours.
+- **Offers are matched by exact node price** (and item, nodes, station, and an end within three days and an hour): two offers of
+  the same item at the same price in the same window take the newest for each ticket, and a node bought at that price in
+  someone else's identical offer would count as yours. One with no end notice, no payout and no refund of its own nodes stays
+  "not known yet".
 - **The sell-out chance is one host's report** until five of your own offers have finished; the average is only as good as it.

@@ -9,6 +9,7 @@
  * EVE sends when things go in (`parseSafetyNotice`), which has the dates to the second. Pure.
  */
 import type { SafetyHolder, SafetyNotice, SafetyWrap } from './esiRecords';
+import { noticeFields } from './noticeText';
 
 export const MANUAL_DAYS = 5;
 export const AUTO_DAYS = 20;
@@ -72,10 +73,8 @@ export const fromFiletime = (ticks: number): number => ticks / 10_000 - 11_644_4
  */
 export function parseSafetyNotice(n: { type: string; timestamp: string; text?: string }): SafetyNotice | null {
   if (n.type !== 'StructureItemsMovedToSafety' || !n.text) return null;
-  const field = (k: string) => {
-    const m = new RegExp(String.raw`^${k}:[ \t]*(?:&\w+[ \t]+)?(.*)$`, 'm').exec(n.text!);
-    return m ? m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1') : null;
-  };
+  const fields = noticeFields(n.text);
+  const field = (k: string) => fields.get(k) ?? null;
   if (field('isCorpOwned') === 'true') return null;
   const full = Number(field('assetSafetyFullTimestamp')), min = Number(field('assetSafetyMinimumTimestamp'));
   if (!(full > 0)) return null;

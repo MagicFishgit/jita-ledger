@@ -42,7 +42,7 @@ export const SCOPE = {
   mailSend: 'esi-mail.send_mail.v1', // alerts as an EVE mail to yourself, for when you're in the game
   mailRead: 'esi-mail.read_mail.v1', // find old alert mails, to tidy them away
   mailOrganize: 'esi-mail.organize_mail.v1', // delete old alert mails
-  notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered
+  notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered; your HyperNet offers
   blueprints: 'esi-characters.read_blueprints.v1', // your blueprints, with ME, TE and runs, for pricing them
   freelance: 'esi-characters.read_freelance_jobs.v1', // the freelance jobs you've joined, and how much you've delivered
   skillqueue: 'esi-skills.read_skillqueue.v1', // what's training, so a trade skill about to finish shows what it does to fees
@@ -152,8 +152,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-characters.read_notifications.v1': {
     label: 'Notifications',
-    unlocks: 'The asset safety countdown straight from EVE: the notification sent when your things went into asset safety names the structure, where they’ll be delivered, and when (by hand, and automatically).',
-    without: 'The countdown comes from what you type in, or from when the cloud saw the wrap go in.',
+    unlocks: 'The asset safety countdown straight from EVE: the notification sent when your things went into asset safety names the structure, where they’ll be delivered, and when (by hand, and automatically). Also the HyperNet tab’s Your offers: EVE’s notices of each offer you host, which the Wallet uses to file your own nodes as hosting.',
+    without: 'The countdown comes from what you type in, or from when the cloud saw the wrap go in. This browser reads none of your HyperNet offers (the cloud still does with a login of its own that has it), and nodes you buy in an offer it hasn’t read are filed as tickets for play.',
   },
   'esi-characters.read_blueprints.v1': {
     label: 'Blueprints',
